@@ -58,6 +58,7 @@ func (s *Server) RegisterClient(data *common.ClientData) {
 
 	embed := embeds.ConnectionEmbed(data)
 
+	logger.Log.Info(s.BotController.GetChannelID(data.UUID, "info"), zap.Any("embed", embed), zap.String("uuid", data.UUID))
 	err = s.BotController.SendEmbedToChannel(s.BotController.GetChannelID(data.UUID, "info"), "", &embed)
 	if err != nil {
 		logger.Log.Error("Failed to send message to channel", zap.Error(err))

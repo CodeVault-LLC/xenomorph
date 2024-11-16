@@ -1,6 +1,8 @@
 package common
 
-import "github.com/bwmarrin/discordgo"
+import (
+	"github.com/bwmarrin/discordgo"
+)
 
 // BotController defines methods that the Server can call on the Bot.
 type BotController interface {

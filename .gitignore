@@ -1,6 +1,9 @@
 /client/Enviroment
 /client/dist
 *.pyc
+/client/Env
 
 /server/tmp
 *.env
+
+/server/logs

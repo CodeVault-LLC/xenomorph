@@ -1,7 +1,7 @@
 package embeds
 
 func Codeblock(code string) string {
-	return "```bash\n" + code + "\n```"
+	return "```python\n" + code + "\n```"
 }
 
 type Field struct {
@@ -12,7 +12,7 @@ type Field struct {
 func DisplayFieldList(fields []Field) string {
 	var result string
 	for _, field := range fields {
-		result += field.Name + "\n" + field.Value + "\n"
+		result += field.Name + ": " + field.Value + "\n"
 	}
 	return result
 }

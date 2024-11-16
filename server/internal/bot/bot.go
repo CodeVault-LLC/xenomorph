@@ -3,6 +3,7 @@ package bot
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/codevault-llc/xenomorph/config"
+	"github.com/codevault-llc/xenomorph/internal/bot/events"
 	"github.com/codevault-llc/xenomorph/internal/common"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
@@ -11,6 +12,7 @@ import (
 type Bot struct {
 	Session *discordgo.Session
 	Handler *Handler
+	Events  *events.Event
 }
 
 // NewBot initializes the bot with a reference to the server through the handler.
@@ -20,14 +22,17 @@ func NewBot(token string, server common.ServerController) (*Bot, error) {
 		return nil, err
 	}
 
+	eventHandlers := events.NewEvent(session, server)
 	handler := NewHandler(server)
+
 	bot := &Bot{
 		Session: session,
 		Handler: handler,
+		Events:  eventHandlers,
 	}
 
-	session.AddHandler(bot.ready)
-	session.AddHandler(bot.messageCreate)
+	session.AddHandler(eventHandlers.OnReady)
+	session.AddHandler(eventHandlers.OnMessageCreate)
 	return bot, nil
 }
 
@@ -89,21 +94,27 @@ func (b *Bot) GenerateUser(data *common.ClientData) error {
 
 func (b *Bot) GetChannelID(uuid string, channelName string) string {
 	for _, guild := range b.Session.State.Guilds {
+		logger.Log.Info("Guild", zap.String("name", guild.Name))
 		for _, channel := range guild.Channels {
-			if channel.Name == channelName && channel.ParentID == uuid {
-				return channel.ID
+			if channel.ParentID == "" {
+				continue
+			}
+
+			parentChannel, err := b.Session.Channel(channel.ParentID)
+			if err != nil {
+				logger.Log.Error("Failed to get parent channel", zap.Error(err))
+				continue
+			}
+
+			if parentChannel.Name == uuid {
+				if channel.Name == channelName {
+					return channel.ID
+				}
 			}
 		}
 	}
+
 	return ""
-}
-
-func (b *Bot) ready(s *discordgo.Session, event *discordgo.Ready) {
-	logger.Log.Info("Bot is online")
-}
-
-func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	b.Handler.HandleMessage(m, s)
 }
 
 func (b *Bot) Run() error {

@@ -1,3 +1,3 @@
 CMDS = {
-  "WINDEF": 
+  "WINDEF": "C:\\Windows\\System32\\cmd.exe",
 }

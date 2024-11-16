@@ -1,6 +1,6 @@
 # Xenomorph
 
-Xenomorph is a open-source RAT (Remote Administration Tool) that is written using Golang (Server) and Python (Client). Named after the fictional extraterrestrial species from the Alien film series, Xenomorph is designed to be stealthy and powerful.
+Xenomorph is a open-source RAT (Remote Administration Trojan) that is written using Golang (Server) and Python (Client). Named after the fictional extraterrestrial species from the Alien film series, Xenomorph is designed to be stealthy and powerful.
 
 ## Features
 
@@ -9,6 +9,7 @@ Xenomorph is a open-source RAT (Remote Administration Tool) that is written usin
 - Screen Capture (Screenshot)
 
 ## Prerequisites
+
 - Go 1.23 or higher
 - Python 3.12 or higher
 

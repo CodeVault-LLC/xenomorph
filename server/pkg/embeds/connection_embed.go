@@ -53,7 +53,7 @@ func ConnectionEmbed(data *common.ClientData) discordgo.MessageEmbed {
 				})),
 			},
 		},
-		Color: 0x00ff00,
+		Color: 0x1E3E62,
 	}
 
 	messageEmbed.Fields = append(messageEmbed.Fields, diskFields...)

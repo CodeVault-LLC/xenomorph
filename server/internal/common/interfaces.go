@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"net"
 
 	"github.com/bwmarrin/discordgo"
@@ -19,6 +20,7 @@ type ServerController interface {
 	SendMessage(uuid string, command Message) error
 	GetClientByAddress(addr net.Addr) *ClientData
 	RegisterClient(data *ClientData)
+	GetClientByUUID(uuid string) *ClientData
 }
 
 type MessageType string
@@ -34,9 +36,12 @@ const (
 	MessageTypeFile    MessageType = "FILE"
 )
 
+// Message represents a message sent between the Bot and the Server.
 type Message struct {
-	Type MessageType `json:"type"`
-	Data any         `json:"data"`
+	Type      MessageType      `json:"type"`
+	Data      string           `json:"data"`
+	Arguments *[]string        `json:"arguments"`
+	JsonData  *json.RawMessage `json:"json_data"`
 }
 
 type MessageController interface {

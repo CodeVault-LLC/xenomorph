@@ -1,5 +1,4 @@
 from common.platform_base import PlatformHandlerBase
-import os
 
 class Browser(PlatformHandlerBase):
     def __init__(self):

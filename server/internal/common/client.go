@@ -34,3 +34,14 @@ type ClientData struct {
 	Addr   net.Addr
 	Socket net.Conn
 }
+
+type FileData struct {
+	FileName string `json:"file_name"`
+	FileSize int64  `json:"file_size"`
+}
+
+type FileDataChunk struct {
+	ID    string `json:"id"`
+	Chunk []byte `json:"chunk"`
+	End   bool   `json:"end"`
+}

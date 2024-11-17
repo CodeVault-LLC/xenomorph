@@ -77,3 +77,9 @@ func (s *Server) GetClientByAddress(addr net.Addr) *common.ClientData {
 
 	return nil
 }
+
+func (s *Server) GetClientByUUID(uuid string) *common.ClientData {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Clients[uuid]
+}

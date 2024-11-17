@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+from typing import Any
 
 def isUserAdmin() -> bool:
     """Checks if the current user is an administrator"""
@@ -8,8 +9,8 @@ def isUserAdmin() -> bool:
         # Windows
         import ctypes
         try:
-            return ctypes.windll.shell32.IsUserAnAdmin()
-        except:
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except:  # noqa: E722
             return False
     else:
         # macOS and Linux
@@ -22,7 +23,9 @@ def runAsAdmin() -> None:
     if os.name == 'nt':
         # Windows
         import ctypes
-        result = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+        result: int = ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", sys.executable, " ".join(sys.argv), None, 1
+        )
         if result > 32:
             sys.exit(0)
         else:
@@ -42,7 +45,7 @@ def get_gpu_info() -> str:
     if os.name == 'nt':
         # Windows
         import wmi
-        w = wmi.WMI()
+        w: Any = wmi.WMI()
         try:
             return w.Win32_VideoController()[0].name
         except Exception as e:
@@ -50,6 +53,7 @@ def get_gpu_info() -> str:
     else:
         try:
             from gputil import getGPUs
-            return getGPUs()[0].name
+            gpu_list: Any = getGPUs()
+            return gpu_list[0].name if gpu_list else "No GPUs found"
         except ImportError:
             return "N/A"

@@ -1,12 +1,13 @@
 import subprocess
+from typing import LiteralString, List
 
-def get_wifi():
+def get_wifi() -> (LiteralString | str):
   networks, out = [], ''
   try:
-      wifi = subprocess.check_output(
+      wifi: List[str] = subprocess.check_output(
           ['netsh', 'wlan', 'show', 'profiles'], shell=True,
           stdin=subprocess.PIPE, stderr=subprocess.PIPE).decode('utf-8').split('\n')
-      wifi = [i.split(":")[1][1:-1]
+      wifi: List[str] = [i.split(":")[1][1:-1]
               for i in wifi if "All User Profile" in i]
 
       for name in wifi:

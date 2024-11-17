@@ -33,7 +33,7 @@ func ConvertStringToMessage(data string) (*common.Message, error) {
 func (m *MessageCore) HandleReceiveMessage(uuid string, msg *common.Message, conn *net.Conn) {
 	switch msg.Type {
 	case common.MessageTypeCommand:
-		m.handleCommand(uuid, msg)
+		m.handleCommand(uuid, msg, conn)
 	case common.MessageTypeFile:
 		m.handleFile(uuid, msg)
 	case common.MessageTypePreFile:
@@ -41,6 +41,6 @@ func (m *MessageCore) HandleReceiveMessage(uuid string, msg *common.Message, con
 	case common.MessageTypePing:
 		m.handlePing(uuid, msg)
 	default:
-		logger.Log.Warn("Unknown message type", zap.String("type", string(msg.Type)))
+		logger.Log.Warn("Unknown message type", zap.Any("message", msg))
 	}
 }

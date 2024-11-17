@@ -9,8 +9,8 @@ class CommandHandler:
     def handle(self, client, raw_data: str) -> None:
         try:
             data = json.loads(raw_data)
-            command = data.get("command")
-            match command:
+            data = data.get("data")
+            match data:
                 case "ls":
                     self.handle_ls(client)
                 case "exit":
@@ -23,7 +23,7 @@ class CommandHandler:
                 case "ss":
                     screenshare.screenshare(client.send)
                 case _:
-                    print(f"Unknown command: {command}")
+                    print(f"Unknown command: {data}")
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
 
@@ -31,9 +31,11 @@ class CommandHandler:
         files = [f for f in os.listdir(os.path.expanduser("~")) if os.path.isfile(os.path.join(os.path.expanduser("~"), f))]
         folders = [f for f in os.listdir(os.path.expanduser("~")) if os.path.isdir(os.path.join(os.path.expanduser("~"), f))]
         client.send(json.dumps({
-            "command": "ls",
-            "files": files,
-            "folders": folders,
+            "type": "COMMAND",
+            "json_data": {
+                "files": files,
+                "folders": folders,
+            }
         }))
 
     def handle_process(self, client):

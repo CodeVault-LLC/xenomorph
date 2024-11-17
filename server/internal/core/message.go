@@ -1,8 +1,13 @@
 package core
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
 
-func (s *Server) SendCommand(uuid string, command string) error {
+	"github.com/codevault-llc/xenomorph/internal/common"
+)
+
+func (s *Server) SendMessage(uuid string, message common.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	client, exists := s.Clients[uuid]
@@ -10,6 +15,16 @@ func (s *Server) SendCommand(uuid string, command string) error {
 		return fmt.Errorf("client with UUID %s does not exist", uuid)
 	}
 
-	_, err := client.Socket.Write([]byte(command))
-	return err
+	// Send the message to the client and a END_OF_MESSAGE delimiter
+	messageAsString, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Socket.Write(append(messageAsString, []byte("END_OF_MESSAGE")...))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

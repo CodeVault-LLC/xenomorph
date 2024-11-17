@@ -8,7 +8,9 @@ import (
 )
 
 func ConnectionEmbed(data *common.ClientData) discordgo.MessageEmbed {
-	return discordgo.MessageEmbed{
+	diskFields := SplitField("__**Disks**__", Codeblock(data.Disks))
+
+	messageEmbed := discordgo.MessageEmbed{
 		Title: "Xenomorph **`[Connection]`**",
 		Fields: []*discordgo.MessageEmbedField{
 			{
@@ -40,10 +42,6 @@ func ConnectionEmbed(data *common.ClientData) discordgo.MessageEmbed {
 				})),
 			},
 			{
-				Name:  "__**Disks**__",
-				Value: Codeblock(data.Disks),
-			},
-			{
 				Name:  "__**Network Interfaces**__",
 				Value: Codeblock(data.Wifi),
 			},
@@ -57,4 +55,8 @@ func ConnectionEmbed(data *common.ClientData) discordgo.MessageEmbed {
 		},
 		Color: 0x00ff00,
 	}
+
+	messageEmbed.Fields = append(messageEmbed.Fields, diskFields...)
+
+	return messageEmbed
 }

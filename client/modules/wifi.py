@@ -1,6 +1,4 @@
 import subprocess
-import os
-import ctypes
 
 def get_wifi():
   networks, out = [], ''

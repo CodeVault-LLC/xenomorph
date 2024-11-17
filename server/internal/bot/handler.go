@@ -1,4 +1,3 @@
-// bot/handler.go
 package bot
 
 import (
@@ -34,11 +33,12 @@ func (h *Handler) HandleMessage(m *discordgo.MessageCreate, s *discordgo.Session
 
 	if strings.HasPrefix(content, "!") {
 		command := strings.TrimPrefix(content, "!")
-		if err := h.server.SendCommand(client.UUID, command); err != nil {
+		if err := h.server.SendMessage(client.UUID, common.Message{
+			Type: common.MessageTypeCommand,
+			Data: command,
+		}); err != nil {
 			logger.Log.Error("Failed to send command to client", zap.Error(err))
 		}
-	} else {
-		logger.Log.Info("Received message from Discord user", zap.String("discord_user_id", m.Author.ID), zap.String("message", content))
 	}
 }
 

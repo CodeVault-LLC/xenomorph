@@ -54,6 +54,11 @@ func (b *Bot) SendEmbedToChannel(channelID, message string, embed *discordgo.Mes
 }
 
 func (b *Bot) GenerateUser(data *common.ClientData) error {
+	categoryID := b.GetCategoryID(data.UUID)
+	if categoryID != "" {
+		return nil
+	}
+
 	category := &discordgo.GuildChannelCreateData{
 		Name: data.UUID,
 		Type: discordgo.ChannelTypeGuildCategory,
@@ -92,9 +97,20 @@ func (b *Bot) GenerateUser(data *common.ClientData) error {
 	return nil
 }
 
+func (b *Bot) GetCategoryID(uuid string) string {
+	for _, guild := range b.Session.State.Guilds {
+		for _, channel := range guild.Channels {
+			if channel.Type == discordgo.ChannelTypeGuildCategory && channel.Name == uuid {
+				return channel.ID
+			}
+		}
+	}
+
+	return ""
+}
+
 func (b *Bot) GetChannelID(uuid string, channelName string) string {
 	for _, guild := range b.Session.State.Guilds {
-		logger.Log.Info("Guild", zap.String("name", guild.Name))
 		for _, channel := range guild.Channels {
 			if channel.ParentID == "" {
 				continue

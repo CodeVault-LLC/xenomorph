@@ -19,10 +19,10 @@ class PlatformHandlerBase:
 
     def execute(self):
         if self.platform == "Windows":
-            self.execute_windows()
+            return self.execute_windows()
         elif self.platform == "Darwin":
-            self.execute_macos()
+            return self.execute_macos()
         elif self.platform == "Linux":
-            self.execute_linux()
+            return self.execute_linux()
         else:
             raise Exception("Unsupported platform")

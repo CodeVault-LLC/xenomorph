@@ -14,16 +14,16 @@ type ClientData struct {
 	UAC             bool   `json:"uac"`
 	AntiVirus       string `json:"anti_virus"`
 
-	IPAddress       string `json:"ip"`
-	ClientIP string `json:"client_ip"`
-	Country  string `json:"country"`
-	Timezone string `json:"timezone"`
+	IPAddress  string `json:"ip"`
+	ClientIP   string `json:"client_ip"`
+	Country    string `json:"country"`
+	Timezone   string `json:"timezone"`
 	MACAddress string `json:"mac_address"`
 	Gateway    string `json:"gateway"`
 	SubnetMask string `json:"subnet_mask"`
 	DNS        string `json:"dns"`
 	ISP        string `json:"isp"`
- 
+
 	Disks string `json:"disks"`
 
 	Wifi string `json:"wifi"`

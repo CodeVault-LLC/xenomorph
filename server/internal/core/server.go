@@ -11,18 +11,20 @@ import (
 )
 
 type Server struct {
-	Port          string
-	Listener      net.Listener
-	Clients       map[string]*common.ClientData
-	mu            sync.Mutex
-	BotController common.BotController
+	Port              string
+	Listener          net.Listener
+	Clients           map[string]*common.ClientData
+	mu                sync.Mutex
+	BotController     common.BotController
+	MessageController common.MessageController
 }
 
-func NewServer(port string, botController common.BotController) *Server {
+func NewServer(port string, botController common.BotController, messageController common.MessageController) *Server {
 	return &Server{
-		Port:          port,
-		Clients:       make(map[string]*common.ClientData),
-		BotController: botController,
+		Port:              port,
+		Clients:           make(map[string]*common.ClientData),
+		BotController:     botController,
+		MessageController: messageController,
 	}
 }
 
@@ -42,6 +44,7 @@ func (s *Server) Start() error {
 			logger.Log.Error("Error accepting connection", zap.Error(err))
 			continue
 		}
+
 		go s.handleConnection(conn)
 	}
 }
@@ -57,10 +60,20 @@ func (s *Server) RegisterClient(data *common.ClientData) {
 	}
 
 	embed := embeds.ConnectionEmbed(data)
-
-	logger.Log.Info(s.BotController.GetChannelID(data.UUID, "info"), zap.Any("embed", embed), zap.String("uuid", data.UUID))
 	err = s.BotController.SendEmbedToChannel(s.BotController.GetChannelID(data.UUID, "info"), "", &embed)
 	if err != nil {
 		logger.Log.Error("Failed to send message to channel", zap.Error(err))
 	}
+}
+
+func (s *Server) GetClientByAddress(addr net.Addr) *common.ClientData {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, client := range s.Clients {
+		if client.Addr.String() == addr.String() {
+			return client
+		}
+	}
+
+	return nil
 }

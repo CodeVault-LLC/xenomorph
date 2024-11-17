@@ -1,6 +1,8 @@
 package common
 
 import (
+	"net"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -14,5 +16,30 @@ type BotController interface {
 
 // ServerController defines methods that the Bot can call on the Server.
 type ServerController interface {
-	SendCommand(clientID, command string) error
+	SendMessage(uuid string, command Message) error
+	GetClientByAddress(addr net.Addr) *ClientData
+	RegisterClient(data *ClientData)
+}
+
+type MessageType string
+
+const (
+	MessageTypeConnection MessageType = "CONNECTION"
+
+	MessageTypeCommand MessageType = "COMMAND"
+	MessageTypePing    MessageType = "PING"
+
+	// File
+	MessageTypePreFile MessageType = "PREFILE"
+	MessageTypeFile    MessageType = "FILE"
+)
+
+type Message struct {
+	Type MessageType `json:"type"`
+	Data any         `json:"data"`
+}
+
+type MessageController interface {
+	HandleReceiveMessage(uuid string, msg *Message, conn *net.Conn)
+	HandleConnection(uuid string, msg *Message, conn *net.Conn)
 }

@@ -8,21 +8,19 @@ class Antivirus(PlatformHandlerBase):
         from modules.antivirus.antivirus_windows import AntivirusWindows
 
         antivirus = AntivirusWindows()
-        antivirus.run()
+        return antivirus.run()
 
     def execute_macos(self):
         from modules.antivirus.antivirus_mac import AntivirusMac
 
         antivirus = AntivirusMac()
-        antivirus.run()
-        pass
+        return antivirus.run()
 
     def execute_linux(self):
         from modules.antivirus.antivirus_linux import AntivirusLinux
 
         antivirus = AntivirusLinux()
-        antivirus.run()
-        pass
+        return antivirus.run()
 
     def execute(self):
-        super().execute()
+        return super().execute()

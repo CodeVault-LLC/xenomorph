@@ -1,12 +1,13 @@
 package core
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"strings"
+	"os"
 
 	"github.com/codevault-llc/xenomorph/internal/common"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
@@ -44,112 +45,122 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
+const (
+	maxHeaderSize = 1024 * 1024        // 1MB
+	maxBodySize   = 1024 * 1024 * 1024 // 1GB
+)
+
 func (s *Server) readChunkedMessage(conn net.Conn) (*common.Message, error) {
-	header := make([]byte, 1024) // 1KB buffer
-	headerN, err := conn.Read(header)
-	if err != nil {
+	headerSizeBuf := make([]byte, 4)
+	if _, err := io.ReadFull(conn, headerSizeBuf); err != nil {
+		return nil, fmt.Errorf("failed to read header size: %w", err)
+	}
+
+	headerSize := int(binary.BigEndian.Uint32(headerSizeBuf))
+	if headerSize <= 0 {
+		return nil, fmt.Errorf("invalid header size: %d", headerSize)
+	}
+
+	logger.Log.Info("Received header size", zap.Int("header_size", headerSize), zap.String("headerSizeBuf", string(headerSizeBuf)))
+
+	if headerSize > maxHeaderSize {
+		//return nil, fmt.Errorf("header size too large: %d", headerSize)
+	}
+
+	headerBuf := make([]byte, headerSize)
+	if _, err := io.ReadFull(conn, headerBuf); err != nil {
+		logger.Log.Error("Failed to read header", zap.Error(err), zap.Int("header_size", headerSize), zap.String("headerBuf", string(headerBuf)))
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 
-	headChunk := string(header[:headerN])
-
-	var head common.Header
-	if err := json.Unmarshal([]byte(headChunk), &head); err != nil {
-		logger.Log.Error("Failed to parse JSON header", zap.Error(err), zap.String("header", string(header)))
-		return nil, fmt.Errorf("failed to parse JSON header: %w", err)
+	var header common.Header
+	if err := json.Unmarshal(headerBuf, &header); err != nil {
+		logger.Log.Error("Failed to parse header", zap.Error(err), zap.String("headerBuf", string(headerBuf)))
+		return nil, fmt.Errorf("failed to parse header: %w", err)
 	}
 
-	logger.Log.Info("Received message", zap.Any("header", head))
+	if header.TotalSize > maxBodySize {
+		return nil, fmt.Errorf("body size too large: %d", header.TotalSize)
+	}
 
-	switch head.Type {
+	if header.Type == "" {
+		return nil, errors.New("missing message type")
+	}
+
+	logger.Log.Info("Received header", zap.Any("header", header))
+
+	switch header.Type {
 	case "JSON":
-		var messageBuilder strings.Builder
-		body := make([]byte, 8192) // 8KB buffer
-
-		for {
-			n, err := conn.Read(body)
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-
-				return nil, fmt.Errorf("failed to read body chunk: %w", err)
-			}
-
-			chunk := string(body[:n])
-			if strings.Contains(chunk, "END_OF_MESSAGE") {
-				chunk = strings.Replace(chunk, "END_OF_MESSAGE", "", -1)
-				messageBuilder.WriteString(chunk)
-				break
-			}
-
-			messageBuilder.WriteString(chunk)
+		bodyBuf := make([]byte, header.TotalSize)
+		if _, err := io.ReadFull(conn, bodyBuf); err != nil {
+			return nil, fmt.Errorf("failed to read body: %w", err)
 		}
 
-		bodyChunk := messageBuilder.String()
-
-		var msg common.Message
-		if err := json.Unmarshal([]byte(bodyChunk), &msg); err != nil {
-			logger.Log.Error("Failed to parse JSON message", zap.Error(err), zap.String("message", string(body)))
+		// Parse JSON message
+		var message common.Message
+		if err := json.Unmarshal(bodyBuf, &message); err != nil {
 			return nil, fmt.Errorf("failed to parse JSON message: %w", err)
 		}
 
-		return &msg, nil
+		return &message, nil
 
 	case "FILE":
-		metadata := make([]byte, 1024) // 1KB buffer
-		metadataN, err := conn.Read(metadata)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read header: %w", err)
-		}
-
-		metadataChunk := string(metadata[:metadataN])
-
-		var metadat common.FileData
-		if err := json.Unmarshal([]byte(metadataChunk), &head); err != nil {
-			logger.Log.Error("Failed to parse JSON file metadata", zap.Error(err), zap.String("metadata", string(metadata)))
-			return nil, fmt.Errorf("failed to parse JSON metadata: %w", err)
-		}
-
-		userData := s.GetClientByAddress(conn.RemoteAddr())
-		if userData == nil {
-			return nil, fmt.Errorf("failed to get user data for address: %s", conn.RemoteAddr().String())
-		}
-
-		s.MessageController.PreHandleFile(userData.UUID, &metadat)
-
-		var messageBuilder strings.Builder
-		body := make([]byte, 8192) // 8KB buffer
-
-		for {
-			n, err := conn.Read(body)
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-
-				return nil, fmt.Errorf("failed to read body chunk: %w", err)
-			}
-
-			chunk := string(body[:n])
-			if strings.Contains(chunk, "END_OF_MESSAGE") {
-				chunk = strings.Replace(chunk, "END_OF_MESSAGE", "", -1)
-				messageBuilder.WriteString(chunk)
-				s.MessageController.HandleFileChunk(userData.UUID, []byte(chunk), &conn)
-				break
-			}
-
-			s.MessageController.HandleFileChunk(userData.UUID, []byte(chunk), &conn)
-			messageBuilder.WriteString(chunk)
-		}
-
-		msg := &common.Message{
-			Type: common.MessageTypeFile,
-		}
-
-		return msg, nil
-
+		return s.handleFileUpload(conn, header)
 	default:
-		return nil, fmt.Errorf("unsupported message type: %s", head.Type)
+		return nil, fmt.Errorf("unsupported message type: %s", header.Type)
 	}
+}
+
+func (s *Server) handleFileUpload(conn net.Conn, header common.Header) (*common.Message, error) {
+	// Step 3: Read file metadata
+	metadataBuf := make([]byte, header.TotalSize)
+	if _, err := io.ReadFull(conn, metadataBuf); err != nil {
+		return nil, fmt.Errorf("failed to read file metadata: %w", err)
+	}
+
+	var metadata common.FileData
+	if err := json.Unmarshal(metadataBuf, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to parse file metadata: %w", err)
+	}
+
+	userData := s.GetClientByAddress(conn.RemoteAddr())
+	if userData == nil {
+		return nil, fmt.Errorf("user data not found for address: %s", conn.RemoteAddr())
+	}
+
+	s.MessageController.PreHandleFile(userData.UUID, &metadata)
+
+	// Prepare file storage
+	filePath := fmt.Sprintf("./files/%s/%s", userData.UUID, metadata.FileName)
+	if err := os.MkdirAll(fmt.Sprintf("./files/%s", userData.UUID), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create file directory: %w", err)
+	}
+
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file for writing: %w", err)
+	}
+	defer file.Close()
+
+	// Step 4: Read and write file chunks
+	buf := make([]byte, 4096) // 4KB buffer for efficient transfer
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break // End of file
+			}
+			return nil, fmt.Errorf("failed to read file chunk: %w", err)
+		}
+
+		if n > 0 {
+			if _, writeErr := file.Write(buf[:n]); writeErr != nil {
+				return nil, fmt.Errorf("failed to write file chunk: %w", writeErr)
+			}
+		}
+	}
+
+	logger.Log.Info("File upload completed", zap.String("file", metadata.FileName), zap.String("user", userData.UUID))
+
+	return &common.Message{Type: common.MessageTypeFile}, nil
 }

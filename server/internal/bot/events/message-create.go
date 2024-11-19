@@ -15,8 +15,6 @@ const (
 
 // OnMessageCreate handles the bot's "message create" event.
 func (e *Event) OnMessageCreate(session *discordgo.Session, event *discordgo.MessageCreate) {
-	logger.Log.Info("Received message", zap.Any("event", event))
-
 	// Ignore all messages from a bot.
 	if event.Author.Bot {
 		return

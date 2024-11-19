@@ -79,45 +79,71 @@ class Client:
             self.send_file(file)
 
     def send(self, data: str, chunk_size: int = 2048) -> None:
-        """Send data in chunks to the server with a header."""
+        """Send data to the server with a fixed-length header."""
         header = json.dumps({
             "type": "JSON",
             "total_size": len(data),
         })
-
-        self.client.sendall(header.encode('utf-8'))
+        header_length = len(header).to_bytes(4, 'big')  # 4-byte fixed-length prefix
+        self.client.sendall(header_length + header.encode('utf-8'))
 
         for i in range(0, len(data), chunk_size):
             chunk = data[i:i+chunk_size].encode('utf-8')
             self.client.sendall(chunk)
+
+        # Signal the end of the message
         self.client.sendall(b'END_OF_MESSAGE')
 
-    def send_file(self, file_path: str) -> None:
-        """Send a file to the server with metadata."""
-        header = json.dumps({
-            "type": "JSON",
-            "total_size": 0,
-        })
+    def send_file(self, file_path: str, chunk_size: int = 1024) -> None:
+        """Send a file to the server with metadata and chunked content."""
+        try:
+            # Validate file existence and size
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"File not found: {file_path}")
 
-        self.client.sendall(header.encode('utf-8'))
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                raise ValueError("Cannot send an empty file.")
 
-        file_size = os.path.getsize(file_path)
-        file_name = os.path.basename(file_path)
-        file_type = utils.get_mime_type(file_path)
+            file_name = os.path.basename(file_path)
+            file_type = utils.get_mime_type(file_path)
 
-        metadata = json.dumps({
-            "type": MESSAGE_TYPE_PREFILE,
-            "file_name": file_name,
-            "file_size": file_size,
-            "file_type": file_type,
-        })
+            # Step 1: Send metadata
+            metadata = json.dumps({
+                "file_name": file_name,
+                "file_size": file_size,
+                "file_type": file_type,
+            })
 
-        metadata_bytes = metadata.encode('utf-8')
+            metadata_header = json.dumps({
+                "type": "FILE",
+                "total_size": len(metadata),
+            })
+            print(f"Sending the files metadata over to the server: {metadata} and header {metadata_header}")
+            # Send metadata header and content
+            self.client.sendall(len(metadata_header).to_bytes(4, 'big') + metadata_header.encode('utf-8'))
+            self.client.sendall(metadata.encode('utf-8'))
 
-        with open(file_path, "rb") as file:
-            while chunk := file.read(1024):
-                header = struct.pack(">4sI", b"FILE", len(chunk))
-                self.client.sendall(header + chunk)
+            # Step 2: Send file chunks
+            with open(file_path, "rb") as file:
+                while chunk := file.read(chunk_size):
+                    chunk_header = len(chunk).to_bytes(4, 'big')  # 4-byte size prefix
+                    print(f"Sending chunk of size {len(chunk)} bytes {chunk}")
+                    self.client.sendall(chunk_header + chunk)
+
+            # Signal the end of the file transfer
+            self.client.sendall(b'END_OF_FILE')
+
+            print(f"File '{file_name}' successfully sent to server.")
+
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
+        except ValueError as e:
+            print(f"Error: {e}")
+        except socket.error as e:
+            print(f"Network error during file transfer: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
 
     def receive(self) -> str:
         chunks = []
@@ -131,7 +157,7 @@ class Client:
 
     def send_keep_alive(self) -> None:
         try:
-            self.send(json.dumps(Message(type=MESSAGE_TYPE_PING).to_dict()))
+            self.send(json.dumps(Message(type=MESSAGE_TYPE_PING, json_data={}).to_dict()))
         except Exception as e:
             print(f"Failed to send keep-alive message: {e}")
 

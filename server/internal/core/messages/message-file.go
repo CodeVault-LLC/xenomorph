@@ -12,14 +12,19 @@ import (
 
 var usersSubmittedFiles = make(map[string]common.FileData)
 
-func (m *MessageCore) PreHandleFile(uuid string, msg *common.FileData) {
+func (m *MessageCore) PreHandleFile(uuid string, metadata *common.FileData) {
 	if _, ok := usersSubmittedFiles[uuid]; ok {
 		logger.Log.Warn("User already has a file in progress", zap.String("uuid", uuid))
 		return
 	}
 
-	usersSubmittedFiles[uuid] = *msg
-	logger.Log.Info("Received file data", zap.String("uuid", uuid))
+	if metadata.FileName == "" || metadata.FileSize <= 0 {
+		logger.Log.Error("Invalid file metadata", zap.String("uuid", uuid), zap.Any("metadata", metadata))
+		return
+	}
+
+	usersSubmittedFiles[uuid] = *metadata
+	logger.Log.Info("Accepted file metadata", zap.String("uuid", uuid), zap.String("file", metadata.FileName))
 }
 
 func (m *MessageCore) handleFile(uuid string, _ *common.Message) {

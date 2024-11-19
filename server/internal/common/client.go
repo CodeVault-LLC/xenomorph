@@ -38,10 +38,16 @@ type ClientData struct {
 type FileData struct {
 	FileName string `json:"file_name"`
 	FileSize int64  `json:"file_size"`
+	FileType string `json:"file_type"`
 }
 
 type FileDataChunk struct {
 	ID    string `json:"id"`
 	Chunk []byte `json:"chunk"`
 	End   bool   `json:"end"`
+}
+
+type Header struct {
+	Type      string `json:"type"`
+	TotalSize int    `json:"total_size"`
 }

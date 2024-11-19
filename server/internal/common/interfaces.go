@@ -48,4 +48,5 @@ type MessageController interface {
 	HandleReceiveMessage(uuid string, msg *Message, conn *net.Conn)
 	HandleConnection(uuid string, msg *Message, conn *net.Conn)
 	HandleFileChunk(uuid string, msg []byte, conn *net.Conn) error
+	PreHandleFile(uuid string, msg *FileData)
 }

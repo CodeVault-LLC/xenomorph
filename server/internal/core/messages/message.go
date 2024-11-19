@@ -24,8 +24,8 @@ func (m *MessageCore) HandleReceiveMessage(uuid string, msg *common.Message, con
 	switch msg.Type {
 	case common.MessageTypeCommand:
 		m.handleCommand(uuid, msg, conn)
-	case common.MessageTypePreFile:
-		m.preHandleFile(uuid, msg)
+	case common.MessageTypeFile:
+		m.handleFile(uuid, msg)
 	case common.MessageTypePing:
 		m.handlePing(uuid, msg)
 	default:

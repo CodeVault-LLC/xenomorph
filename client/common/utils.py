@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import mimetypes
 from typing import Any
 
 def isUserAdmin() -> bool:
@@ -57,3 +58,7 @@ def get_gpu_info() -> str:
             return gpu_list[0].name if gpu_list else "No GPUs found"
         except ImportError:
             return "N/A"
+
+def get_mime_type(file_path: str) -> str:
+    """Returns the MIME type of a file."""
+    return mimetypes.guess_type(file_path)[0] or "application/octet-stream"

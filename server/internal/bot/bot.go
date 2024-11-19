@@ -42,6 +42,7 @@ func (b *Bot) SendMessageToChannel(channelID, message string) error {
 	if err != nil {
 		logger.Log.Error("Failed to send message to Discord channel", zap.String("channel_id", channelID), zap.Error(err))
 	}
+
 	return err
 }
 
@@ -50,6 +51,7 @@ func (b *Bot) SendEmbedToChannel(channelID, message string, embed *discordgo.Mes
 	if err != nil {
 		logger.Log.Error("Failed to send embed to Discord channel", zap.String("channel_id", channelID), zap.Error(err))
 	}
+
 	return err
 }
 
@@ -109,7 +111,7 @@ func (b *Bot) GetCategoryID(uuid string) string {
 	return ""
 }
 
-func (b *Bot) GetChannelID(uuid string, channelName string) string {
+func (b *Bot) GetChannelFromUser(uuid string, channelName string) string {
 	for _, guild := range b.Session.State.Guilds {
 		for _, channel := range guild.Channels {
 			if channel.ParentID == "" {
@@ -126,6 +128,18 @@ func (b *Bot) GetChannelID(uuid string, channelName string) string {
 				if channel.Name == channelName {
 					return channel.ID
 				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func (b *Bot) GetChannelFromName(channelName string) string {
+	for _, guild := range b.Session.State.Guilds {
+		for _, channel := range guild.Channels {
+			if channel.Name == channelName {
+				return channel.ID
 			}
 		}
 	}

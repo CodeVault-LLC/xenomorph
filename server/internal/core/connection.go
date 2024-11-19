@@ -45,49 +45,26 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
-const (
-	maxHeaderSize = 1024 * 1024        // 1MB
-	maxBodySize   = 1024 * 1024 * 1024 // 1GB
-)
-
 func (s *Server) readChunkedMessage(conn net.Conn) (*common.Message, error) {
 	headerSizeBuf := make([]byte, 4)
 	if _, err := io.ReadFull(conn, headerSizeBuf); err != nil {
 		return nil, fmt.Errorf("failed to read header size: %w", err)
 	}
 
+	logger.Log.Info("Received header size", zap.Int("size", int(binary.BigEndian.Uint32(headerSizeBuf))))
 	headerSize := int(binary.BigEndian.Uint32(headerSizeBuf))
-	if headerSize <= 0 {
-		return nil, fmt.Errorf("invalid header size: %d", headerSize)
-	}
+	logger.Log.Info("Reading header", zap.Int("size", headerSize))
 
-	logger.Log.Info("Received header size", zap.Int("header_size", headerSize), zap.String("headerSizeBuf", string(headerSizeBuf)))
-
-	if headerSize > maxHeaderSize {
-		//return nil, fmt.Errorf("header size too large: %d", headerSize)
-	}
-
+	// Step 2: Read the header based on its size
 	headerBuf := make([]byte, headerSize)
 	if _, err := io.ReadFull(conn, headerBuf); err != nil {
-		logger.Log.Error("Failed to read header", zap.Error(err), zap.Int("header_size", headerSize), zap.String("headerBuf", string(headerBuf)))
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 
 	var header common.Header
 	if err := json.Unmarshal(headerBuf, &header); err != nil {
-		logger.Log.Error("Failed to parse header", zap.Error(err), zap.String("headerBuf", string(headerBuf)))
 		return nil, fmt.Errorf("failed to parse header: %w", err)
 	}
-
-	if header.TotalSize > maxBodySize {
-		return nil, fmt.Errorf("body size too large: %d", header.TotalSize)
-	}
-
-	if header.Type == "" {
-		return nil, errors.New("missing message type")
-	}
-
-	logger.Log.Info("Received header", zap.Any("header", header))
 
 	switch header.Type {
 	case "JSON":
@@ -105,7 +82,8 @@ func (s *Server) readChunkedMessage(conn net.Conn) (*common.Message, error) {
 		return &message, nil
 
 	case "FILE":
-		return s.handleFileUpload(conn, header)
+		return nil, fmt.Errorf("file uploads are not supported")
+		//return s.handleFileUpload(conn, header)
 	default:
 		return nil, fmt.Errorf("unsupported message type: %s", header.Type)
 	}

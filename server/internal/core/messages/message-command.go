@@ -11,7 +11,7 @@ import (
 func (m *MessageCore) handleCommand(_ string, msg *common.Message, conn *net.Conn) {
 	client := m.Server.GetClientByAddress((*conn).RemoteAddr())
 
-	mainChannel := m.Bot.GetChannelID(client.UUID, "main")
+	mainChannel := m.Bot.GetChannelFromUser(client.UUID, "main")
 	if mainChannel == "" {
 		logger.Log.Error("Failed to get main channel ID")
 		return

@@ -33,7 +33,7 @@ func (m *MessageCore) handleFile(uuid string, _ *common.Message) {
 		return
 	}
 
-	channel := m.Bot.GetChannelID(uuid, "info")
+	channel := m.Bot.GetChannelFromUser(uuid, "info")
 	fileData := usersSubmittedFiles[uuid]
 
 	embed := embeds.FileEmbed(&fileData)

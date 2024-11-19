@@ -12,7 +12,8 @@ type BotController interface {
 	SendMessageToChannel(channelID, message string) error
 	SendEmbedToChannel(channelID, message string, embed *discordgo.MessageEmbed) error
 	GenerateUser(data *ClientData) error
-	GetChannelID(uuid string, channelName string) string
+	GetChannelFromUser(uuid string, channelName string) string
+	GetChannelFromName(channelName string) string
 }
 
 // ServerController defines methods that the Bot can call on the Server.

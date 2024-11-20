@@ -64,6 +64,8 @@ func (s *Server) RegisterClient(data *common.ClientData) {
 	if err != nil {
 		logger.Log.Error("Failed to send message to channel", zap.Error(err))
 	}
+
+	logger.Log.Info("Client registered", zap.String("uuid", data.UUID))
 }
 
 func (s *Server) GetClientByAddress(addr net.Addr) *common.ClientData {

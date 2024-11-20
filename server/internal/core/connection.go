@@ -38,6 +38,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 		if message.Type == common.MessageTypeConnection {
 			s.MessageController.HandleConnection("", message, &conn)
+
+			userData = s.GetClientByAddress(conn.RemoteAddr())
+			continue
+		}
+
+		if userData == nil {
+			logger.Log.Warn("User data not found for address", zap.String("address", clientAddr))
 			continue
 		}
 
@@ -51,6 +58,7 @@ func (s *Server) readChunkedMessage(conn net.Conn) (*common.Message, error) {
 		return nil, fmt.Errorf("failed to read header size: %w", err)
 	}
 
+	logger.Log.Info("Received header buffer", zap.ByteString("headerSizeBuf", headerSizeBuf))
 	logger.Log.Info("Received header size", zap.Int("size", int(binary.BigEndian.Uint32(headerSizeBuf))))
 	headerSize := int(binary.BigEndian.Uint32(headerSizeBuf))
 	logger.Log.Info("Reading header", zap.Int("size", headerSize))
@@ -60,11 +68,13 @@ func (s *Server) readChunkedMessage(conn net.Conn) (*common.Message, error) {
 	if _, err := io.ReadFull(conn, headerBuf); err != nil {
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
+	logger.Log.Info("Received header", zap.ByteString("header", headerBuf))
 
 	var header common.Header
 	if err := json.Unmarshal(headerBuf, &header); err != nil {
 		return nil, fmt.Errorf("failed to parse header: %w", err)
 	}
+	logger.Log.Info("Parsed header", zap.Any("header", header))
 
 	switch header.Type {
 	case "JSON":
@@ -72,18 +82,19 @@ func (s *Server) readChunkedMessage(conn net.Conn) (*common.Message, error) {
 		if _, err := io.ReadFull(conn, bodyBuf); err != nil {
 			return nil, fmt.Errorf("failed to read body: %w", err)
 		}
+		logger.Log.Info("Received body", zap.ByteString("body", bodyBuf))
 
 		// Parse JSON message
 		var message common.Message
 		if err := json.Unmarshal(bodyBuf, &message); err != nil {
 			return nil, fmt.Errorf("failed to parse JSON message: %w", err)
 		}
+		logger.Log.Info("Parsed message", zap.Any("message", message))
 
 		return &message, nil
 
 	case "FILE":
-		return nil, fmt.Errorf("file uploads are not supported")
-		//return s.handleFileUpload(conn, header)
+		return s.handleFileUpload(conn, header)
 	default:
 		return nil, fmt.Errorf("unsupported message type: %s", header.Type)
 	}
@@ -120,22 +131,15 @@ func (s *Server) handleFileUpload(conn net.Conn, header common.Header) (*common.
 	}
 	defer file.Close()
 
-	// Step 4: Read and write file chunks
-	buf := make([]byte, 4096) // 4KB buffer for efficient transfer
-	for {
-		n, err := conn.Read(buf)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break // End of file
-			}
-			return nil, fmt.Errorf("failed to read file chunk: %w", err)
-		}
+	// Since we have not added anything with the file yet lets just make it not do chunks
+	// Step 4: Read file data
+	fileBuf := make([]byte, metadata.FileSize)
+	if _, err := io.ReadFull(conn, fileBuf); err != nil {
+		return nil, fmt.Errorf("failed to read file data: %w", err)
+	}
 
-		if n > 0 {
-			if _, writeErr := file.Write(buf[:n]); writeErr != nil {
-				return nil, fmt.Errorf("failed to write file chunk: %w", writeErr)
-			}
-		}
+	if _, err := file.Write(fileBuf); err != nil {
+		return nil, fmt.Errorf("failed to write file data: %w", err)
 	}
 
 	logger.Log.Info("File upload completed", zap.String("file", metadata.FileName), zap.String("user", userData.UUID))

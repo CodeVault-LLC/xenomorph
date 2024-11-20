@@ -15,7 +15,7 @@ def main() -> None:
             pass
 
     # Start the client
-    server_address = ('localhost', 8080)
+    server_address = ('localhost', 5174)
     command_handler = CommandHandler()
     client = Client(server_address, command_handler)
     client.run()

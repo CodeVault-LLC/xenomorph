@@ -6,13 +6,13 @@ import (
 	"github.com/codevault-llc/xenomorph/config"
 	"github.com/codevault-llc/xenomorph/internal/bot"
 	"github.com/codevault-llc/xenomorph/internal/core"
+	"github.com/codevault-llc/xenomorph/internal/core/files"
 	"github.com/codevault-llc/xenomorph/internal/core/messages"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
 )
 
 func main() {
-
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		panic(err)
@@ -31,8 +31,12 @@ func main() {
 
 	messageInstance := messages.NewMessageCore(server, botInstance)
 
+	fileClientInstance := files.NewFileClient(server, messageInstance)
+
 	server.MessageController = messageInstance
 	server.BotController = botInstance
+	server.FileController = fileClientInstance
+
 	logger.Log.Info("Bot and server initialized", zap.String("port", cfg.ServerPort))
 
 	go func() {

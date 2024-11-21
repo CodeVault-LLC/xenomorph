@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/codevault-llc/xenomorph/internal/common"
-	"github.com/codevault-llc/xenomorph/pkg/embeds"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -17,6 +16,7 @@ type Server struct {
 	mu                sync.Mutex
 	BotController     common.BotController
 	MessageController common.MessageController
+	FileController    common.FileController
 }
 
 func NewServer(port string, botController common.BotController, messageController common.MessageController) *Server {
@@ -49,23 +49,20 @@ func (s *Server) Start() error {
 	}
 }
 
-func (s *Server) RegisterClient(data *common.ClientData) {
+func (s *Server) RegisterClient(data *common.ClientData) (*common.ClientData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Clients[data.UUID] = data
 
-	err := s.BotController.GenerateUser(data)
-	if err != nil {
-		logger.Log.Error("Failed to generate user", zap.Error(err))
-	}
+	return data, nil
+}
 
-	embed := embeds.ConnectionEmbed(data)
-	err = s.BotController.SendEmbedToChannel(s.BotController.GetChannelFromUser(data.UUID, "info"), "", &embed)
-	if err != nil {
-		logger.Log.Error("Failed to send message to channel", zap.Error(err))
-	}
+func (s *Server) UpdateClient(data *common.ClientData) (*common.ClientData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Clients[data.UUID] = data
 
-	logger.Log.Info("Client registered", zap.String("uuid", data.UUID))
+	return data, nil
 }
 
 func (s *Server) GetClientByAddress(addr net.Addr) *common.ClientData {

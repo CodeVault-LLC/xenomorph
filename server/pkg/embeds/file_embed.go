@@ -7,9 +7,9 @@ import (
 	"github.com/codevault-llc/xenomorph/internal/common"
 )
 
-func FileEmbed(data *common.FileData) discordgo.MessageEmbed {
+func FileEmbed(data *common.FileData, msg *common.Message) discordgo.MessageEmbed {
 	messageEmbed := discordgo.MessageEmbed{
-		Title: "Xenomorph **`[File]`**",
+		Title: "📂 Xenomorph **`[Files]`**",
 		Fields: []*discordgo.MessageEmbedField{
 			{
 				Name: "__**File Info**__",

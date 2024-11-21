@@ -5,8 +5,6 @@ MessageType = NewType("MessageType", str)
 MESSAGE_TYPE_CONNECTION: MessageType = MessageType("CONNECTION")
 MESSAGE_TYPE_COMMAND: MessageType = MessageType("COMMAND")
 MESSAGE_TYPE_PING: MessageType = MessageType("PING")
-MESSAGE_TYPE_PREFILE: MessageType = MessageType("PREFILE")
-MESSAGE_TYPE_FILE: MessageType = MessageType("FILE")
 
 class Message:
     """Message class to represent a message sent between the client and server."""

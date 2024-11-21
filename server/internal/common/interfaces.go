@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"net"
 
 	"github.com/bwmarrin/discordgo"
@@ -20,34 +19,17 @@ type BotController interface {
 type ServerController interface {
 	SendMessage(uuid string, command Message) error
 	GetClientByAddress(addr net.Addr) *ClientData
-	RegisterClient(data *ClientData)
+	RegisterClient(data *ClientData) (*ClientData, error)
+	UpdateClient(data *ClientData) (*ClientData, error)
 	GetClientByUUID(uuid string) *ClientData
-}
-
-type MessageType string
-
-const (
-	MessageTypeConnection MessageType = "CONNECTION"
-
-	MessageTypeCommand MessageType = "COMMAND"
-	MessageTypePing    MessageType = "PING"
-
-	// File
-	MessageTypePreFile MessageType = "PREFILE"
-	MessageTypeFile    MessageType = "FILE"
-)
-
-// Message represents a message sent between the Bot and the Server.
-type Message struct {
-	Type      MessageType      `json:"type"`
-	Data      string           `json:"data"`
-	Arguments *[]string        `json:"arguments"`
-	JsonData  *json.RawMessage `json:"json_data"`
 }
 
 type MessageController interface {
 	HandleReceiveMessage(uuid string, msg *Message, conn *net.Conn)
-	HandleConnection(uuid string, msg *Message, conn *net.Conn)
-	HandleFileChunk(uuid string, msg []byte, conn *net.Conn) error
+	HandleConnection(uuid string, msg *Message, conn *net.Conn) (*ClientData, error)
 	PreHandleFile(uuid string, msg *FileData)
+}
+
+type FileController interface {
+	FileUpload(conn net.Conn, header Header) (*Message, error)
 }

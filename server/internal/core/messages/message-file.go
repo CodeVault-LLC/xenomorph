@@ -1,9 +1,6 @@
 package messages
 
 import (
-	"net"
-	"os"
-
 	"github.com/codevault-llc/xenomorph/internal/common"
 	"github.com/codevault-llc/xenomorph/pkg/embeds"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
@@ -27,7 +24,7 @@ func (m *MessageCore) PreHandleFile(uuid string, metadata *common.FileData) {
 	logger.Log.Info("Accepted file metadata", zap.String("uuid", uuid), zap.String("file", metadata.FileName))
 }
 
-func (m *MessageCore) handleFile(uuid string, _ *common.Message) {
+func (m *MessageCore) handleFile(uuid string, msg *common.Message) {
 	if _, ok := usersSubmittedFiles[uuid]; !ok {
 		logger.Log.Warn("No file in progress for user", zap.String("uuid", uuid))
 		return
@@ -36,7 +33,7 @@ func (m *MessageCore) handleFile(uuid string, _ *common.Message) {
 	channel := m.Bot.GetChannelFromUser(uuid, "info")
 	fileData := usersSubmittedFiles[uuid]
 
-	embed := embeds.FileEmbed(&fileData)
+	embed := embeds.FileEmbed(&fileData, msg)
 	err := m.Bot.SendEmbedToChannel(channel, "", &embed)
 	if err != nil {
 		logger.Log.Error("Failed to send file embed to channel", zap.Error(err))
@@ -44,27 +41,4 @@ func (m *MessageCore) handleFile(uuid string, _ *common.Message) {
 	}
 
 	delete(usersSubmittedFiles, uuid)
-}
-
-func (m *MessageCore) HandleFileChunk(uuid string, fileData []byte, conn *net.Conn) error {
-	if _, ok := usersSubmittedFiles[uuid]; !ok {
-		logger.Log.Warn("No file in progress for user", zap.String("uuid", uuid))
-		return nil
-	}
-
-	filePath := "./files/" + uuid + "/" + usersSubmittedFiles[uuid].FileName
-
-	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		logger.Log.Error("Error opening file", zap.Error(err))
-		return err
-	}
-	defer file.Close()
-
-	if _, err := file.Write(fileData); err != nil {
-		logger.Log.Error("Error writing to file", zap.Error(err))
-		return err
-	}
-
-	return nil
 }

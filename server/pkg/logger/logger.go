@@ -46,7 +46,7 @@ func (s *serverCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 
 	// Send log to server
 	go func() {
-		if entry.Level == zapcore.ErrorLevel {
+		if entry.Level == zapcore.ErrorLevel || entry.Level == zapcore.WarnLevel {
 
 			embed := embeds.ErrorEmbed(&embeds.ErrorEntry{
 				Level: entry.Level.String(),

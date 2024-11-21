@@ -11,6 +11,14 @@ type ErrorEntry struct {
 }
 
 func ErrorEmbed(data *ErrorEntry) discordgo.MessageEmbed {
+	var color int
+
+	if data.Level == "error" {
+		color = 0xFF3333
+	} else {
+		color = 0xFFD700
+	}
+
 	messageEmbed := discordgo.MessageEmbed{
 		Title: "Xenomorph **`[Error]`**",
 		Fields: []*discordgo.MessageEmbedField{
@@ -23,7 +31,7 @@ func ErrorEmbed(data *ErrorEntry) discordgo.MessageEmbed {
 				})),
 			},
 		},
-		Color: 0xFF3333,
+		Color: color,
 	}
 
 	return messageEmbed

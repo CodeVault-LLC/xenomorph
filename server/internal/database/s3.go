@@ -43,7 +43,6 @@ func UploadFileChunks(bucketName, objectKey string, fileContents []byte, chunkSi
 		return fmt.Errorf("failed to initiate multipart upload: %w", err)
 	}
 	uploadID := *initResp.UploadId
-	log.Printf("Initiated multipart upload with UploadId: %s", uploadID)
 
 	var completedParts []types.CompletedPart
 	var start, end int64
@@ -57,7 +56,6 @@ func UploadFileChunks(bucketName, objectKey string, fileContents []byte, chunkSi
 		}
 
 		partNumber := int32(start/chunkSize) + 1
-		log.Printf("Uploading part %d...", partNumber)
 
 		uploadResp, err := S3Client.UploadPart(ctx, &s3.UploadPartInput{
 			Bucket:     &bucketName,
@@ -84,7 +82,6 @@ func UploadFileChunks(bucketName, objectKey string, fileContents []byte, chunkSi
 			ETag:       uploadResp.ETag,
 			PartNumber: &partNumber,
 		})
-		log.Printf("Successfully uploaded part %d", partNumber)
 	}
 
 	// Step 3: Complete multipart upload
@@ -100,7 +97,6 @@ func UploadFileChunks(bucketName, objectKey string, fileContents []byte, chunkSi
 		return fmt.Errorf("failed to complete multipart upload: %w", err)
 	}
 
-	log.Printf("Successfully completed multipart upload for %s/%s", bucketName, objectKey)
 	return nil
 }
 

@@ -54,8 +54,9 @@ type FileData struct {
 	FileSize      int64  `json:"file_size"`
 	FileType      string `json:"file_type"`
 
-	// Other metadata added afterwards
-	FileURL string `json:"file_url"`
+	BucketID  string `json:"bucket_id"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type FileDataChunk struct {

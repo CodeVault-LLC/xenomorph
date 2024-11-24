@@ -78,6 +78,13 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 		Data: bucketId,
 	}
 
+	metadata.BucketID = bucketId
+
+	err = h.Server.GetCassandra().InsertFile(userData.UUID, metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert file: %w", err)
+	}
+
 	logger.Log.Info("File upload completed", zap.String("file", metadata.FileName), zap.String("user", userData.UUID))
 	return &message, nil
 }

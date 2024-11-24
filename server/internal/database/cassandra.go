@@ -59,12 +59,23 @@ func createSchema(session *gocql.Session) error {
 		return fmt.Errorf("failed to create keyspace: %v", err)
 	}
 
-	queries := []string{`CREATE TABLE IF NOT EXISTS xenomorph.clients (
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS xenomorph.clients (
         id UUID PRIMARY KEY,
         public_key TEXT,
         private_key TEXT,
         data TEXT
-    )`}
+    );`,
+		`CREATE TABLE IF NOT EXISTS xenomorph.files (
+        bucket_id TEXT PRIMARY KEY,
+        client_id UUID,
+        file_name TEXT,
+        file_extension TEXT,
+        file_size INT,
+        created_at TIMESTAMP,
+        updated_at TIMESTAMP
+    );`,
+	}
 
 	for _, query := range queries {
 		err := session.Query(query).Exec()
@@ -100,6 +111,17 @@ func (c *Cassandra) RegisterClient(clientUUID string) (publicKey string, err err
 	}
 
 	return publicKey, nil
+}
+
+func (c *Cassandra) InsertFile(uuid string, file common.FileData) error {
+	query := c.Db.Query(`INSERT INTO xenomorph.files (bucket_id, client_id, file_name, file_extension, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, toTimestamp(now()), toTimestamp(now()))`,
+		file.BucketID, uuid, file.FileName, file.FileExtension, file.FileSize)
+	err := query.Exec()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *Cassandra) UpdateClient(clientUUID string, data *common.ClientData) error {

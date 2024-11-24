@@ -47,5 +47,6 @@ type CassandraController interface {
 	ClientExists(uuid string) (bool, error)
 	RegisterClient(uuid string) (string, error)
 	GetClientEssentials(uuid string) (string, error)
+	InsertFile(uuid string, data common.FileData) error
 	Close()
 }

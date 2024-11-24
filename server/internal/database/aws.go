@@ -11,7 +11,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
+	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 var S3Client *s3.Client
@@ -63,7 +65,7 @@ func InitAWS() error {
 	return nil
 }
 
-// ensureBucketExists checks if a bucket exists and creates it if not.
+// ensureBucketExists checks if a bucket exists, creates it if not, and applies policies if necessary.
 func ensureBucketExists(bucketName string) error {
 	_, err := S3Client.HeadBucket(context.TODO(), &s3.HeadBucketInput{
 		Bucket: aws.String(bucketName),
@@ -83,10 +85,61 @@ func ensureBucketExists(bucketName string) error {
 		}
 	}
 
+	// Apply public bucket policy only for the "content-bucket"
+	if bucketName == "content-bucket" {
+		if err := setPublicBucketPolicy(bucketName); err != nil {
+			return err
+		}
+		log.Printf("Public policy applied to bucket: %s", bucketName)
+	}
+
 	return nil
 }
 
+// GenerateBucketName generates a unique bucket name with the specified file extension.
 func GenerateBucketName(file_extension string) string {
 	id := uuid.New().String()
 	return id + "." + file_extension
+}
+
+// setPublicBucketPolicy applies a public access policy to the specified bucket.
+func setPublicBucketPolicy(bucketName string) error {
+	desiredPolicy := `{
+		"Version": "2012-10-17",
+		"Statement": [
+			{
+				"Effect": "Allow",
+				"Principal": "*",
+				"Action": "s3:GetObject",
+				"Resource": "arn:aws:s3:::` + bucketName + `/*"
+			}
+		]
+	}`
+
+	// Check the current policy
+	currentPolicy, err := S3Client.GetBucketPolicy(context.TODO(), &s3.GetBucketPolicyInput{
+		Bucket: aws.String(bucketName),
+	})
+	if err == nil {
+		// Compare existing policy with desired policy
+		if *currentPolicy.Policy == desiredPolicy {
+			log.Printf("Public policy already applied to bucket: %s", bucketName)
+			return nil
+		}
+	} else {
+		logger.Log.Info("Failed to get bucket policy for", zap.String("bucket", bucketName), zap.Error(err))
+	}
+
+	// Apply the new policy
+	_, err = S3Client.PutBucketPolicy(context.TODO(), &s3.PutBucketPolicyInput{
+		Bucket: aws.String(bucketName),
+		Policy: aws.String(desiredPolicy),
+	})
+	if err != nil {
+		log.Printf("Failed to set bucket policy for %s: %v", bucketName, err)
+		return err
+	}
+
+	log.Printf("Public access policy applied to bucket %s", bucketName)
+	return nil
 }

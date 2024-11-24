@@ -1,9 +1,25 @@
 version: "3.8"
 
 volumes:
+  cassandra-data:
   minio-data:
 
 services:
+  cassandra-db:
+    image: cassandra:latest
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=MyCluster
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_DC=DC1
+      - CASSANDRA_RACK=Rack1
+      - CASSANDRA_LISTEN_ADDRESS=cassandra-db
+      - CASSANDRA_BROADCAST_ADDRESS=cassandra-db
+      - CASSANDRA_SEEDS=cassandra-db
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+
   minio:
     image: minio/minio
     ports:

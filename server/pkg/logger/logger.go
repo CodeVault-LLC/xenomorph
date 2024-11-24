@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/codevault-llc/xenomorph/internal/common"
+	"github.com/codevault-llc/xenomorph/internal/shared"
 	"github.com/codevault-llc/xenomorph/pkg/embeds"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -19,7 +19,7 @@ var Log *zap.Logger
 type serverCore struct {
 	zapcore.LevelEnabler
 	encoder      zapcore.Encoder
-	Bot          common.BotController
+	Bot          shared.BotController
 	originalCore zapcore.Core
 }
 
@@ -77,7 +77,7 @@ func (s *serverCore) Sync() error {
 }
 
 // InitLogger initializes the logger with a custom core
-func InitLogger(bot common.BotController) (*zap.Logger, error) {
+func InitLogger(bot shared.BotController) (*zap.Logger, error) {
 	if _, err := os.Stat("logs"); os.IsNotExist(err) {
 		err := os.Mkdir("logs", 0755)
 		if err != nil {

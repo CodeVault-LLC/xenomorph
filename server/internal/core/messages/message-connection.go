@@ -22,18 +22,13 @@ func (m *MessageCore) HandleConnection(_ string, msg *common.Message, conn *net.
 		logger.Log.Error("Failed to unmarshal data to ClientData", zap.Error(err))
 	}
 
-	clientData := m.Server.GetClientByAddress((*conn).RemoteAddr())
-	if clientData == nil {
-		logger.Log.Error("Client not found")
+	clientData, err := m.Server.GetClientInitialConnectionFromAddr((*conn).RemoteAddr())
+	if err != nil {
+		logger.Log.Error("Failed to get client data", zap.Error(err))
 		return nil, err
 	}
 
-	logger.Log.Info("Client connected", zap.String("address", clientData.Addr.String()))
-
-	updatedClientData.Addr = clientData.Addr
-	updatedClientData.Socket = clientData.Socket
-
-	data, nil := m.Server.UpdateClient(&updatedClientData)
+	data, nil := m.Server.UpdateClient(clientData.UUID, &updatedClientData)
 	err = m.Bot.GenerateUser(data)
 	if err != nil {
 		logger.Log.Error("Failed to generate user", zap.Error(err))

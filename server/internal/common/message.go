@@ -5,14 +5,20 @@ import "encoding/json"
 type MessageType string
 
 const (
-	MessageTypeConnection MessageType = "CONNECTION"
+	MessageTypeConnect    MessageType = "connect"
+	MessageTypeHandshake  MessageType = "handshake"
+	MessageTypeAck        MessageType = "ack"
+	MessageTypeInitialize MessageType = "initialize"
+	MessageTypeValidation MessageType = "validation"
 
-	MessageTypeCommand MessageType = "COMMAND"
-	MessageTypePing    MessageType = "PING"
+	MessageTypeConnection MessageType = "connection"
+
+	MessageTypeCommand MessageType = "command"
+	MessageTypePing    MessageType = "ping"
 
 	// File
-	MessageTypePreFile MessageType = "PREFILE"
-	MessageTypeFile    MessageType = "FILE"
+	MessageTypePreFile MessageType = "prefile"
+	MessageTypeFile    MessageType = "file"
 )
 
 // Message represents a message sent between the Bot and the Server.

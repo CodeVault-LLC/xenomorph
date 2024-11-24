@@ -2,9 +2,15 @@ from typing import NewType, Optional, List, Any
 
 MessageType = NewType("MessageType", str)
 
-MESSAGE_TYPE_CONNECTION: MessageType = MessageType("CONNECTION")
-MESSAGE_TYPE_COMMAND: MessageType = MessageType("COMMAND")
-MESSAGE_TYPE_PING: MessageType = MessageType("PING")
+MESSAGE_TYPE_CONNECT: MessageType = MessageType("connect") # Connect
+MESSAGE_TYPE_HANDSHAKE: MessageType = MessageType("handshake") # Handshake
+MESSAGE_TYPE_ACK: MessageType = MessageType("ack") # Acknowledgement
+MESSAGE_TYPE_INITIALIZE: MessageType = MessageType("initialize") # Initialize
+MESSAGE_TYPE_VALIDATION: MessageType = MessageType("validation") # Validation
+
+MESSAGE_TYPE_CONNECTION: MessageType = MessageType("connection") # Connection
+MESSAGE_TYPE_COMMAND: MessageType = MessageType("command") # Command
+MESSAGE_TYPE_PING: MessageType = MessageType("ping") # Ping
 
 class Message:
     """Message class to represent a message sent between the client and server."""

@@ -4,16 +4,17 @@ import (
 	"net"
 
 	"github.com/codevault-llc/xenomorph/internal/common"
+	"github.com/codevault-llc/xenomorph/internal/shared"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
 )
 
 type MessageCore struct {
-	Server common.ServerController
-	Bot    common.BotController
+	Server shared.ServerController
+	Bot    shared.BotController
 }
 
-func NewMessageCore(server common.ServerController, bot common.BotController) *MessageCore {
+func NewMessageCore(server shared.ServerController, bot shared.BotController) *MessageCore {
 	return &MessageCore{
 		Server: server,
 		Bot:    bot,
@@ -22,6 +23,11 @@ func NewMessageCore(server common.ServerController, bot common.BotController) *M
 
 func (m *MessageCore) HandleReceiveMessage(uuid string, msg *common.Message, conn *net.Conn) {
 	switch msg.Type {
+	case common.MessageTypeConnect:
+		err := m.HandleConnect(uuid, msg, conn)
+		if err != nil {
+			logger.Log.Error("Failed to handle connect message", zap.Error(err))
+		}
 	case common.MessageTypeCommand:
 		m.handleCommand(uuid, msg, conn)
 	case common.MessageTypeFile:

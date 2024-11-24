@@ -1,8 +1,6 @@
 package events
 
 import (
-	"strings"
-
 	"github.com/bwmarrin/discordgo"
 	"github.com/codevault-llc/xenomorph/internal/common"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
@@ -27,14 +25,6 @@ func (e *Event) OnMessageCreate(session *discordgo.Session, event *discordgo.Mes
 
 	// Split the message into the command and arguments.
 	command := event.Content[len(COMMAND_PREFIX):]
-	args := []string{}
-
-	// If the command has arguments, split them into a slice.
-	if len(command) > 0 {
-		args = strings.Split(command, " ")
-		command = args[0]
-		args = args[1:]
-	}
 
 	channel, err := session.State.Channel(event.ChannelID)
 	if err != nil {
@@ -54,19 +44,18 @@ func (e *Event) OnMessageCreate(session *discordgo.Session, event *discordgo.Mes
 	}
 
 	categoryName := category.Name
-
-	client := e.Server.GetClientByUUID(categoryName)
-
-	if client == nil {
-		logger.Log.Info("Client not found", zap.String("category", categoryName))
+	connectionClient, ok := e.Server.GetClientInitialConnection(categoryName)
+	if ok != nil {
+		logger.Log.Error("Failed to get connection client", zap.String("category", categoryName))
 		return
 	}
 
-	// Handle the command.
-	e.Server.SendMessage(client.UUID, common.Message{
-		Type:      common.MessageTypeCommand,
-		Data:      command,
-		Arguments: &args,
-		JsonData:  nil,
+	err = e.Server.GetHandler().SendMessage(connectionClient.Socket, &common.Message{
+		Type: common.MessageTypeCommand,
+		Data: command,
 	})
+	if err != nil {
+		logger.Log.Error("Failed to send command message", zap.Error(err))
+		return
+	}
 }

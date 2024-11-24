@@ -1,4 +1,4 @@
-package files
+package handler
 
 import (
 	"encoding/json"
@@ -14,7 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
-func (fc FileClient) FileUpload(conn net.Conn, header common.Header) (*common.Message, error) {
+// FileUpload handles the file upload process.
+func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Message, error) {
 	metadataBuf := make([]byte, header.TotalSize)
 	if _, err := io.ReadFull(conn, metadataBuf); err != nil {
 		return nil, fmt.Errorf("failed to read file metadata: %w", err)
@@ -25,12 +26,12 @@ func (fc FileClient) FileUpload(conn net.Conn, header common.Header) (*common.Me
 		return nil, fmt.Errorf("failed to parse file metadata: %w", err)
 	}
 
-	userData := fc.server.GetClientByAddress(conn.RemoteAddr())
+	userData := h.Server.GetClientByAddress(conn.RemoteAddr())
 	if userData == nil {
 		return nil, fmt.Errorf("user data not found for address: %s", conn.RemoteAddr())
 	}
 
-	fc.messageController.PreHandleFile(userData.UUID, &metadata)
+	h.Message.PreHandleFile(userData.UUID, &metadata)
 
 	// Prepare file storage
 	filePath := fmt.Sprintf("./files/%s/%s", userData.UUID, metadata.FileName)

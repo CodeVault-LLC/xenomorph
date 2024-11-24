@@ -5,29 +5,27 @@ import (
 	"github.com/codevault-llc/xenomorph/config"
 	"github.com/codevault-llc/xenomorph/internal/bot/events"
 	"github.com/codevault-llc/xenomorph/internal/common"
+	"github.com/codevault-llc/xenomorph/internal/shared"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
 )
 
 type Bot struct {
 	Session *discordgo.Session
-	Handler *Handler
 	Events  *events.Event
 }
 
 // NewBot initializes the bot with a reference to the server through the handler.
-func NewBot(token string, server common.ServerController) (*Bot, error) {
+func NewBot(token string, server shared.ServerController) (*Bot, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, err
 	}
 
 	eventHandlers := events.NewEvent(session, server)
-	handler := NewHandler(server)
 
 	bot := &Bot{
 		Session: session,
-		Handler: handler,
 		Events:  eventHandlers,
 	}
 

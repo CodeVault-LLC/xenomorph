@@ -7,7 +7,6 @@ import (
 
 	"github.com/codevault-llc/xenomorph/internal/common"
 	"github.com/codevault-llc/xenomorph/pkg/encryption"
-	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"github.com/gocql/gocql"
 )
 
@@ -85,7 +84,6 @@ func (c *Cassandra) RegisterClient(clientUUID string) (publicKey string, err err
 	if exists, err := c.ClientExists(clientUUID); err != nil {
 		return "", err
 	} else if exists {
-		logger.Log.Info("Good, the client exists")
 		return "", nil
 	}
 

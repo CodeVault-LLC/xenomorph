@@ -44,7 +44,7 @@ func (e *Event) OnMessageCreate(session *discordgo.Session, event *discordgo.Mes
 	}
 
 	categoryName := category.Name
-	connectionClient, ok := e.Server.GetClientInitialConnection(categoryName)
+	connectionClient, ok := e.Server.GetClient(categoryName)
 	if ok != nil {
 		logger.Log.Error("Failed to get connection client", zap.String("category", categoryName))
 		return

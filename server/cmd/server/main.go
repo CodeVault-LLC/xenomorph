@@ -6,8 +6,6 @@ import (
 	"github.com/codevault-llc/xenomorph/config"
 	"github.com/codevault-llc/xenomorph/internal/bot"
 	"github.com/codevault-llc/xenomorph/internal/core"
-	"github.com/codevault-llc/xenomorph/internal/core/messages"
-	"github.com/codevault-llc/xenomorph/internal/handler"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -18,23 +16,20 @@ func main() {
 		panic(err)
 	}
 
-	server := core.NewServer(cfg.ServerPort)
-	botInstance, err := bot.NewBot(cfg.DiscordToken, server)
+	botInstance, err := bot.NewBot(cfg.DiscordToken)
 	if err != nil {
 		panic(err)
 	}
+
+	server := core.NewServer(cfg.ServerPort, botInstance)
+	botInstance.AddServerController(server)
 
 	_, err = logger.InitLogger(botInstance)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to initialize logger: %v", err))
 	}
 
-	messageInstance := messages.NewMessageCore(server, botInstance)
-	handlerInstance := handler.NewHandler(server, messageInstance)
-
-	server.MessageController = messageInstance
 	server.BotController = botInstance
-	server.Handler = handlerInstance
 
 	logger.Log.Info("Bot and server initialized", zap.String("port", cfg.ServerPort))
 

@@ -143,13 +143,10 @@ class Sec():
 
         encoded_data = data.encode("utf-8")
 
-        # Step 1: Generate a random AES key
-        aes_key = os.urandom(32)  # 256-bit AES key
+        aes_key = os.urandom(32)
 
-        # Step 2: Encrypt the message with AES
         encrypted_message = self.aes_encrypt(encoded_data, aes_key)
 
-        # Step 3: Encrypt the AES key with the server's RSA public key
         encrypted_aes_key = self.public_key.encrypt(
             aes_key,
             padding.OAEP(

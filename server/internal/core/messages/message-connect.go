@@ -26,7 +26,11 @@ func (m *MessageCore) HandleConnect(_ string, msg *common.Message, conn *net.Con
 		return err
 	}
 
-	clientExists := m.Server.ClientCheck(connectData.UUID)
+	clientExists, err := m.Server.GetCassandra().ClientExists(connectData.UUID)
+	if err != nil {
+		logger.Log.Error("Failed to check if client exists", zap.Error(err))
+		return err
+	}
 
 	if !clientExists {
 		_, publicKey, err := m.Server.RegisterClient(connectData.UUID, &common.ClientListData{

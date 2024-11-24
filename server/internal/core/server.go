@@ -6,7 +6,9 @@ import (
 	"sync"
 
 	"github.com/codevault-llc/xenomorph/internal/common"
+	"github.com/codevault-llc/xenomorph/internal/core/messages"
 	"github.com/codevault-llc/xenomorph/internal/database"
+	"github.com/codevault-llc/xenomorph/internal/handler"
 	"github.com/codevault-llc/xenomorph/internal/shared"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
@@ -23,14 +25,25 @@ type Server struct {
 	Cassandra         shared.CassandraController
 }
 
-func NewServer(port string) *Server {
+func NewServer(port string, bot shared.BotController) *Server {
 	cassandra := database.NewCassandra()
+	messages := messages.NewMessageCore()
+	handler := handler.NewHandler(messages)
 
-	return &Server{
-		Port:      port,
-		Clients:   make(map[string]*common.ClientListData),
-		Cassandra: cassandra,
+	server := &Server{
+		Port:              port,
+		Clients:           make(map[string]*common.ClientListData),
+		Cassandra:         cassandra,
+		MessageController: messages,
+		Handler:           handler,
+		BotController:     bot,
 	}
+
+	handler.Server = server
+	messages.Server = server
+	messages.Bot = bot
+
+	return server
 }
 
 func (s *Server) Start() error {
@@ -77,45 +90,7 @@ func (s *Server) UpdateClient(uuid string, data *common.ClientData) (*common.Cli
 	return data, nil
 }
 
-func (s *Server) GetClientByAddress(addr net.Addr) *common.ClientData {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, client := range s.Clients {
-		if client.Addr.String() == addr.String() {
-			clientData, err := s.Cassandra.GetClient(client.UUID)
-			if err != nil {
-				logger.Log.Error("Failed to get client from Cassandra", zap.Error(err))
-				return nil
-			}
-
-			return &clientData
-		}
-	}
-
-	return nil
-}
-
-func (s *Server) GetClientByUUID(uuid string) *common.ClientData {
-	clientData, err := s.Cassandra.GetClient(uuid)
-	if err != nil {
-		logger.Log.Error("Failed to get client from Cassandra", zap.Error(err))
-		return nil
-	}
-
-	return &clientData
-}
-
-func (s *Server) ClientCheck(uuid string) bool {
-	exist, err := s.Cassandra.ClientExists(uuid)
-	if err != nil {
-		logger.Log.Error("Failed to check if client exists in Cassandra", zap.Error(err))
-		return false
-	}
-
-	return exist
-}
-
-func (s *Server) GetClientInitialConnection(uuid string) (*common.ClientListData, error) {
+func (s *Server) GetClient(uuid string) (*common.ClientListData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	client, ok := s.Clients[uuid]
@@ -126,7 +101,7 @@ func (s *Server) GetClientInitialConnection(uuid string) (*common.ClientListData
 	return client, nil
 }
 
-func (s *Server) GetClientInitialConnectionFromAddr(addr net.Addr) (*common.ClientListData, error) {
+func (s *Server) GetClientFromAddr(addr net.Addr) (*common.ClientListData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, client := range s.Clients {

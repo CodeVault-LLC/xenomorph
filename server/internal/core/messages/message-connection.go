@@ -22,7 +22,7 @@ func (m *MessageCore) HandleConnection(_ string, msg *common.Message, conn *net.
 		logger.Log.Error("Failed to unmarshal data to ClientData", zap.Error(err))
 	}
 
-	clientData, err := m.Server.GetClientInitialConnectionFromAddr((*conn).RemoteAddr())
+	clientData, err := m.Server.GetClientFromAddr((*conn).RemoteAddr())
 	if err != nil {
 		logger.Log.Error("Failed to get client data", zap.Error(err))
 		return nil, err

@@ -14,11 +14,8 @@ type MessageCore struct {
 	Bot    shared.BotController
 }
 
-func NewMessageCore(server shared.ServerController, bot shared.BotController) *MessageCore {
-	return &MessageCore{
-		Server: server,
-		Bot:    bot,
-	}
+func NewMessageCore() *MessageCore {
+	return &MessageCore{}
 }
 
 func (m *MessageCore) HandleReceiveMessage(uuid string, msg *common.Message, conn *net.Conn) {

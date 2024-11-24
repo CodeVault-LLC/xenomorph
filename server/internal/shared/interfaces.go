@@ -14,19 +14,17 @@ type BotController interface {
 	GenerateUser(data *common.ClientData) error
 	GetChannelFromUser(uuid string, channelName string) string
 	GetChannelFromName(channelName string) string
+	AddServerController(server ServerController)
 }
 
 // ServerController defines methods that the Bot can call on the Server.
 type ServerController interface {
-	GetClientByAddress(addr net.Addr) *common.ClientData
 	RegisterClient(uuid string, data *common.ClientListData) (*common.ClientListData, string, error)
 	UpdateClient(uuid string, data *common.ClientData) (*common.ClientData, error)
-	GetClientByUUID(uuid string) *common.ClientData
-	GetClientInitialConnectionFromAddr(addr net.Addr) (*common.ClientListData, error)
-	GetClientInitialConnection(uuid string) (*common.ClientListData, error)
+	GetClientFromAddr(addr net.Addr) (*common.ClientListData, error)
+	GetClient(uuid string) (*common.ClientListData, error)
 	GetHandler() HandlerController
 	GetCassandra() CassandraController
-	ClientCheck(uuid string) bool
 }
 
 type MessageController interface {

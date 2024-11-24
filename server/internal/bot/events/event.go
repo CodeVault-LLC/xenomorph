@@ -12,9 +12,8 @@ type Event struct {
 }
 
 // NewEvent initializes a new Event instance.
-func NewEvent(session *discordgo.Session, server shared.ServerController) *Event {
+func NewEvent(session *discordgo.Session) *Event {
 	return &Event{
 		Session: session,
-		Server:  server,
 	}
 }

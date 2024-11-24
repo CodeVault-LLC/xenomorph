@@ -14,7 +14,6 @@ import (
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	clientAddr := conn.RemoteAddr().String()
-	userData := s.GetClientByAddress(conn.RemoteAddr())
 
 	for {
 		message, err := s.readChunkedMessage(conn)
@@ -33,16 +32,16 @@ func (s *Server) handleConnection(conn net.Conn) {
 		}
 
 		if message.Type == common.MessageTypeConnection {
-			data, err := s.MessageController.HandleConnection("", message, &conn)
+			_, err := s.MessageController.HandleConnection("", message, &conn)
 			if err != nil {
 				logger.Log.Error("Failed to handle connection", zap.Error(err))
 				continue
 			}
 
-			userData = data
 			continue
 		}
 
+		userData, _ := s.GetClientFromAddr(conn.RemoteAddr())
 		var uuid string
 		if userData != nil {
 			uuid = userData.UUID

@@ -11,6 +11,8 @@ import (
 	"github.com/codevault-llc/xenomorph/internal/database"
 	"github.com/codevault-llc/xenomorph/internal/shared"
 	"github.com/codevault-llc/xenomorph/pkg/encryption"
+	"github.com/codevault-llc/xenomorph/pkg/logger"
+	"go.uber.org/zap"
 )
 
 type Handler struct {
@@ -18,14 +20,13 @@ type Handler struct {
 	Message shared.MessageController
 }
 
-func NewHandler(server shared.ServerController, message shared.MessageController) *Handler {
+func NewHandler(message shared.MessageController) *Handler {
 	err := database.InitAWS()
 	if err != nil {
 		panic(err)
 	}
 
 	return &Handler{
-		Server:  server,
 		Message: message,
 	}
 }
@@ -59,7 +60,7 @@ func (h Handler) ReadChunkedMessage(conn net.Conn, totalSize int) (*common.Messa
 		return nil, fmt.Errorf("failed to read message: %w", err)
 	}
 
-	client, _ := h.Server.GetClientInitialConnectionFromAddr(conn.RemoteAddr())
+	client, _ := h.Server.GetClientFromAddr(conn.RemoteAddr())
 	var uuid string
 	if client != nil {
 		uuid = client.UUID
@@ -69,6 +70,7 @@ func (h Handler) ReadChunkedMessage(conn net.Conn, totalSize int) (*common.Messa
 	if privateKey != "" {
 		decryptedMessage, err := encryption.RSADecryptBytes(privateKey, messageBuf)
 		if err != nil {
+			logger.Log.Error("Failed to decrypt message", zap.Error(err), zap.String("t", string(messageBuf)))
 			return nil, fmt.Errorf("failed to decrypt message: %w", err)
 		}
 

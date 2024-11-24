@@ -16,13 +16,13 @@ type Bot struct {
 }
 
 // NewBot initializes the bot with a reference to the server through the handler.
-func NewBot(token string, server shared.ServerController) (*Bot, error) {
+func NewBot(token string) (*Bot, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, err
 	}
 
-	eventHandlers := events.NewEvent(session, server)
+	eventHandlers := events.NewEvent(session)
 
 	bot := &Bot{
 		Session: session,
@@ -32,6 +32,10 @@ func NewBot(token string, server shared.ServerController) (*Bot, error) {
 	session.AddHandler(eventHandlers.OnReady)
 	session.AddHandler(eventHandlers.OnMessageCreate)
 	return bot, nil
+}
+
+func (b *Bot) AddServerController(server shared.ServerController) {
+	b.Events.Server = server
 }
 
 // SendMessageToChannel allows the server to send messages to a Discord channel.

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 
 	"github.com/codevault-llc/xenomorph/internal/common"
 	"github.com/codevault-llc/xenomorph/internal/database"
+	"github.com/codevault-llc/xenomorph/pkg/encryption"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -26,24 +26,17 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 		return nil, fmt.Errorf("failed to parse file metadata: %w", err)
 	}
 
-	userData := h.Server.GetClientByAddress(conn.RemoteAddr())
+	userData, err := h.Server.GetClientFromAddr(conn.RemoteAddr())
+	if err != nil {
+		logger.Log.Error("Failed to get client data", zap.Error(err))
+		return nil, err
+	}
+
 	if userData == nil {
 		return nil, fmt.Errorf("user data not found for address: %s", conn.RemoteAddr())
 	}
 
 	h.Message.PreHandleFile(userData.UUID, &metadata)
-
-	// Prepare file storage
-	filePath := fmt.Sprintf("./files/%s/%s", userData.UUID, metadata.FileName)
-	if err := os.MkdirAll(fmt.Sprintf("./files/%s", userData.UUID), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create file directory: %w", err)
-	}
-
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file for writing: %w", err)
-	}
-	defer file.Close()
 
 	fileBuf := make([]byte, metadata.FileSize)
 	if _, err := io.ReadFull(conn, fileBuf); err != nil {
@@ -58,8 +51,24 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 		metadata.FileExtension = extension[len(extension)-1]
 	}
 
+	client, _ := h.Server.GetClientFromAddr(conn.RemoteAddr())
+	var uuid string
+	if client != nil {
+		uuid = client.UUID
+	}
+	privateKey, _ := h.Server.GetCassandra().GetClientEssentials(uuid)
+
+	var fileData = fileBuf
+	if privateKey != "" {
+		fileData, err = encryption.RSADecryptBytes(privateKey, fileData)
+		if err != nil {
+			logger.Log.Error("Failed to decrypt message", zap.Error(err), zap.String("t", string(fileBuf)))
+			return nil, fmt.Errorf("failed to decrypt message: %w", err)
+		}
+	}
+
 	bucketId := database.GenerateBucketName(metadata.FileExtension)
-	err = database.UploadFileChunks("content-bucket", bucketId, fileBuf, 1024*1024)
+	err = database.UploadFileChunks("content-bucket", bucketId, fileData, 1024*1024)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload file chunks: %w", err)
 	}
@@ -67,10 +76,6 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 	message := common.Message{
 		Type: common.MessageTypeFile,
 		Data: bucketId,
-	}
-
-	if _, err := file.Write(fileBuf); err != nil {
-		return nil, fmt.Errorf("failed to write file data: %w", err)
 	}
 
 	logger.Log.Info("File upload completed", zap.String("file", metadata.FileName), zap.String("user", userData.UUID))

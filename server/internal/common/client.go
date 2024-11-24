@@ -1,7 +1,6 @@
 package common
 
 import (
-	"crypto/rsa"
 	"net"
 )
 
@@ -47,8 +46,6 @@ type ClientData struct {
 
 	Webbrowsers   []string   `json:"webbrowsers"`
 	DiscordTokens [][]string `json:"discord_tokens"`
-
-	PrivateKey rsa.PrivateKey `json:"private_key"`
 }
 
 type FileData struct {

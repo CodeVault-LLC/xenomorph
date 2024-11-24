@@ -134,11 +134,14 @@ class Client:
 
             file_name = os.path.basename(file_path)
             file_type = utils.get_mime_type(file_path)
-            file_size = os.path.getsize(file_path)
+
+            with open(file_path, "rb") as file:
+                file_data = self.sec.encrypt(file.read().decode('utf-8'))
+                file.close()
 
             metadata = json.dumps({
                 "file_name": file_name,
-                "file_size": file_size,
+                "file_size": len(file_data),
                 "file_type": file_type,
             })
 
@@ -149,10 +152,7 @@ class Client:
 
             self.client.sendall(len(metadata_header).to_bytes(4, 'big') + metadata_header.encode('utf-8'))
             self.client.sendall(metadata.encode('utf-8'))
-
-            with open(file_path, "rb") as file:
-                while chunk := file.read(chunk_size):
-                    self.client.sendall(chunk)
+            self.client.sendall(file_data)
 
             print(f"File '{file_name}' successfully sent to server.")
 

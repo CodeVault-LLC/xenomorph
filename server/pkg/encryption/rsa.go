@@ -101,7 +101,6 @@ func RSADecryptBytes(privateKey string, cipherText []byte) ([]byte, error) {
 		encryptedAESKey,
 		nil,
 	)
-
 	if err != nil {
 		log.Printf("Error decrypting AES key: %v", err)
 		return nil, err

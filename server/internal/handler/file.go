@@ -58,7 +58,7 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 	}
 	privateKey, _ := h.Server.GetCassandra().GetClientEssentials(uuid)
 
-	var fileData = fileBuf
+	fileData := fileBuf
 	if privateKey != "" {
 		fileData, err = encryption.RSADecryptBytes(privateKey, fileData)
 		if err != nil {

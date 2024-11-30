@@ -38,7 +38,6 @@ func (m *MessageCore) HandleConnect(_ string, msg *common.Message, conn *net.Con
 			Addr:   (*conn).RemoteAddr(),
 			Socket: *conn,
 		})
-
 		if err != nil {
 			logger.Log.Error("Failed to register client", zap.Error(err))
 			return err

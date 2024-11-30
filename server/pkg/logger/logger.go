@@ -79,7 +79,7 @@ func (s *serverCore) Sync() error {
 // InitLogger initializes the logger with a custom core
 func InitLogger(bot shared.BotController) (*zap.Logger, error) {
 	if _, err := os.Stat("logs"); os.IsNotExist(err) {
-		err := os.Mkdir("logs", 0755)
+		err := os.Mkdir("logs", 0o755)
 		if err != nil {
 			return nil, err
 		}

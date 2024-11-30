@@ -18,8 +18,7 @@ import (
 
 var S3Client *s3.Client
 
-type awsEndpointResolver struct {
-}
+type awsEndpointResolver struct{}
 
 func (*awsEndpointResolver) ResolveEndpoint(ctx context.Context, params s3.EndpointParameters) (
 	smithyendpoints.Endpoint, error,
@@ -37,7 +36,6 @@ func InitAWS() error {
 			"",         // Session Token (not needed for MinIO)
 		)),
 	)
-
 	if err != nil {
 		log.Printf("Error loading AWS config: %v", err)
 		return err

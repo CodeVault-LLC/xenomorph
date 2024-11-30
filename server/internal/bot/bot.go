@@ -31,6 +31,13 @@ func NewBot(token string) (*Bot, error) {
 
 	session.AddHandler(eventHandlers.OnReady)
 	session.AddHandler(eventHandlers.OnMessageCreate)
+
+	err = bot.RegisterCommands(session)
+	if err != nil {
+		logger.Log.Error("Failed to register commands", zap.Error(err))
+		return nil, err
+	}
+
 	return bot, nil
 }
 
@@ -147,6 +154,52 @@ func (b *Bot) GetChannelFromName(channelName string) string {
 	}
 
 	return ""
+}
+
+func (b *Bot) RegisterCommands(session *discordgo.Session) error {
+	commands := []*discordgo.ApplicationCommand{
+		{
+			Name:        "ping",
+			Description: "Replies with Pong!",
+		},
+		{
+			Name:        "say",
+			Description: "Make the bot say something.",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "message",
+					Description: "The message for the bot to say.",
+					Required:    true,
+				},
+			},
+		},
+	}
+
+	for _, cmd := range commands {
+		_, err := session.ApplicationCommandCreate(session.State.User.ID, "", cmd)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *Bot) CleanupCommands(session *discordgo.Session) error {
+	commands, err := session.ApplicationCommands(session.State.User.ID, "")
+	if err != nil {
+		return err
+	}
+
+	for _, cmd := range commands {
+		err := session.ApplicationCommandDelete(session.State.User.ID, "", cmd.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (b *Bot) Run() error {

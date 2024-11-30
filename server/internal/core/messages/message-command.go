@@ -21,7 +21,7 @@ func (m *MessageCore) handleCommand(_ string, msg *common.Message, conn *net.Con
 		return
 	}
 
-	err = m.Bot.SendMessageToChannel(mainChannel, `{"type":"command","data":`+string(*msg.JsonData)+`}`)
+	err = m.Bot.SendMessageToChannel(mainChannel, string(*msg.JsonData))
 	if err != nil {
 		logger.Log.Error("Failed to send command message to channel", zap.Error(err))
 		return

@@ -16,8 +16,8 @@ def screenshare(send: Callable[[str], None]) -> None:
           encoded_image = base64.b64encode(image_bytes).decode('utf-8')
 
       send(json.dumps({
-          "command": "ss",
-          "screenshot": encoded_image
+          "command": "command",
+          "data": encoded_image
       }))
 
       os.remove(file_name)

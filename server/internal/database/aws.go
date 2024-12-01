@@ -77,6 +77,7 @@ func ensureBucketExists(bucketName string) error {
 			if err != nil {
 				return err
 			}
+
 			log.Printf("Bucket %s created successfully", bucketName)
 		} else {
 			return err
@@ -88,6 +89,7 @@ func ensureBucketExists(bucketName string) error {
 		if err := setPublicBucketPolicy(bucketName); err != nil {
 			return err
 		}
+
 		log.Printf("Public policy applied to bucket: %s", bucketName)
 	}
 
@@ -95,9 +97,9 @@ func ensureBucketExists(bucketName string) error {
 }
 
 // GenerateBucketName generates a unique bucket name with the specified file extension.
-func GenerateBucketName(file_extension string) string {
+func GenerateBucketName(fileExtension string) string {
 	id := uuid.New().String()
-	return id + "." + file_extension
+	return id + "." + fileExtension
 }
 
 // setPublicBucketPolicy applies a public access policy to the specified bucket.
@@ -125,7 +127,7 @@ func setPublicBucketPolicy(bucketName string) error {
 			return nil
 		}
 	} else {
-		logger.Log.Info("Failed to get bucket policy for", zap.String("bucket", bucketName), zap.Error(err))
+		logger.GetLogger().Info("Failed to get bucket policy for", zap.String("bucket", bucketName), zap.Error(err))
 	}
 
 	// Apply the new policy
@@ -139,5 +141,6 @@ func setPublicBucketPolicy(bucketName string) error {
 	}
 
 	log.Printf("Public access policy applied to bucket %s", bucketName)
+
 	return nil
 }

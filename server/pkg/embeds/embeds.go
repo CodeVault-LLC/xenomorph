@@ -1,10 +1,13 @@
 package embeds
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+)
+
+const (
+	MinusLength = 6
 )
 
 func Codeblock(code string) string {
@@ -21,66 +24,14 @@ func DisplayFieldList(fields []Field) string {
 	for _, field := range fields {
 		result += field.Name + ": " + field.Value + "\n"
 	}
+
 	return result
-}
-
-// Table generates a well-formatted ASCII table with aligned columns.
-func Table(headers []string, rows [][]string) string {
-	if len(headers) == 0 {
-		return ""
-	}
-
-	// Find the number of columns
-	numColumns := len(headers)
-
-	// Ensure all rows have the same number of columns as the headers
-	for i, row := range rows {
-		if len(row) < numColumns {
-			rows[i] = append(row, make([]string, numColumns-len(row))...)
-		} else if len(row) > numColumns {
-			rows[i] = row[:numColumns] // Trim extra cells
-		}
-	}
-
-	// Calculate the maximum width of each column
-	columnWidths := make([]int, numColumns)
-	for i, header := range headers {
-		columnWidths[i] = len(header)
-	}
-	for _, row := range rows {
-		for i, cell := range row {
-			if len(cell) > columnWidths[i] {
-				columnWidths[i] = len(cell)
-			}
-		}
-	}
-
-	// Helper function to format a single row
-	formatRow := func(cells []string) string {
-		var formattedCells []string
-		for i, cell := range cells {
-			formattedCells = append(formattedCells, fmt.Sprintf("%-*s", columnWidths[i], cell))
-		}
-		return strings.Join(formattedCells, " | ")
-	}
-
-	// Build the table
-	var result strings.Builder
-	result.WriteString(formatRow(headers)) // Add headers
-	result.WriteString("\n")
-	result.WriteString(strings.Repeat("-", len(formatRow(headers)))) // Add separator
-	result.WriteString("\n")
-	for _, row := range rows {
-		result.WriteString(formatRow(row)) // Add each row
-		result.WriteString("\n")
-	}
-
-	return result.String()
 }
 
 // SplitField splits long values into multiple fields, preserving codeblock formatting if present.
 func SplitField(name, value string) []*discordgo.MessageEmbedField {
 	const maxLength = 1024
+
 	fields := []*discordgo.MessageEmbedField{}
 
 	if len(value) <= maxLength {
@@ -100,7 +51,7 @@ func SplitField(name, value string) []*discordgo.MessageEmbedField {
 	}
 
 	// Split the content into chunks
-	parts := splitIntoChunks(value, maxLength-6) // Reserve space for reopening/closing codeblocks if needed
+	parts := splitIntoChunks(value, maxLength-MinusLength) // Reserve space for reopening/closing codeblocks if needed
 
 	// Reapply codeblock formatting to each chunk
 	for i, part := range parts {
@@ -108,9 +59,11 @@ func SplitField(name, value string) []*discordgo.MessageEmbedField {
 		if i > 0 {
 			fieldName = name + " (cont.)"
 		}
+
 		if isCodeblock {
 			part = "```" + part + "```"
 		}
+
 		fields = append(fields, &discordgo.MessageEmbedField{Name: fieldName, Value: part})
 	}
 
@@ -124,8 +77,10 @@ func splitIntoChunks(input string, size int) []string {
 		chunks = append(chunks, input[:size])
 		input = input[size:]
 	}
+
 	if len(input) > 0 {
 		chunks = append(chunks, input)
 	}
+
 	return chunks
 }

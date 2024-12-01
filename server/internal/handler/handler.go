@@ -31,9 +31,13 @@ func NewHandler(message shared.MessageController) *Handler {
 	}
 }
 
+const (
+	headerSize = 4
+)
+
 // ReadChunkedHeader reads a chunked header from the connection.
 func (h Handler) ReadChunkedHeader(conn net.Conn) (*common.Header, error) {
-	headerSizeBuf := make([]byte, 4)
+	headerSizeBuf := make([]byte, headerSize)
 	if _, err := io.ReadFull(conn, headerSizeBuf); err != nil {
 		return nil, fmt.Errorf("failed to read header size: %w", err)
 	}
@@ -61,6 +65,7 @@ func (h Handler) ReadChunkedMessage(conn net.Conn, totalSize int) (*common.Messa
 	}
 
 	client, _ := h.Server.GetClientFromAddr(conn.RemoteAddr())
+
 	var uuid string
 	if client != nil {
 		uuid = client.UUID
@@ -70,7 +75,7 @@ func (h Handler) ReadChunkedMessage(conn net.Conn, totalSize int) (*common.Messa
 	if privateKey != "" {
 		decryptedMessage, err := encryption.RSADecryptBytes(privateKey, messageBuf)
 		if err != nil {
-			logger.Log.Error("Failed to decrypt message", zap.Error(err), zap.String("t", string(messageBuf)))
+			logger.GetLogger().Error("Failed to decrypt message", zap.Error(err), zap.String("t", string(messageBuf)))
 			return nil, fmt.Errorf("failed to decrypt message: %w", err)
 		}
 

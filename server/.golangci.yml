@@ -1,2 +1,54 @@
 linters:
-  enable-all: true
+  enable:
+    - bodyclose
+    - depguard
+    - ineffassign
+    - unparam
+    - gosimple
+    - prealloc
+    - govet
+    - staticcheck
+    - errcheck
+    - nilerr
+    - unused
+    - deadcode
+    - gosec
+    - exportloopref
+    - interfacer
+    - sqlclosecheck
+    - forcetypeassert
+    - golint
+    - revive
+    - stylecheck
+    - gocritic
+    - gomnd
+    - misspell
+    - dupl
+    - cyclop
+    - nestif
+    - goconst
+    - gofmt
+    - wsl
+    - structcheck
+    - scopelint
+    - goprintffuncname
+
+linters-settings:
+  depguard:
+    rules:
+      main:
+        list-mode: lax
+        files:
+          - "*.go"
+        allow:
+          - $gostd
+          - github.com/codevault-llc/xenomorph/*
+
+          - github.com/aws/aws-sdk-go-v2/service/s3
+          - github.com/aws/aws-sdk-go-v2/service/s3/types
+          - github.com/aws/aws-sdk-go-v2/credentials
+          - github.com/aws/aws-sdk-go-v2/config
+          - github.com/aws/aws-sdk-go-v2/aws
+          - github.com/aws/smithy-go/endpoints
+
+          - github.com/bwmarrin/discordgo

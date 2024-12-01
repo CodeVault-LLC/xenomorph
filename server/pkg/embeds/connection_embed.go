@@ -7,6 +7,10 @@ import (
 	"github.com/codevault-llc/xenomorph/internal/common"
 )
 
+const (
+	ConnectionColor = 0x1E3E62
+)
+
 func ConnectionEmbed(data *common.ClientData) discordgo.MessageEmbed {
 	diskFields := SplitField("__**Disks**__", Codeblock(data.Disks))
 
@@ -53,7 +57,7 @@ func ConnectionEmbed(data *common.ClientData) discordgo.MessageEmbed {
 				})),
 			},
 		},
-		Color: 0x1E3E62,
+		Color: ConnectionColor,
 	}
 
 	messageEmbed.Fields = append(messageEmbed.Fields, diskFields...)

@@ -16,30 +16,32 @@ func main() {
 		panic(err)
 	}
 
+	err = logger.NewLogger()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to initialize logger: %v", err))
+	}
+
 	botInstance, err := bot.NewBot(cfg.DiscordToken)
 	if err != nil {
 		panic(err)
 	}
 
+	logger.AddBot(botInstance)
+
 	server := core.NewServer(cfg.ServerPort, botInstance)
 	botInstance.AddServerController(server)
 
-	_, err = logger.InitLogger(botInstance)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to initialize logger: %v", err))
-	}
-
 	server.BotController = botInstance
 
-	logger.Log.Info("Bot and server initialized", zap.String("port", cfg.ServerPort))
+	logger.GetLogger().Info("Starting server", zap.String("port", cfg.ServerPort))
 
 	go func() {
 		if err := botInstance.Run(); err != nil {
-			logger.Log.Error("Bot failed to run", zap.Error(err))
+			logger.GetLogger().Error("Bot failed to start", zap.Error(err))
 		}
 	}()
 
 	if err := server.Start(); err != nil {
-		logger.Log.Error("Server failed to start", zap.Error(err))
+		logger.GetLogger().Error("Server failed to start", zap.Error(err))
 	}
 }

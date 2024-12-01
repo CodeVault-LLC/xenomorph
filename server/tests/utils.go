@@ -2,6 +2,8 @@ package tests
 
 import "net"
 
+const bufferSize = 8192
+
 // Connect to a socket using the provided address
 func ConnectToSocket(address string) (net.Conn, error) {
 	conn, err := net.Dial("tcp", address)
@@ -29,8 +31,9 @@ func SendMessage(conn net.Conn, message string) error {
 
 // Read a message from the connection
 func ReadMessage(conn net.Conn) (string, error) {
-	buffer := make([]byte, 8192)
+	buffer := make([]byte, bufferSize)
 	n, err := conn.Read(buffer)
+
 	if err != nil {
 		return "", err
 	}

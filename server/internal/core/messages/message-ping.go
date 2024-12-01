@@ -7,5 +7,5 @@ import (
 )
 
 func (m *MessageCore) handlePing(uuid string, _ *common.Message) {
-	logger.Log.Debug("Received keep-alive message", zap.String("uuid", uuid))
+	logger.GetLogger().Debug("Received keep-alive message", zap.String("uuid", uuid))
 }

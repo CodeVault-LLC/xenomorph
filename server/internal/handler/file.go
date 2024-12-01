@@ -14,6 +14,10 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	fileUploadSize = 1024 * 1024
+)
+
 // FileUpload handles the file upload process.
 func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Message, error) {
 	metadataBuf := make([]byte, header.TotalSize)
@@ -28,7 +32,7 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 
 	userData, err := h.Server.GetClientFromAddr(conn.RemoteAddr())
 	if err != nil {
-		logger.Log.Error("Failed to get client data", zap.Error(err))
+		logger.GetLogger().Error("Failed to get client data", zap.Error(err))
 		return nil, err
 	}
 
@@ -52,39 +56,43 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 	}
 
 	client, _ := h.Server.GetClientFromAddr(conn.RemoteAddr())
+
 	var uuid string
 	if client != nil {
 		uuid = client.UUID
 	}
+
 	privateKey, _ := h.Server.GetCassandra().GetClientEssentials(uuid)
 
 	fileData := fileBuf
 	if privateKey != "" {
 		fileData, err = encryption.RSADecryptBytes(privateKey, fileData)
 		if err != nil {
-			logger.Log.Error("Failed to decrypt message", zap.Error(err), zap.String("t", string(fileBuf)))
+			logger.GetLogger().Error("Failed to decrypt message", zap.Error(err), zap.String("t", string(fileBuf)))
 			return nil, fmt.Errorf("failed to decrypt message: %w", err)
 		}
 	}
 
-	bucketId := database.GenerateBucketName(metadata.FileExtension)
-	err = database.UploadFileChunks("content-bucket", bucketId, fileData, 1024*1024)
+	bucketID := database.GenerateBucketName(metadata.FileExtension)
+	err = database.UploadFileChunks("content-bucket", bucketID, fileData, fileUploadSize)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload file chunks: %w", err)
 	}
 
 	message := common.Message{
 		Type: common.MessageTypeFile,
-		Data: bucketId,
+		Data: bucketID,
 	}
 
-	metadata.BucketID = bucketId
+	metadata.BucketID = bucketID
 
 	err = h.Server.GetCassandra().InsertFile(userData.UUID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert file: %w", err)
 	}
 
-	logger.Log.Info("File upload completed", zap.String("file", metadata.FileName), zap.String("user", userData.UUID))
+	logger.GetLogger().Info("File upload completed", zap.String("file", metadata.FileName), zap.String("user", userData.UUID))
+
 	return &message, nil
 }

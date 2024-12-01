@@ -3,15 +3,16 @@ package database
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/codevault-llc/xenomorph/internal/common"
 	"github.com/codevault-llc/xenomorph/pkg/encryption"
+	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"github.com/gocql/gocql"
+	"go.uber.org/zap"
 )
 
 type Cassandra struct {
-	Db *gocql.Session
+	DB *gocql.Session
 }
 
 func NewCassandra() *Cassandra {
@@ -22,26 +23,29 @@ func NewCassandra() *Cassandra {
 	// Create a temporary session
 	tempSession, err := cluster.CreateSession()
 	if err != nil {
-		log.Fatalf("Failed to connect to Cassandra: %v", err)
+		logger.GetLogger().Error("Failed to connect to Cassandra:", zap.Error(err))
+		return nil
 	}
 	defer tempSession.Close()
 
 	// Create the keyspace and schema
 	err = createSchema(tempSession)
 	if err != nil {
-		log.Fatalf("Failed to create schema: %v", err)
+		logger.GetLogger().Error("Failed to create schema:", zap.Error(err))
+		return nil
 	}
 
 	// Connect to the xenomorph keyspace
 	cluster.Keyspace = "xenomorph"
 	session, err := cluster.CreateSession()
+
 	if err != nil {
-		log.Fatalf("Failed to connect to Cassandra: %v", err)
+		logger.GetLogger().Error("Failed to connect to Cassandra:", zap.Error(err))
 	}
 
 	// Return the Cassandra instance
 	return &Cassandra{
-		Db: session,
+		DB: session,
 	}
 }
 
@@ -50,6 +54,7 @@ func createKeyspace(session *gocql.Session) error {
 	CREATE KEYSPACE IF NOT EXISTS xenomorph
 	WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
 	`
+
 	return session.Query(query).Exec()
 }
 
@@ -88,7 +93,7 @@ func createSchema(session *gocql.Session) error {
 }
 
 func (c *Cassandra) Close() {
-	c.Db.Close()
+	c.DB.Close()
 }
 
 func (c *Cassandra) RegisterClient(clientUUID string) (publicKey string, err error) {
@@ -103,9 +108,10 @@ func (c *Cassandra) RegisterClient(clientUUID string) (publicKey string, err err
 		return "", fmt.Errorf("failed to generate RSA keys: %v", err)
 	}
 
-	query := c.Db.Query(`INSERT INTO xenomorph.clients (id, public_key, private_key) VALUES (?, ?, ?)`,
+	query := c.DB.Query(`INSERT INTO xenomorph.clients (id, public_key, private_key) VALUES (?, ?, ?)`,
 		clientUUID, publicKey, privateKey)
 	err = query.Exec()
+
 	if err != nil {
 		return "", err
 	}
@@ -114,9 +120,10 @@ func (c *Cassandra) RegisterClient(clientUUID string) (publicKey string, err err
 }
 
 func (c *Cassandra) InsertFile(uuid string, file common.FileData) error {
-	query := c.Db.Query(`INSERT INTO xenomorph.files (bucket_id, client_id, file_name, file_extension, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, toTimestamp(now()), toTimestamp(now()))`,
+	query := c.DB.Query(`INSERT INTO xenomorph.files (bucket_id, client_id, file_name, file_extension, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, toTimestamp(now()), toTimestamp(now()))`,
 		file.BucketID, uuid, file.FileName, file.FileExtension, file.FileSize)
 	err := query.Exec()
+
 	if err != nil {
 		return err
 	}
@@ -130,8 +137,9 @@ func (c *Cassandra) UpdateClient(clientUUID string, data *common.ClientData) err
 		return err
 	}
 
-	query := c.Db.Query(`UPDATE xenomorph.clients SET data = ? WHERE id = ?`, dataString, clientUUID)
+	query := c.DB.Query(`UPDATE xenomorph.clients SET data = ? WHERE id = ?`, dataString, clientUUID)
 	err = query.Exec()
+
 	if err != nil {
 		return err
 	}
@@ -141,13 +149,16 @@ func (c *Cassandra) UpdateClient(clientUUID string, data *common.ClientData) err
 
 func (c *Cassandra) GetClient(clientUUID string) (common.ClientData, error) {
 	var dataString string
-	query := c.Db.Query(`SELECT data FROM xenomorph.clients WHERE id = ?`, clientUUID)
+
+	query := c.DB.Query(`SELECT data FROM xenomorph.clients WHERE id = ?`, clientUUID)
 	err := query.Scan(&dataString)
+
 	if err != nil {
 		return common.ClientData{}, err
 	}
 
 	var data common.ClientData
+
 	err = json.Unmarshal([]byte(dataString), &data)
 	if err != nil {
 		return common.ClientData{}, err
@@ -158,7 +169,9 @@ func (c *Cassandra) GetClient(clientUUID string) (common.ClientData, error) {
 
 func (c *Cassandra) ClientExists(clientUUID string) (bool, error) {
 	var count int
-	query := c.Db.Query(`SELECT COUNT(*) FROM xenomorph.clients WHERE id = ?`, clientUUID)
+
+	query := c.DB.Query(`SELECT COUNT(*) FROM xenomorph.clients WHERE id = ?`, clientUUID)
+
 	err := query.Scan(&count)
 	if err != nil {
 		return false, err
@@ -169,7 +182,9 @@ func (c *Cassandra) ClientExists(clientUUID string) (bool, error) {
 
 func (c *Cassandra) GetClientEssentials(clientUUID string) (string, error) {
 	var publicKey string
-	query := c.Db.Query(`SELECT private_key FROM xenomorph.clients WHERE id = ?`, clientUUID)
+
+	query := c.DB.Query(`SELECT private_key FROM xenomorph.clients WHERE id = ?`, clientUUID)
+
 	err := query.Scan(&publicKey)
 	if err != nil {
 		return "", err

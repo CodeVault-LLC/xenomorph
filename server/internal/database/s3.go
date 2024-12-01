@@ -21,15 +21,15 @@ func UploadFile(bucketName string, objectKey string, fileContents []byte, readab
 		})
 
 		return err
-	} else {
-		_, err := S3Client.PutObject(context.TODO(), &s3.PutObjectInput{
-			Bucket: &bucketName,
-			Key:    &objectKey,
-			Body:   bytes.NewReader(fileContents),
-		})
-
-		return err
 	}
+
+	_, err := S3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket: &bucketName,
+		Key:    &objectKey,
+		Body:   bytes.NewReader(fileContents),
+	})
+
+	return err
 }
 
 func UploadFileChunks(bucketName, objectKey string, fileContents []byte, chunkSize int64) error {
@@ -42,9 +42,11 @@ func UploadFileChunks(bucketName, objectKey string, fileContents []byte, chunkSi
 	if err != nil {
 		return fmt.Errorf("failed to initiate multipart upload: %w", err)
 	}
+
 	uploadID := *initResp.UploadId
 
 	var completedParts []types.CompletedPart
+
 	var start, end int64
 
 	// Step 2: Upload each chunk
@@ -74,6 +76,7 @@ func UploadFileChunks(bucketName, objectKey string, fileContents []byte, chunkSi
 			if abortErr != nil {
 				log.Printf("Failed to abort multipart upload: %v", abortErr)
 			}
+
 			return fmt.Errorf("failed to upload part %d: %w", partNumber, err)
 		}
 
@@ -112,6 +115,7 @@ func DownloadFile(bucketName string, objectKey string) ([]byte, error) {
 
 	buf := new(bytes.Buffer)
 	_, err = buf.ReadFrom(resp.Body)
+
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +129,7 @@ func DeleteFile(bucketName string, objectKey string) error {
 		Bucket: &bucketName,
 		Key:    &objectKey,
 	})
+
 	return err
 }
 
@@ -137,7 +142,7 @@ func ListFiles(bucketName string) ([]string, error) {
 		return nil, err
 	}
 
-	var keys []string
+	keys := make([]string, 0, len(resp.Contents))
 	for _, obj := range resp.Contents {
 		keys = append(keys, *obj.Key)
 	}

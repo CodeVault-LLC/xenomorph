@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"fmt"
 	"os"
 	"time"
 
@@ -12,10 +11,16 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// Log is the global logger instance
-var Log *zap.Logger
+const (
+	AppendCode = 0o755
 
-// serverCore sends logs to a remote server
+	MaxSize    = 10
+	MaxBackups = 3
+	MaxAge     = 28
+)
+
+var logger *zap.Logger
+
 type serverCore struct {
 	zapcore.LevelEnabler
 	encoder      zapcore.Encoder
@@ -35,6 +40,7 @@ func (s *serverCore) Check(entry zapcore.Entry, checkedEntry *zapcore.CheckedEnt
 	if s.Enabled(entry.Level) {
 		return checkedEntry.AddCore(entry, s)
 	}
+
 	return checkedEntry
 }
 
@@ -47,11 +53,10 @@ func (s *serverCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 	// Send log to server
 	go func() {
 		if entry.Level == zapcore.ErrorLevel || entry.Level == zapcore.WarnLevel {
-
 			embed := embeds.ErrorEmbed(&embeds.ErrorEntry{
 				Level: entry.Level.String(),
 				Msg:   entry.Message,
-				Ts:    entry.Time.Format("2006-01-02 15:04:05"),
+				TS:    entry.Time.Format("2006-01-02 15:04:05"),
 			})
 
 			if s.Bot == nil {
@@ -59,16 +64,17 @@ func (s *serverCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 			}
 
 			if s.Bot.GetChannelFromName("error") == "" {
-				fmt.Println("Failed to get error channel ID")
+
 				return
 			}
 
 			err := s.Bot.SendEmbedToChannel(s.Bot.GetChannelFromName("error"), "", &embed)
 			if err != nil {
-				Log.Error("Failed to send error embed to channel", zap.Error(err))
+				logger.Error("Failed to send error embed to discord", zap.Error(err))
 			}
 		}
 	}()
+
 	return nil
 }
 
@@ -76,12 +82,11 @@ func (s *serverCore) Sync() error {
 	return s.originalCore.Sync()
 }
 
-// InitLogger initializes the logger with a custom core
-func InitLogger(bot shared.BotController) (*zap.Logger, error) {
+func NewLogger() error {
 	if _, err := os.Stat("logs"); os.IsNotExist(err) {
-		err := os.Mkdir("logs", 0o755)
+		err := os.Mkdir("logs", AppendCode)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
@@ -91,9 +96,9 @@ func InitLogger(bot shared.BotController) (*zap.Logger, error) {
 	consoleEncoder := zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
 	fileWriter := zapcore.AddSync(&lumberjack.Logger{
 		Filename:   logFile,
-		MaxSize:    10,
-		MaxBackups: 3,
-		MaxAge:     28,
+		MaxSize:    MaxSize,
+		MaxBackups: MaxBackups,
+		MaxAge:     MaxAge,
 	})
 
 	core := zapcore.NewCore(fileEncoder, fileWriter, zapcore.InfoLevel)
@@ -101,15 +106,28 @@ func InitLogger(bot shared.BotController) (*zap.Logger, error) {
 	serverLogger := &serverCore{
 		LevelEnabler: zapcore.InfoLevel,
 		encoder:      zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
-		Bot:          bot,
 		originalCore: core,
 	}
 
-	logger := zap.New(zapcore.NewTee(
+	log := zap.New(zapcore.NewTee(
 		serverLogger,
 		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel), // Console logging
 	))
 
-	Log = logger
-	return logger, nil
+	logger = log
+
+	return nil
+}
+
+func AddBot(bot shared.BotController) {
+	serverLogger, ok := logger.Core().(*serverCore)
+	if !ok {
+		return
+	}
+
+	serverLogger.Bot = bot
+}
+
+func GetLogger() *zap.Logger {
+	return logger
 }

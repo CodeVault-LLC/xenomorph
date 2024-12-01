@@ -23,7 +23,7 @@ func (m *MessageCore) HandleReceiveMessage(uuid string, msg *common.Message, con
 	case common.MessageTypeConnect:
 		err := m.HandleConnect(uuid, msg, conn)
 		if err != nil {
-			logger.Log.Error("Failed to handle connect message", zap.Error(err))
+			logger.GetLogger().Error("Failed to handle connect message", zap.Error(err))
 		}
 	case common.MessageTypeCommand:
 		m.handleCommand(uuid, msg, conn)
@@ -32,6 +32,6 @@ func (m *MessageCore) HandleReceiveMessage(uuid string, msg *common.Message, con
 	case common.MessageTypePing:
 		m.handlePing(uuid, msg)
 	default:
-		logger.Log.Warn("Unknown message type", zap.Any("message", msg))
+		logger.GetLogger().Warn("Unknown message type", zap.Any("message", msg))
 	}
 }

@@ -11,6 +11,7 @@ type Config struct {
 	DiscordToken string
 	DiscordGuild string
 	ServerPort   string
+	AppEnv       string
 }
 
 var ConfigInstance *Config
@@ -24,6 +25,8 @@ func LoadConfig() (*Config, error) {
 	token := os.Getenv("DISCORD_TOKEN")
 	guild := os.Getenv("DISCORD_GUILD")
 	port := os.Getenv("SERVER_PORT")
+	appEnv := os.Getenv("APP_ENV")
+
 	if token == "" || port == "" {
 		return nil, fmt.Errorf("missing configuration values")
 	}
@@ -32,6 +35,7 @@ func LoadConfig() (*Config, error) {
 		DiscordToken: token,
 		DiscordGuild: guild,
 		ServerPort:   port,
+		AppEnv:       appEnv,
 	}
 
 	return ConfigInstance, nil

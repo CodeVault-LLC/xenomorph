@@ -14,9 +14,14 @@ import (
 	"log"
 )
 
+const (
+	KeyBits  = 2048
+	RsaParts = 2
+)
+
 // Generate RSA key pair
 func GenerateRSAKeys() (string, string, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey, err := rsa.GenerateKey(rand.Reader, KeyBits)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate RSA key: %v", err)
 	}
@@ -87,9 +92,10 @@ func RSADecryptBytes(privateKey string, cipherText []byte) ([]byte, error) {
 	}
 
 	parts := bytes.Split(cipherText, []byte("||"))
-	if len(parts) != 2 {
+	if len(parts) != RsaParts {
 		return nil, fmt.Errorf("invalid data format")
 	}
+
 	encryptedAESKey := parts[0]
 	encryptedMessage := parts[1]
 
@@ -110,6 +116,7 @@ func RSADecryptBytes(privateKey string, cipherText []byte) ([]byte, error) {
 	iv := encryptedMessage[:16]
 	ciphertext := encryptedMessage[16:]
 	blockA, err := aes.NewCipher(aesKey)
+
 	if err != nil {
 		log.Printf("Error creating AES cipher: %v", err)
 		return nil, err

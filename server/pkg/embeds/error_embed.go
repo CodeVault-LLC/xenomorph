@@ -6,7 +6,7 @@ import (
 
 type ErrorEntry struct {
 	Level string `json:"level"` // e.g., "info", "error"
-	Ts    string `json:"ts"`    // Unix timestamp with fractional seconds
+	TS    string `json:"ts"`    // Unix timestamp with fractional seconds
 	Msg   string `json:"msg"`   // Log message
 }
 
@@ -26,7 +26,7 @@ func ErrorEmbed(data *ErrorEntry) discordgo.MessageEmbed {
 				Name: "__**Error Info**__",
 				Value: Codeblock(DisplayFieldList([]Field{
 					{Name: "Level", Value: data.Level},
-					{Name: "Timestamp", Value: data.Ts},
+					{Name: "Timestamp", Value: data.TS},
 					{Name: "Message", Value: data.Msg},
 				})),
 			},

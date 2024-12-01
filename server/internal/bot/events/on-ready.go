@@ -6,6 +6,6 @@ import (
 )
 
 // OnReady handles the bot's "ready" event.
-func (e *Event) OnReady(session *discordgo.Session, event *discordgo.Ready) {
-	logger.Log.Info("Bot is online and ready!")
+func (e *Event) OnReady(_ *discordgo.Session, _ *discordgo.Ready) {
+	logger.GetLogger().Info("Bot is online and ready!")
 }

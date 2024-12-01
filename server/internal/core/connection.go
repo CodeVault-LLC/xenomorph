@@ -19,22 +19,24 @@ func (s *Server) handleConnection(conn net.Conn) {
 		message, err := s.readChunkedMessage(conn)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				logger.Log.Info("Client disconnected", zap.String("address", clientAddr))
+				logger.GetLogger().Info("Client disconnected", zap.String("address", clientAddr))
 				break
 			}
-			logger.Log.Error("Error reading message from client", zap.Error(err))
+
+			logger.GetLogger().Error("Error reading message from client", zap.Error(err))
+
 			break
 		}
 
 		if message == nil {
-			logger.Log.Warn("Received nil message from client")
+			logger.GetLogger().Warn("Received nil message from client")
 			continue
 		}
 
 		if message.Type == common.MessageTypeConnection {
 			_, err := s.MessageController.HandleConnection("", message, &conn)
 			if err != nil {
-				logger.Log.Error("Failed to handle connection", zap.Error(err))
+				logger.GetLogger().Error("Failed to handle connection", zap.Error(err))
 				continue
 			}
 
@@ -42,6 +44,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		}
 
 		userData, _ := s.GetClientFromAddr(conn.RemoteAddr())
+
 		var uuid string
 		if userData != nil {
 			uuid = userData.UUID

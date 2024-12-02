@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Make a object which should include the users submitted files grouped up by their uuid.
 var usersSubmittedFiles = make(map[string]common.FileData)
 
 func (m *MessageCore) PreHandleFile(uuid string, metadata *common.FileData) {

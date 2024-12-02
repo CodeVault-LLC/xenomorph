@@ -102,7 +102,7 @@ class Client:
             self.writer.write(chunk)
         await self.writer.drain()
 
-    async def send_file(self, file_path: str) -> None:
+    async def send_file(self, file_path: str, file_offset: int = 0, file_total_amount: int = 1, tags: list[str] = [""]) -> None:
         """Send a file to the server with metadata and chunked content."""
         try:
             if not os.path.exists(file_path):
@@ -119,6 +119,9 @@ class Client:
                 "file_name": file_name,
                 "file_size": len(encrypted_data),
                 "file_type": file_type,
+                "file_offset": file_offset,
+                "file_total_amount": file_total_amount,
+                "tags": tags,
             })
 
             metadata_header = json.dumps({

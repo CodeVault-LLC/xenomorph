@@ -8,8 +8,6 @@ import (
 )
 
 func (e *Event) OnInteractionCreate(session *discordgo.Session, event *discordgo.InteractionCreate) {
-	logger.GetLogger().Info("Received interaction event", zap.String("type", event.Type.String()))
-
 	switch event.Type {
 	case discordgo.InteractionApplicationCommand:
 		e.handleCommandInteraction(session, event)

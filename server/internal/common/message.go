@@ -27,4 +27,5 @@ type Message struct {
 	Data      string           `json:"data"`
 	Arguments *[]string        `json:"arguments"`
 	JSONData  *json.RawMessage `json:"json_data"`
+	Tags      *[]string        `json:"tags"`
 }

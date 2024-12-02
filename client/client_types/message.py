@@ -18,11 +18,14 @@ class Message:
                  type: MessageType,
                  data: Optional[str] = None,
                  arguments: Optional[List[str]] = None,
-                 json_data: Optional[Any] = None):
+                 json_data: Optional[Any] = None,
+                 tags: Optional[List[str]] = None,
+                 ) -> None:
         self.type: MessageType = type
         self.data: Optional[str] = data
         self.arguments: Optional[List[str]] = arguments
         self.json_data: Optional[Any] = json_data
+        self.tags: Optional[List[str]] = tags
 
     def to_dict(self) -> dict:
         """Convert the Message object to a dictionary for JSON serialization."""
@@ -31,6 +34,7 @@ class Message:
             "data": self.data,
             "arguments": self.arguments,
             "json_data": self.json_data,
+            "tags": self.tags,
         }
 
     def __repr__(self) -> str:
@@ -38,5 +42,6 @@ class Message:
             f"Message(type={self.type}, "
             f"data={self.data}, "
             f"arguments={self.arguments}, "
-            f"json_data={self.json_data})"
+            f"json_data={self.json_data}, "
+            f"tags={self.tags})"
         )

@@ -54,15 +54,13 @@ type FileData struct {
 	FileSize      int64  `json:"file_size"`
 	FileType      string `json:"file_type"`
 
+	FileTotalAmount int64    `json:"file_total_amount"`
+	FileOffset      int64    `json:"file_offset"`
+	Tags            []string `json:"tags"`
+
 	BucketID  string `json:"bucket_id"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
-}
-
-type FileDataChunk struct {
-	ID    string `json:"id"`
-	Chunk []byte `json:"chunk"`
-	End   bool   `json:"end"`
 }
 
 type Header struct {

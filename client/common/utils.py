@@ -41,6 +41,13 @@ def runAsAdmin() -> None:
         except subprocess.CalledProcessError:
             raise PermissionError("User denied request for admin privileges")
 
+def get_external_ip() -> str:
+    """Returns the external IP address of the client"""
+    try:
+        return subprocess.check_output(["curl", "-s", "ifconfig.me"]).decode().strip()
+    except Exception as e:
+        return str(e)
+
 def get_gpu_info() -> str:
     """Returns the GPU information"""
     if os.name == 'nt':

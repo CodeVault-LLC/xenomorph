@@ -1,7 +1,6 @@
 import platform
 import os
 import base64
-import subprocess
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
@@ -31,7 +30,7 @@ class Sec():
       elif system_info == "Linux":
           self._save_key_linux(public_key_pem)
       elif system_info == "Darwin":  # macOS
-          self._save_key_mac(public_key_pem)
+          self._save_key_linux(public_key_pem)
       else:
           raise Exception(f"Unsupported operating system: {system_info}")
 
@@ -65,24 +64,6 @@ class Sec():
             print(f"Failed to save public key to file: {e}")
             raise
 
-    def _save_key_mac(self, public_key_pem):
-        """
-        Save the public key to the macOS Keychain (or fallback to file).
-        """
-        try:
-            keychain_label = "SecureClientPublicKey"
-            # Use macOS security command to store in Keychain
-            process = subprocess.run(
-                ["security", "add-generic-password", "-s", keychain_label, "-a", "SecureClient", "-w", public_key_pem.decode()],
-                check=True,
-                stderr=subprocess.PIPE
-            )
-            print("Public key saved to macOS Keychain.")
-        except subprocess.CalledProcessError:
-            # Fallback to Linux-like file storage
-            print("Keychain storage failed; using file-based storage.")
-            self._save_key_linux(public_key_pem)
-
     def load_public_key(self) -> None:
         """
         Load the server's public key securely based on the operating system.
@@ -95,8 +76,8 @@ class Sec():
                 public_key_pem_bytes = self._load_key_windows()
             elif system_info == "Linux":
                 public_key_pem_bytes = self._load_key_linux()
-            elif system_info == "Darwin":  # macOS
-                public_key_pem_bytes = self._load_key_mac()
+            elif system_info == "Darwin":
+                public_key_pem_bytes = self._load_key_linux()
             else:
                 raise Exception(f"Unsupported operating system: {system_info}")
 
@@ -122,16 +103,6 @@ class Sec():
         file_path = os.path.join(secure_dir, "server_public_key.pem")
         with open(file_path, "rb") as f:
             return f.read()
-
-    def _load_key_mac(self):
-        keychain_label = "SecureClientPublicKey"
-        result = subprocess.run(
-            ["security", "find-generic-password", "-s", keychain_label, "-a", "SecureClient", "-w"],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        return result.stdout.strip()
 
     def encrypt(self, data: str) -> bytes:
         """

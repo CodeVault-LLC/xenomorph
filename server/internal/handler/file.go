@@ -36,7 +36,7 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 		return nil, err
 	}
 
-	if userData == nil {
+		if userData == nil {
 		return nil, fmt.Errorf("user data not found for address: %s", conn.RemoteAddr())
 	}
 

@@ -1,6 +1,7 @@
 module github.com/codevault-llc/xenomorph
 
 go 1.22.5
+toolchain go1.24.1
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.32.5
@@ -37,7 +38,7 @@ require (
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
-	golang.org/x/crypto v0.27.0 // indirect
-	golang.org/x/sys v0.27.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 )

@@ -39,8 +39,11 @@ const (
 func (h Handler) ReadChunkedHeader(conn net.Conn) (*common.Header, error) {
 	headerSizeBuf := make([]byte, headerSize)
 	if _, err := io.ReadFull(conn, headerSizeBuf); err != nil {
+		logger.GetLogger().Error("Failed to read header size", zap.Error(err))
 		return nil, fmt.Errorf("failed to read header size: %w", err)
 	}
+
+	logger.GetLogger().Debug("Header size read", zap.ByteString("size", headerSizeBuf))
 
 	headerSize := int(binary.BigEndian.Uint32(headerSizeBuf))
 

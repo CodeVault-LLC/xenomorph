@@ -15,8 +15,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	clientAddr := conn.RemoteAddr().String()
 
+	logger.GetLogger().Info("Client connected", zap.String("address", clientAddr))
+
 	for {
 		message, err := s.readChunkedMessage(conn)
+		logger.GetLogger().Debug("Received message from client", zap.String("address", clientAddr), zap.Any("message", message))
+		
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				logger.GetLogger().Info("Client disconnected", zap.String("address", clientAddr))
@@ -57,6 +61,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 func (s *Server) readChunkedMessage(conn net.Conn) (*common.Message, error) {
 	header, err := s.Handler.ReadChunkedHeader(conn)
 	if err != nil {
+		logger.GetLogger().Error("Failed to read chunked header", zap.Error(err))
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 

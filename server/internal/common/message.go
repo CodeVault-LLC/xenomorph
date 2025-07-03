@@ -1,31 +1,12 @@
 package common
 
-import "encoding/json"
-
-type MessageType string
-
 const (
-	MessageTypeConnect    MessageType = "connect"
-	MessageTypeHandshake  MessageType = "handshake"
-	MessageTypeAck        MessageType = "ack"
-	MessageTypeInitialize MessageType = "initialize"
-	MessageTypeValidation MessageType = "validation"
+	MsgConnect      byte = 0x01 // Initial connection message
+	MsgRegistration byte = 0x02 // Registration message
 
-	MessageTypeConnection MessageType = "connection"
-
-	MessageTypeCommand MessageType = "command"
-	MessageTypePing    MessageType = "ping"
-
-	// File
-	MessageTypePreFile MessageType = "prefile"
-	MessageTypeFile    MessageType = "file"
+	MsgCommand   byte = 0x03
+	MsgFileStart byte = 0x04
+	MsgFileChunk byte = 0x05
+	MsgFileEnd   byte = 0x06
+	MsgAck       byte = 0x07
 )
-
-// Message represents a message sent between the Bot and the Server.
-type Message struct {
-	Type      MessageType      `json:"type"`
-	Data      string           `json:"data"`
-	Arguments *[]string        `json:"arguments"`
-	JSONData  *json.RawMessage `json:"json_data"`
-	Tags      *[]string        `json:"tags"`
-}

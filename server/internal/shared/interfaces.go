@@ -28,17 +28,18 @@ type ServerController interface {
 }
 
 type MessageController interface {
-	HandleReceiveMessage(uuid string, msg *common.Message, conn *net.Conn)
-	HandleConnection(uuid string, msg *common.Message, conn *net.Conn) (*common.ClientData, error)
+	HandleReceiveMessage(uuid string, msg *common.Command, conn *net.Conn)
+	HandleConnection(uuid string, payload []byte, conn *net.Conn) (*common.ClientData, error)
 	PreHandleFile(uuid string, msg *common.FileData)
-	HandleConnect(uuid string, msg *common.Message, conn *net.Conn) error
+	HandleConnect(uuid string, msg *common.Command, conn *net.Conn) error
 }
 
 type HandlerController interface {
-	ReadChunkedHeader(conn net.Conn) (*common.Header, error)
-	ReadChunkedMessage(conn net.Conn, totalSize int) (*common.Message, error)
-	FileUpload(conn net.Conn, header common.Header) (*common.Message, error)
-	SendMessage(conn net.Conn, msg *common.Message) error
+	ReadMessage(conn net.Conn) (msgType byte, flags byte, msgID uint32, payload []byte, err error)
+	SendMessage(conn net.Conn, msgType byte, flags byte, msgID uint32, payload []byte) error
+	
+	// Shorthand for sending a file upload message
+	FileUpload(conn net.Conn, filename []byte, file []byte) error
 }
 
 type CassandraController interface {
@@ -46,7 +47,7 @@ type CassandraController interface {
 	GetClient(uuid string) (common.ClientData, error)
 	ClientExists(uuid string) (bool, error)
 	RegisterClient(uuid string) (string, error)
-	GetClientEssentials(uuid string) (string, error)
+	GetClientEssentials(uuid string) (string, string, error)
 	InsertFile(uuid string, data common.FileData) error
 	Close()
 }

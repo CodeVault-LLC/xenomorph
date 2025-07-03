@@ -20,6 +20,10 @@ const (
 
 // FileUpload handles the file upload process.
 func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Message, error) {
+	// Regarding a file, we listen normally, but we have to wait for atleast 3 requests. One is going to be the file_start, next is going to be: file_chunk, and the last is going to be file_end.
+	// We want to make sure that 
+
+
 	metadataBuf := make([]byte, header.TotalSize)
 	if _, err := io.ReadFull(conn, metadataBuf); err != nil {
 		return nil, fmt.Errorf("failed to read file metadata: %w", err)
@@ -62,7 +66,7 @@ func (h Handler) FileUpload(conn net.Conn, header common.Header) (*common.Messag
 		uuid = client.UUID
 	}
 
-	privateKey, _ := h.Server.GetCassandra().GetClientEssentials(uuid)
+	_, privateKey, _ := h.Server.GetCassandra().GetClientEssentials(uuid)
 
 	fileData := fileBuf
 	if privateKey != "" {

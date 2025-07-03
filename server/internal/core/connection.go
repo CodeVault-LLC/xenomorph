@@ -1,8 +1,8 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 
@@ -18,8 +18,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 	logger.GetLogger().Info("Client connected", zap.String("address", clientAddr))
 
 	for {
-		message, err := s.readChunkedMessage(conn)
-		logger.GetLogger().Debug("Received message from client", zap.String("address", clientAddr), zap.Any("message", message))
+		msgType, flags, msgID, payload, err := s.Handler.ReadMessage(conn)
+		logger.GetLogger().Debug("Received message from client",
+			zap.String("address", clientAddr),
+			zap.ByteString("payload", payload),
+			zap.Uint8("msgType", msgType),
+			zap.Uint8("flags", flags),
+			zap.Uint32("msgID", msgID),
+		)
 		
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -32,18 +38,63 @@ func (s *Server) handleConnection(conn net.Conn) {
 			break
 		}
 
-		if message == nil {
-			logger.GetLogger().Warn("Received nil message from client")
+		if msgType == 0 {
+			logger.GetLogger().Error("Received empty message from client", zap.String("address", clientAddr))
 			continue
 		}
 
-		if message.Type == common.MessageTypeConnection {
-			_, err := s.MessageController.HandleConnection("", message, &conn)
+		// Handle registration
+		if msgType == common.MsgConnect {
+			if len(payload) == 0 {
+				logger.GetLogger().Error("Received empty payload for MsgConnect", zap.String("address", clientAddr))
+				continue
+			}
+
+			if len(payload) != 36 {
+				logger.GetLogger().Error("Received invalid UUID length for MsgConnect", zap.String("address", clientAddr), zap.Int("length", len(payload)))
+				continue
+			}
+
+			// Check if the client is already registered
+			s.mu.Lock()
+			if _, exists := s.Clients[string(payload)]; exists {
+				s.mu.Unlock()
+				logger.GetLogger().Info("Client already registered", zap.String("uuid", string(payload)), zap.String("address", clientAddr))
+				continue
+			}
+			s.mu.Unlock()
+
+			// Register the client
+			data := &common.ClientListData{
+				UUID:     string(payload),
+				Addr:     conn.RemoteAddr(),
+				Socket: conn,
+			}
+
+			registeredData, publicKey, err := s.RegisterClient(string(payload), data)
+			if err != nil {
+				logger.GetLogger().Error("Failed to register client", zap.Error(err), zap.String("address", clientAddr))
+				continue
+			}
+
+				
+		}
+
+		if msgType == common.MsgRegistration {
+			_, err := s.MessageController.HandleConnection("", payload, &conn)
 			if err != nil {
 				logger.GetLogger().Error("Failed to handle connection", zap.Error(err))
 				continue
 			}
 
+			continue
+		}
+
+		// parse the payload into a command
+		command := &common.Command{}
+		err = json.Unmarshal(payload, command)
+		if err != nil {
+			logger.GetLogger().Error("Failed to unmarshal command", zap.Error(err), zap.ByteString("payload", payload))
 			continue
 		}
 
@@ -54,35 +105,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 			uuid = userData.UUID
 		}
 
-		s.MessageController.HandleReceiveMessage(uuid, message, &conn)
-	}
-}
-
-func (s *Server) readChunkedMessage(conn net.Conn) (*common.Message, error) {
-	header, err := s.Handler.ReadChunkedHeader(conn)
-	if err != nil {
-		logger.GetLogger().Error("Failed to read chunked header", zap.Error(err))
-		return nil, fmt.Errorf("failed to read header: %w", err)
-	}
-
-	switch header.Type {
-	case "JSON":
-		msg, err := s.Handler.ReadChunkedMessage(conn, header.TotalSize)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read message: %w", err)
-		}
-
-		return msg, nil
-
-	case "FILE":
-		file, err := s.Handler.FileUpload(conn, *header)
-		if err != nil {
-			return nil, fmt.Errorf("failed to upload file: %w", err)
-		}
-
-		return file, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported message type: %s", header.Type)
+		s.MessageController.HandleReceiveMessage(uuid, command, &conn)
 	}
 }

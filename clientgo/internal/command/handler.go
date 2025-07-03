@@ -1,37 +1,38 @@
 package command
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 
-	"github.com/codevault-llc/xenomorph-client/internal/protocol"
 	"github.com/codevault-llc/xenomorph-client/pkg/logger"
+	"github.com/codevault-llc/xenomorph-client/pkg/types"
 	"go.uber.org/zap"
 )
 
-
 type CommandHandler interface {
-	AddCommand(cmd string, handler func(msg protocol.Message)) error
-	Handle(msg protocol.Message)
+	AddCommand(cmd string, handler func(conn net.Conn, msgID uint32, command types.Command)) error
+	Handle(conn net.Conn, msgID uint32, payload []byte)
 }
 
 type SimpleHandler struct {
 	mu       sync.RWMutex
-	commands map[string]func(msg protocol.Message)
+	commands map[string]func(conn net.Conn, msgID uint32, command types.Command)
 }
 
 var commandHandler CommandHandler
 
 func NewHandler() CommandHandler {
 	commandHandler = &SimpleHandler{
-		commands: make(map[string]func(msg protocol.Message)),
+		commands: make(map[string]func(conn net.Conn, msgID uint32, command types.Command)),
 	}
 
 	return commandHandler
 }
 
-func (h *SimpleHandler) AddCommand(cmd string, handler func(msg protocol.Message)) error {
+func (h *SimpleHandler) AddCommand(cmd string, handler func(conn net.Conn, msgID uint32, command types.Command)) error {
 	cmd = strings.TrimSpace(strings.ToLower(cmd))
 
 	if cmd == "" {
@@ -56,19 +57,43 @@ func (h *SimpleHandler) AddCommand(cmd string, handler func(msg protocol.Message
 	return nil
 }
 
-func (h *SimpleHandler) Handle(msg protocol.Message) {
-	logger.GetLogger().Info("Received message", zap.String("type", msg.Type), zap.Any("data", msg.JSONData))
-
-	h.mu.RLock()
-	handler, exists := h.commands[strings.ToLower(msg.Type)]
-	h.mu.RUnlock()
-
-	if !exists {
-		logger.GetLogger().Warn("No handler for command", zap.String("type", msg.Type))
+func (h *SimpleHandler) Handle(conn net.Conn, msgID uint32, payload []byte) {
+	if conn == nil {
+		logger.GetLogger().Error("Connection is nil, cannot handle command")
 		return
 	}
 
-	handler(msg)
+	msg, err := h.parseCommand(payload)
+	if err != nil {
+		logger.GetLogger().Error("Failed to parse command", zap.Error(err))
+		return
+	}
+
+	h.mu.RLock()
+	handler, exists := h.commands[strings.ToLower(msg.Name)]
+	h.mu.RUnlock()
+
+	if !exists {
+		logger.GetLogger().Error("Command handler not found", zap.String("command", msg.Name))
+		return
+	}
+
+	handler(conn, msgID, *msg)
+}
+
+func (h *SimpleHandler) parseCommand(payload []byte) (*types.Command, error) {
+	var cmd types.Command
+	if err := json.Unmarshal(payload, &cmd); err != nil {
+		logger.GetLogger().Error("Failed to parse command", zap.Error(err))
+		return nil, fmt.Errorf("failed to parse command: %w", err)
+	}
+
+	if cmd.Name == "" {
+		logger.GetLogger().Error("Command name is empty")
+		return nil, fmt.Errorf("command name cannot be empty")
+	}
+
+	return &cmd, nil
 }
 
 func GetHandler() CommandHandler{

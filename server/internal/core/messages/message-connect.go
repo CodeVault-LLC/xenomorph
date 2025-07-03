@@ -9,8 +9,8 @@ import (
 	"go.uber.org/zap"
 )
 
-func (m *MessageCore) HandleConnect(_ string, msg *common.Message, conn *net.Conn) error {
-	dataBytes, err := json.Marshal(msg.JSONData)
+func (m *MessageCore) HandleConnect(_ string, msg *common.Command, conn *net.Conn) error {
+	dataBytes, err := json.Marshal(msg.Name)
 	if err != nil {
 		logger.GetLogger().Error("Failed to marshal data to JSON", zap.Error(err))
 		return err
@@ -46,12 +46,7 @@ func (m *MessageCore) HandleConnect(_ string, msg *common.Message, conn *net.Con
 		return err
 	}
 
-	// Send a ack to the client
-	ack := common.Message{
-		Type: common.MessageTypeAck,
-	}
-
-	err = m.Server.GetHandler().SendMessage(*conn, &ack)
+	err = m.Server.GetHandler().SendMessage(*conn, common.MsgAck, &ack)
 	if err != nil {
 		logger.GetLogger().Error("Failed to send ack message", zap.Error(err))
 		return err

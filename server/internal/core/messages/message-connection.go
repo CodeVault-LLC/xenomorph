@@ -10,8 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
-func (m *MessageCore) HandleConnection(_ string, msg *common.Message, conn *net.Conn) (*common.ClientData, error) {
-	dataBytes, err := json.Marshal(msg.JSONData)
+func (m *MessageCore) HandleConnection(_ string, payload []byte, conn *net.Conn) (*common.ClientData, error) {
+	dataBytes, err := json.Marshal(payload)
 	if err != nil {
 		logger.GetLogger().Error("Failed to marshal data to JSON", zap.Error(err))
 		return nil, err

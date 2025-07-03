@@ -128,3 +128,53 @@ func RSADecryptBytes(privateKey string, cipherText []byte) ([]byte, error) {
 
 	return plaintext, nil
 }
+
+func RSAEncryptBytes(publicKey string, message []byte) ([]byte, error) {
+	publicKeyPEM, err := base64.StdEncoding.DecodeString(publicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode public key: %v", err)
+	}
+
+	block, _ := pem.Decode(publicKeyPEM)
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse PEM block containing the public key")
+	}
+
+	publicKeyParsed, err := x509.ParsePKCS1PublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse public key: %v", err)
+	}
+
+	// Generate a random AES key
+	aesKey := make([]byte, 32) // AES-256
+	if _, err := rand.Read(aesKey); err != nil {
+		return nil, fmt.Errorf("failed to generate AES key: %v", err)
+	}
+
+	// Encrypt the message using AES
+	blockA, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
+	}
+
+	ciphertext := make([]byte, len(message))
+	iv := make([]byte, aes.BlockSize)
+	if _, err := rand.Read(iv); err != nil {
+		return nil, fmt.Errorf("failed to generate IV: %v", err)
+	}
+
+	stream := cipher.NewCFBEncrypter(blockA, iv)
+	stream.XORKeyStream(ciphertext, message)
+
+	// Encrypt the AES key using RSA
+	encryptedAESKey, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKeyParsed, aesKey, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt AES key: %v", err)
+	}
+
+	// Combine the encrypted AES key and the ciphertext
+	result := append(encryptedAESKey, iv...)
+	result = append(result, ciphertext...)
+
+	return result, nil
+}

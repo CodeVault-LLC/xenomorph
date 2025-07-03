@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (m *MessageCore) handleCommand(_ string, msg *common.Message, conn *net.Conn) {
+func (m *MessageCore) handleCommand(_ string, msg *common.Command, conn *net.Conn) {
 	client, err := m.Server.GetClientFromAddr((*conn).RemoteAddr())
 	if err != nil {
 		logger.GetLogger().Error("Failed to get client data", zap.Error(err))
@@ -21,7 +21,7 @@ func (m *MessageCore) handleCommand(_ string, msg *common.Message, conn *net.Con
 		return
 	}
 
-	err = m.Bot.SendMessageToChannel(mainChannel, string(*msg.JSONData))
+	err = m.Bot.SendMessageToChannel(mainChannel, string(*msg.))
 	if err != nil {
 		logger.GetLogger().Error("Failed to send command message to channel", zap.Error(err))
 		return

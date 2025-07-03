@@ -4,53 +4,65 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
-	"io"
 )
 
 type Sec struct {
-	key []byte // AES-256 key
+	aesgcm cipher.AEAD
+	active bool
 }
 
 func New() *Sec {
-	key := make([]byte, 32) // 256 bits
-	_, _ = rand.Read(key)
-	return &Sec{key: key}
+	return &Sec{active: false}
+}
+
+// InitFromRawKey is used when server provides a symmetric key (e.g., via handshake)
+func (s *Sec) InitFromRawKey(raw []byte) error {
+	hash := sha256.Sum256(raw) // hash to ensure 32 bytes
+	block, err := aes.NewCipher(hash[:])
+	if err != nil {
+		return err
+	}
+
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+
+	s.aesgcm = aesgcm
+	s.active = true
+	return nil
+}
+
+func (s *Sec) IsActive() bool {
+	return s.active
 }
 
 func (s *Sec) Encrypt(data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(s.key)
-	if err != nil {
-		return nil, err
+	if !s.active {
+		return data, nil // pass-through if not active
 	}
 
-	ciphertext := make([]byte, aes.BlockSize+len(data))
-	iv := ciphertext[:aes.BlockSize]
+	nonce := make([]byte, s.aesgcm.NonceSize())
+	_, _ = rand.Read(nonce)
 
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, err
-	}
-
-	stream := cipher.NewCFBEncrypter(block, iv)
-	stream.XORKeyStream(ciphertext[aes.BlockSize:], data)
-
-	return ciphertext, nil
+	ciphertext := s.aesgcm.Seal(nil, nonce, data, nil)
+	return append(nonce, ciphertext...), nil
 }
 
 func (s *Sec) Decrypt(data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(s.key)
-	if err != nil {
-		return nil, err
+	if !s.active {
+		return data, nil // pass-through if not active
 	}
 
-	if len(data) < aes.BlockSize {
+	nonceSize := s.aesgcm.NonceSize()
+	if len(data) < nonceSize {
 		return nil, errors.New("ciphertext too short")
 	}
 
-	iv := data[:aes.BlockSize]
-	data = data[aes.BlockSize:]
-	stream := cipher.NewCFBDecrypter(block, iv)
-	stream.XORKeyStream(data, data)
-	
-	return data, nil
+	nonce := data[:nonceSize]
+	ciphertext := data[nonceSize:]
+
+	return s.aesgcm.Open(nil, nonce, ciphertext, nil)
 }

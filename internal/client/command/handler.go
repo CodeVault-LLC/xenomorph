@@ -3,7 +3,6 @@ package command
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"strings"
 	"sync"
 
@@ -13,26 +12,26 @@ import (
 )
 
 type CommandHandler interface {
-	AddCommand(cmd string, handler func(conn net.Conn, msgID uint32, command types.Command)) error
-	Handle(conn net.Conn, msgID uint32, payload []byte)
+	AddCommand(cmd string, handler func(client types.ClientController, msgID uint32, command types.Command)) error
+	Handle(client types.ClientController, msgID uint32, payload []byte)
 }
 
 type SimpleHandler struct {
 	mu       sync.RWMutex
-	commands map[string]func(conn net.Conn, msgID uint32, command types.Command)
+	commands map[string]func(client types.ClientController, msgID uint32, command types.Command)
 }
 
 var commandHandler CommandHandler
 
 func NewHandler() CommandHandler {
 	commandHandler = &SimpleHandler{
-		commands: make(map[string]func(conn net.Conn, msgID uint32, command types.Command)),
+		commands: make(map[string]func(client types.ClientController, msgID uint32, command types.Command)),
 	}
 
 	return commandHandler
 }
 
-func (h *SimpleHandler) AddCommand(cmd string, handler func(conn net.Conn, msgID uint32, command types.Command)) error {
+func (h *SimpleHandler) AddCommand(cmd string, handler func(client types.ClientController, msgID uint32, command types.Command)) error {
 	cmd = strings.TrimSpace(strings.ToLower(cmd))
 
 	if cmd == "" {
@@ -57,8 +56,8 @@ func (h *SimpleHandler) AddCommand(cmd string, handler func(conn net.Conn, msgID
 	return nil
 }
 
-func (h *SimpleHandler) Handle(conn net.Conn, msgID uint32, payload []byte) {
-	if conn == nil {
+func (h *SimpleHandler) Handle(client types.ClientController, msgID uint32, payload []byte) {
+	if client == nil {
 		logger.L().Error("Connection is nil, cannot handle command")
 		return
 	}
@@ -78,7 +77,7 @@ func (h *SimpleHandler) Handle(conn net.Conn, msgID uint32, payload []byte) {
 		return
 	}
 
-	handler(conn, msgID, *msg)
+	handler(client, msgID, *msg)
 }
 
 func (h *SimpleHandler) parseCommand(payload []byte) (*types.Command, error) {

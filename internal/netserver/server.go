@@ -21,8 +21,9 @@ type Server struct {
 
 func NewServer(addr string, port string) *Server {
 	database.NewClickhouse()
-	
-	botInstance, err := bot.NewBot(config.ConfigInstance.DiscordToken)
+	registry := NewRegistry()
+
+	botInstance, err := bot.NewBot(config.ConfigInstance.DiscordToken, registry)
 	if err != nil {
 		panic("Failed to initialize bot: " + err.Error())
 	}
@@ -38,7 +39,7 @@ func NewServer(addr string, port string) *Server {
 	return &Server{
 		Addr:     addr,
 		Port:     port,
-		Registry: NewRegistry(),
+		Registry: registry,
 		Bot:      botInstance,
 	}
 }

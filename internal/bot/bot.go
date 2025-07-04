@@ -5,36 +5,40 @@ import (
 	"github.com/codevault-llc/xenomorph/internal/bot/events"
 	"github.com/codevault-llc/xenomorph/internal/config"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
+	"github.com/codevault-llc/xenomorph/pkg/types"
 	"go.uber.org/zap"
 )
 
 var _ logger.BotNotifier = (*Bot)(nil)
 
 type Bot struct {
-	Session *discordgo.Session
+	DCSession *discordgo.Session
 	Events  *events.Event
+
+	Registry types.RegistryController
 }
 
 var botInstance *Bot
 
 // NewBot initializes the bot with a reference to the server through the handler.
-func NewBot(token string) (*Bot, error) {
-	session, err := discordgo.New("Bot " + token)
+func NewBot(token string, registry types.RegistryController) (*Bot, error) {
+	discord_session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		logger.L().Error("Failed to create Discord session", zap.Error(err))
 		return nil, err
 	}
 
-	session.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildIntegrations | discordgo.IntentsGuildWebhooks | discordgo.IntentsGuildInvites | discordgo.IntentsGuildVoiceStates | discordgo.IntentsGuildPresences | discordgo.IntentsGuildMessageTyping | discordgo.IntentsDirectMessages | discordgo.IntentsDirectMessageReactions | discordgo.IntentsDirectMessageTyping
-	eventHandlers := events.NewEvent(session)
+	discord_session.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildIntegrations | discordgo.IntentsGuildWebhooks | discordgo.IntentsGuildInvites | discordgo.IntentsGuildVoiceStates | discordgo.IntentsGuildPresences | discordgo.IntentsGuildMessageTyping | discordgo.IntentsDirectMessages | discordgo.IntentsDirectMessageReactions | discordgo.IntentsDirectMessageTyping
+	eventHandlers := events.NewEvent(discord_session, registry)
 
 	bot := &Bot{
-		Session: session,
+		DCSession: discord_session,
 		Events:  eventHandlers,
+		Registry: registry,
 	}
 
-	session.AddHandler(eventHandlers.OnReady)
-	session.AddHandler(eventHandlers.OnInteractionCreate)
+	discord_session.AddHandler(eventHandlers.OnReady)
+	discord_session.AddHandler(eventHandlers.OnInteractionCreate)
 
 	botInstance = bot
 
@@ -43,7 +47,7 @@ func NewBot(token string) (*Bot, error) {
 
 // SendMessageToChannel allows the server to send messages to a Discord channel.
 func (b *Bot) SendMessageToChannel(channelID, message string) error {
-	_, err := b.Session.ChannelMessageSend(channelID, message)
+	_, err := b.DCSession.ChannelMessageSend(channelID, message)
 	if err != nil {
 		logger.L().Error("Failed to send message to Discord channel", zap.String("channel_id", channelID), zap.Error(err))
 	}
@@ -51,8 +55,17 @@ func (b *Bot) SendMessageToChannel(channelID, message string) error {
 	return err
 }
 
+func (b *Bot) RemoveMessageFromChannel(channelID, messageID string) error {
+	err := b.DCSession.ChannelMessageDelete(channelID, messageID)
+	if err != nil {
+		logger.L().Error("Failed to delete message from Discord channel", zap.String("channel_id", channelID), zap.String("message_id", messageID), zap.Error(err))
+	}
+
+	return err
+}
+
 func (b *Bot) SendEmbedToChannel(channelID, _ string, embed *discordgo.MessageEmbed) error {
-	_, err := b.Session.ChannelMessageSendEmbed(channelID, embed)
+	_, err := b.DCSession.ChannelMessageSendEmbed(channelID, embed)
 	if err != nil {
 		logger.L().Error("Failed to send embed to Discord channel", zap.String("channel_id", channelID), zap.Error(err))
 	}
@@ -81,7 +94,7 @@ func (b *Bot) GenerateUser(uuid string) error {
 		Type: discordgo.ChannelTypeGuildText,
 	}
 
-	categoryOutput, err := b.Session.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *category)
+	categoryOutput, err := b.DCSession.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *category)
 
 	if err != nil {
 		logger.L().Error("Failed to create category", zap.Error(err))
@@ -89,7 +102,7 @@ func (b *Bot) GenerateUser(uuid string) error {
 	}
 
 	mainTextChannel.ParentID = categoryOutput.ID
-	_, err = b.Session.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *mainTextChannel)
+	_, err = b.DCSession.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *mainTextChannel)
 
 	if err != nil {
 		logger.L().Error("Failed to create channel", zap.Error(err))
@@ -97,7 +110,7 @@ func (b *Bot) GenerateUser(uuid string) error {
 	}
 
 	infoTextChannel.ParentID = categoryOutput.ID
-	_, err = b.Session.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *infoTextChannel)
+	_, err = b.DCSession.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *infoTextChannel)
 
 	if err != nil {
 		logger.L().Error("Failed to create channel", zap.Error(err))
@@ -108,7 +121,7 @@ func (b *Bot) GenerateUser(uuid string) error {
 }
 
 func (b *Bot) GetCategoryID(uuid string) string {
-	for _, guild := range b.Session.State.Guilds {
+	for _, guild := range b.DCSession.State.Guilds {
 		for _, channel := range guild.Channels {
 			if channel.Type == discordgo.ChannelTypeGuildCategory && channel.Name == uuid {
 				return channel.ID
@@ -122,13 +135,13 @@ func (b *Bot) GetCategoryID(uuid string) string {
 func (b *Bot) GetChannelFromUser(uuid string, channelName string) string {
 	logger := logger.L()
 
-	for _, guild := range b.Session.State.Guilds {
+	for _, guild := range b.DCSession.State.Guilds {
 		for _, channel := range guild.Channels {
 			if channel.ParentID == "" {
 				continue
 			}
 
-			parentChannel, err := b.Session.Channel(channel.ParentID)
+			parentChannel, err := b.DCSession.Channel(channel.ParentID)
 			if err != nil {
 				logger.Error("Failed to get parent channel", zap.Error(err))
 				continue
@@ -146,7 +159,7 @@ func (b *Bot) GetChannelFromUser(uuid string, channelName string) string {
 }
 
 func (b *Bot) GetChannelFromName(channelName string) string {
-	for _, guild := range b.Session.State.Guilds {
+	for _, guild := range b.DCSession.State.Guilds {
 		for _, channel := range guild.Channels {
 			if channel.Name == channelName {
 				return channel.ID
@@ -221,13 +234,13 @@ func (b *Bot) CleanupCommands(session *discordgo.Session) error {
 }
 
 func (b *Bot) Run() error {
-	err := b.Session.Open()
+	err := b.DCSession.Open()
 	if err != nil {
 		logger.L().Error("Failed to open Discord session", zap.Error(err))
 		return err
 	}
 
-	err = b.CleanupCommands(b.Session)
+	err = b.CleanupCommands(b.DCSession)
 	if err != nil {
 		logger.L().Error("Failed to cleanup commands", zap.Error(err))
 		return err
@@ -235,7 +248,7 @@ func (b *Bot) Run() error {
 
 	isProduction := config.ConfigInstance.AppEnv == "production"
 
-	err = b.RegisterCommands(b.Session, config.ConfigInstance.DiscordGuild, isProduction)
+	err = b.RegisterCommands(b.DCSession, config.ConfigInstance.DiscordGuild, isProduction)
 	if err != nil {
 		logger.L().Error("Failed to register commands", zap.Error(err))
 		return err
@@ -245,8 +258,8 @@ func (b *Bot) Run() error {
 }
 
 func (b *Bot) Close() error {
-	if b.Session != nil {
-		err := b.Session.Close()
+	if b.DCSession != nil {
+		err := b.DCSession.Close()
 		if err != nil {
 			logger.L().Error("Failed to close Discord session", zap.Error(err))
 			return err

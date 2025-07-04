@@ -92,7 +92,7 @@ func (c *Client) Run() error {
 		}
 
 		if msgType == types.MsgCommand {
-			c.Handler.Handle(c.Conn, msgID, payload)
+			c.Handler.Handle(c, msgID, payload)
 		}
 	}
 }

@@ -4,4 +4,5 @@ package command
 func InitCommands() {
 	initLsCommand()
 	initTerminalCommand()
+	initDownloadCommand()
 }

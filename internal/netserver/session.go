@@ -53,6 +53,21 @@ func (s *Session) Handle() error {
 		msgType, _, msgID, payload, err := s.Read()
 		if err != nil {
 			logger.L().Error("Failed to read message", zap.Error(err))
+
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				logger.L().Info("Connection closed by client", zap.String("address", s.Addr))
+				s.registry.Unregister(s.ID)
+				s.Conn.Close()
+				return nil
+			}
+
+			if netErr, ok := err.(net.Error); ok && netErr.Temporary() {
+				logger.L().Warn("Temporary error reading message", zap.Error(err), zap.String("address", s.Addr))
+				continue
+			}
+
+			logger.L().Error("Error reading message", zap.Error(err), zap.String("address", s.Addr))
+
 			return err
 		}
 
@@ -159,6 +174,13 @@ func (s *Session) Handle() error {
 
 			channel := bot.GetBot().GetChannelFromUser(s.ID, "info")
 			bot.GetBot().SendEmbedToChannel(channel, "", embeds.CommandResponseEmbed(&response, duration))
+
+		case types.MsgFileStart:
+
+		case types.MsgFileChunk:
+		
+		case types.MsgFileEnd:
+			
 
 		default:
 			logger.L().Warn("Unknown message type", zap.Uint8("type", msgType))

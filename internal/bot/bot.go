@@ -196,6 +196,18 @@ func (b *Bot) RegisterCommands(session *discordgo.Session, guildID string, isPro
 				},
 			},
 		},
+		{
+			Name: 			"download",
+			Description: 	"Download a file from the server.",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "file",
+					Description: "The file to download.",
+					Required:    true,
+				},
+			},
+		},
 	}
 
 	for _, cmd := range commands {

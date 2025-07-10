@@ -82,6 +82,11 @@ func (c *Client) Run() error {
 	for {
 		msgType, _, msgID, payload, err := c.Read()
 		if err != nil {
+			if netErr, ok := err.(net.Error); ok && (netErr.Timeout() || netErr.Temporary()) {
+				logger.L().Info("Connection closed by server or client", zap.Error(err))
+				return nil
+			}
+
 			logger.L().Error("Failed to read message", zap.Error(err))
 			continue
 		}

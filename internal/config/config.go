@@ -12,6 +12,8 @@ type Config struct {
 	DiscordGuild string
 	ServerPort   string
 	AppEnv       string
+
+	EnablePprof bool
 }
 
 var ConfigInstance *Config
@@ -27,6 +29,8 @@ func LoadConfig() (*Config, error) {
 	port := os.Getenv("SERVER_PORT")
 	appEnv := os.Getenv("APP_ENV")
 
+	enablePprof := os.Getenv("ENABLE_PPROF")
+
 	if token == "" || port == "" {
 		return nil, fmt.Errorf("missing configuration values")
 	}
@@ -36,6 +40,8 @@ func LoadConfig() (*Config, error) {
 		DiscordGuild: guild,
 		ServerPort:   port,
 		AppEnv:       appEnv,
+
+		EnablePprof: enablePprof == "true",
 	}
 
 	return ConfigInstance, nil

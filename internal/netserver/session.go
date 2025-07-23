@@ -62,8 +62,8 @@ func (s *Session) Handle() error {
 				return nil
 			}
 
-			if netErr, ok := err.(net.Error); ok && netErr.Temporary() {
-				logger.L().Warn("Temporary error reading message", zap.Error(err), zap.String("address", s.Addr))
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				logger.L().Warn("Timeout error reading message", zap.Error(err), zap.String("address", s.Addr))
 				continue
 			}
 

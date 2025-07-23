@@ -1,23 +1,22 @@
 package embeds
 
-/*
 import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/codevault-llc/xenomorph/internal/common"
+	"github.com/codevault-llc/xenomorph/pkg/types"
 )
 
 const (
 	FileColor = 0x1E3E62
 )
 
-func FileEmbed(data *common.FileData, _ *common.Message) discordgo.MessageEmbed {
+func FileEmbed(data *types.File) discordgo.MessageEmbed {
 	var fileSize uint64
-	if data.FileSize < 0 {
+	if data.Size < 0 {
 		fileSize = 0
 	} else {
-		fileSize = uint64(data.FileSize)
+		fileSize = uint64(data.Size)
 	}
 
 	messageEmbed := discordgo.MessageEmbed{
@@ -26,7 +25,7 @@ func FileEmbed(data *common.FileData, _ *common.Message) discordgo.MessageEmbed 
 			{
 				Name: "__**File Info**__",
 				Value: Codeblock(DisplayFieldList([]Field{
-					{Name: "File Name", Value: data.FileName},
+					{Name: "File Name", Value: data.Name},
 					{Name: "File Size", Value: strconv.FormatUint(fileSize, 10)},
 					{Name: "File Type", Value: data.FileType},
 				})),
@@ -37,4 +36,3 @@ func FileEmbed(data *common.FileData, _ *common.Message) discordgo.MessageEmbed 
 
 	return messageEmbed
 }
-*/

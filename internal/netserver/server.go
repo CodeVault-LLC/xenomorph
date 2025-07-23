@@ -21,7 +21,7 @@ type Server struct {
 
 func NewServer(addr string, port string) *Server {
 	database.NewClickhouse()
-	registry := NewRegistry()
+	registry := NewRegistry() 
 
 	botInstance, err := bot.NewBot(config.ConfigInstance.DiscordToken, registry)
 	if err != nil {

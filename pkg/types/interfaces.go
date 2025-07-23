@@ -11,9 +11,9 @@ type SessionController interface {
 // RegistryController defines methods that the Bot can call on the Registry.
 type RegistryController interface {
 	Get(id string) (*SessionController, error)
-	GetCommand(id string) (CommandData, error)
-	StoreCommand(id string, cmd CommandData)
-	DeleteCommand(id string)
+	GetCommand(id uint32) (CommandData, error)
+	StoreCommand(id uint32, cmd CommandData)
+	DeleteCommand(id uint32)
 }
 	
 type ClientController interface {

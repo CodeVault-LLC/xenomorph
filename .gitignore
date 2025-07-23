@@ -8,3 +8,6 @@
 *.env
 
 /server/logs
+logs
+xenomorph.exe
+uploads

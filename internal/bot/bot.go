@@ -1,6 +1,9 @@
 package bot
 
 import (
+	"os"
+	"strings"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/codevault-llc/xenomorph/internal/bot/events"
 	"github.com/codevault-llc/xenomorph/internal/config"
@@ -70,6 +73,29 @@ func (b *Bot) SendEmbedToChannel(channelID, _ string, embed *discordgo.MessageEm
 		logger.L().Error("Failed to send embed to Discord channel", zap.String("channel_id", channelID), zap.Error(err))
 	}
 
+	return err
+}
+
+func (b *Bot) SendFileToChannel(channelID, filePath string) error {
+	reader, err := os.Open(filePath)
+	if err != nil {
+		logger.L().Error("Failed to open file for sending", zap.String("file_path", filePath), zap.Error(err))
+		return err
+	}
+	defer reader.Close()
+
+	nameParts := strings.Split(string(filePath), "/")
+	var name string
+	if len(nameParts) > 0 {
+		name = nameParts[len(nameParts)-1]
+	} else {
+		name = filePath
+	}
+
+	_, err = b.DCSession.ChannelFileSend(channelID, name, reader)
+	if err != nil {
+		logger.L().Error("Failed to send file to Discord channel", zap.String("channel_id", channelID), zap.String("file_path", filePath), zap.Error(err))
+	}
 	return err
 }
 

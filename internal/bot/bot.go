@@ -120,6 +120,12 @@ func (b *Bot) GenerateUser(uuid string) error {
 		Type: discordgo.ChannelTypeGuildText,
 	}
 
+	dumpsTextChannel := &discordgo.GuildChannelCreateData{
+		Name: "dumps",
+		Type: discordgo.ChannelTypeGuildText,
+		Topic: "This channel is for centralized dumps of files and data.",
+	}
+
 	categoryOutput, err := b.DCSession.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *category)
 
 	if err != nil {
@@ -130,6 +136,13 @@ func (b *Bot) GenerateUser(uuid string) error {
 	mainTextChannel.ParentID = categoryOutput.ID
 	_, err = b.DCSession.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *mainTextChannel)
 
+	if err != nil {
+		logger.L().Error("Failed to create channel", zap.Error(err))
+		return err
+	}
+
+	dumpsTextChannel.ParentID = categoryOutput.ID
+	_, err = b.DCSession.GuildChannelCreateComplex(config.ConfigInstance.DiscordGuild, *dumpsTextChannel)
 	if err != nil {
 		logger.L().Error("Failed to create channel", zap.Error(err))
 		return err

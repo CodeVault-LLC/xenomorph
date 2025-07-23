@@ -29,4 +29,7 @@ const (
 	MsgPing byte = 0x010 // Ping message to keep the connection alive
 	// Pong message, used to respond to a ping
 	MsgPong byte = 0x011 // Pong message to respond to a ping
+
+	// Disconnect message, used to notify the server of a disconnect
+	MsgDisconnect byte = 0x012 // Disconnect message, used to notify the server of a disconnect
 )

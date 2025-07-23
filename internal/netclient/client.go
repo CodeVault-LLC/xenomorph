@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"time"
 
 	"github.com/codevault-llc/xenomorph/internal/netclient/command"
@@ -66,7 +67,6 @@ func (c *Client) Run() error {
 	c.ExpectAckOrHandshake()
 
 	go c.keepAlive()
-
 	
 	info := system.Info()
 	infoBytes, err := json.Marshal(info)
@@ -256,6 +256,27 @@ func (c *Client) keepAlive() {
 			return
 		}
 	}
+}
+
+// SendDisconnect sends a disconnect message to the server with the specified reason.
+// It uses the MsgDisconnect message type defined in the types package.
+func (c *Client) SendDisconnect(reason types.ShutdownReason, uptime time.Duration) {
+	hostname, _ := os.Hostname()
+
+	payload := types.DisconnectData{
+		Reason:   reason.String(),
+		Uptime:   uptime.String(),
+		TS:       time.Now().Format(time.RFC3339),
+		Hostname: hostname,
+		Level:  reason.String(), 
+		Message:  fmt.Sprintf("Client disconnected: %s", reason.String()),
+		Error:    "", // Optional error details can be added here if needed
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+
+	c.Send(types.MsgDisconnect, 0, 0, payloadBytes)
+	logger.L().Info("Sent disconnect message", zap.String("reason", reason.String()), zap.String("uptime", uptime.String()), zap.String("hostname", hostname))
 }
 
 // Close closes the client connection and stops the keep-alive routine.

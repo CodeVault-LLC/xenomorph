@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/codevault-llc/xenomorph/internal/bot/embeds"
 	"github.com/codevault-llc/xenomorph/internal/secure"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
+	"github.com/codevault-llc/xenomorph/pkg/server"
 	"github.com/codevault-llc/xenomorph/pkg/types"
 	"github.com/codevault-llc/xenomorph/pkg/utils"
 	"go.uber.org/zap"
@@ -39,9 +41,7 @@ func NewSession(conn net.Conn, registry *Registry) *Session {
 
 func (s *Session) Handle() error {
 	defer func() {
-    logger.L().Info("Client disconnected", zap.String("id", s.ID), zap.String("addr", s.Addr))
-    s.registry.Unregister(s.ID)
-    s.Conn.Close()
+		s.cleanup()
 
 		if r := recover(); r != nil {
 			logger.L().Error("Session handling panic", zap.Any("recover", r), zap.String("id", s.ID), zap.String("addr", s.Addr))
@@ -53,22 +53,12 @@ func (s *Session) Handle() error {
 	for {
 		msgType, _, msgID, payload, err := s.Read()
 		if err != nil {
-			logger.L().Error("Failed to read message", zap.Error(err))
-
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				logger.L().Info("Connection closed by client", zap.String("address", s.Addr))
-				s.registry.Unregister(s.ID)
-				s.Conn.Close()
+			if err == io.EOF || server.IsConnectionReset(err) {
+				logger.L().Debug("Client disconnected gracefully", zap.String("id", s.ID), zap.String("addr", s.Addr))
 				return nil
 			}
 
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				logger.L().Warn("Timeout error reading message", zap.Error(err), zap.String("address", s.Addr))
-				continue
-			}
-
-			logger.L().Error("Error reading message", zap.Error(err), zap.String("address", s.Addr))
-
+			logger.L().Error("Unexpected error reading message", zap.Error(err), zap.String("id", s.ID), zap.String("addr", s.Addr))
 			return err
 		}
 
@@ -302,6 +292,26 @@ func (s *Session) Handle() error {
 
 			s.Send(types.MsgAck, 0, msgID, []byte("File upload completed"))
 
+		case types.MsgDisconnect:
+			logger.L().Info("Received disconnect message", zap.ByteString("payload", payload))
+			if len(payload) == 0 {
+				logger.L().Error("Received empty payload for MsgDisconnect", zap.String("address", s.Addr))
+				continue
+			}
+
+			var disconnectData types.DisconnectData
+			if err := json.Unmarshal(payload, &disconnectData); err != nil {
+				logger.L().Error("Failed to unmarshal disconnect data", zap.Error(err), zap.ByteString("payload", payload))
+				return err
+			}
+
+			channel := bot.GetBot().GetChannelFromUser(s.ID, "info")
+			embed := embeds.DisconnectEmbed(disconnectData)
+			if err := bot.GetBot().SendEmbedToChannel(channel, "", embed); err != nil {
+				logger.L().Error("Failed to send disconnect embed", zap.Error(err), zap.String("channelID", channel), zap.String("uuid", s.ID))
+				return err
+			}
+
 		default:
 			logger.L().Warn("Unknown message type", zap.Uint8("type", msgType))
 		}
@@ -373,6 +383,14 @@ func (s *Session) Send(msgType byte, flags byte, msgID uint32, payload []byte) e
 	}
 
 	return nil
+}
+
+// cleanup is called when the session is done handling messages
+// It unregisters the session and closes the connection.
+func (s *Session) cleanup() {
+	logger.L().Info("Cleaning up client session", zap.String("id", s.ID), zap.String("addr", s.Addr))
+	s.registry.Unregister(s.ID)
+	s.Conn.Close()
 }
 
 func (s *Session) GetSessionId() string {

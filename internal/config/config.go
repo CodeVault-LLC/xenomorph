@@ -14,6 +14,7 @@ type Config struct {
 	AppEnv       string
 
 	EnablePprof bool
+	EnableGops	bool
 }
 
 var ConfigInstance *Config
@@ -30,6 +31,7 @@ func LoadConfig() (*Config, error) {
 	appEnv := os.Getenv("APP_ENV")
 
 	enablePprof := os.Getenv("ENABLE_PPROF")
+	enableGops := os.Getenv("ENABLE_GOPS")
 
 	if token == "" || port == "" {
 		return nil, fmt.Errorf("missing configuration values")
@@ -42,6 +44,7 @@ func LoadConfig() (*Config, error) {
 		AppEnv:       appEnv,
 
 		EnablePprof: enablePprof == "true",
+		EnableGops:  enableGops == "true",
 	}
 
 	return ConfigInstance, nil

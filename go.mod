@@ -28,6 +28,7 @@ require (
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/go-dap v0.12.0 // indirect
+	github.com/google/gops v0.3.28 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -40,6 +41,7 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
+	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/cobra v1.9.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect

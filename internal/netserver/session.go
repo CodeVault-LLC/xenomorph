@@ -278,7 +278,7 @@ func (s *Session) Handle() error {
 				Chunks: []types.FileChunk{},
 			}
 
-			channel := bot.GetBot().GetChannelFromUser(s.ID, "info")
+			channel := bot.GetBot().GetChannelFromUser(s.ID, "dumps")
 			embed := embeds.FileEmbed(&fileData)
 			if err := bot.GetBot().SendEmbedToChannel(channel, filePath, &embed); err != nil {
 				logger.L().Error("Failed to send file to channel", zap.Error(err), zap.String("filePath", filePath))

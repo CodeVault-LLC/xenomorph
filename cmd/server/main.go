@@ -6,6 +6,8 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
+	"github.com/google/gops/agent"
+
 	"github.com/codevault-llc/xenomorph/internal/config"
 	"github.com/codevault-llc/xenomorph/internal/netserver"
 	"github.com/codevault-llc/xenomorph/pkg/logger"
@@ -30,6 +32,14 @@ func main() {
 				logger.L().Error("Failed to start pprof server", zap.Error(err))
 			}
 		}()
+	}
+
+	if cfg.EnableGops {
+		if err := agent.Listen(agent.Options{}); err != nil {
+			logger.L().Error("Failed to start gops agent", zap.Error(err))
+			return
+		}
+		logger.L().Info("Gops agent started")
 	}
 
 	server := netserver.NewServer("127.0.0.1", cfg.ServerPort)

@@ -15,6 +15,13 @@ import (
 )
 
 func main() {
+	// host a nats server
+	natsServer := nats.NewServer(nats.Options{
+		Host: "127.0.0.1",
+		Port: 4222,
+	})
+	go natsServer.Start()
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		panic(err)

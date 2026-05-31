@@ -1,59 +1,62 @@
 # Xenomorph
 
-Xenomorph is a open-source RAT (Remote Administration Trojan) that is written using Golang (Server) and Python (Client). Named after the fictional extraterrestrial species from the Alien film series, Xenomorph is designed to be stealthy and powerful.
+Xenomorph is an internal remote screening platform implemented as a Go control plane and Go agent. The repository currently contains three primary modules:
 
-## Features
+- `platform/services/gateway`: mTLS-terminated ingestion gateway that accepts heartbeat traffic and publishes normalized events into NATS JetStream.
+- `platform/client`: agent process that establishes a mutually authenticated TLS session with the gateway and submits heartbeat telemetry.
+- `platform/shared`: protocol definitions and generated types shared by both sides of the system.
 
-- Privilege Escalation (UAC Bypass)
-- Basic Stealer (Passwords, Cookies, etc.)
-- Screen Capture (Screenshot)
+The repository is intentionally structured for controlled, authorized environments. Any deployment, test harness, or operator workflow must assume explicit administrative authorization and a bounded internal trust domain.
 
-## Prerequisites
+## Operational Model
 
-- Go 1.23 or higher
-- Python 3.12 or higher
+The current implementation is intentionally narrow. The gateway accepts authenticated client traffic, extracts agent identity from the client certificate subject, wraps the payload in a trusted envelope, and forwards the event to NATS JetStream. The client is a heartbeat emitter and does not expose a generalized command surface in the present tree.
 
-## Installation
+## Build
 
-> [!IMPORTANT]
-> Xenomorph is currently in development and only supports downloading the source code from GitHub. We are working on adding support for package managers and other installation methods.
-
-To install Xenomorph, you can download the source code from GitHub and run the following command:
+Use the repository `Makefile` for repeatable development actions.
 
 ```bash
-git clone https://github.com/codevault-llc/xenomorph.git
-
-cd xenomorph
-
-# You have currently two locations you need to run for testing sakes. The client and the server. The server should be hosted so its publically accessible for the client to access. We are using the method: Socket (TCP) for communication between the client and the server.
-
-# Server
-go mod download
-
-go build -o xenomorph-server
-
-./xenomorph-server
-
-# Client
-
-# You need to install the required dependencies for the client. You can do this by running the following command:
-pip install -r requirements.txt
-
-# Now you can choose between building the client or running the client. For building the client you can run our build script:
-**Windows**:
-build.bat
-
-# For running the client you can run the following command:
-python main.pyw
+make help
+make fmt
+make test
+make build
 ```
 
-## Disclaimer
+Build artifacts are emitted to `bin/`.
 
-This tool is intended for educational purposes only and the author is not responsible for any misuse of this tool. We do not promote hacking or any malicious activities. Use this tool at your own risk.
+## Local Run Workflow
+
+Run the gateway and client in separate terminals so the control plane stays available before the agent starts emitting telemetry.
+
+Terminal 1:
+
+```bash
+make run-gateway
+```
+
+Terminal 2:
+
+```bash
+make run-client
+```
+
+The gateway expects a reachable NATS JetStream endpoint at `nats://localhost:4222` and the certificate material under `platform/infrastructure/certs`. The client expects the same certificate material and a live gateway listener at `https://localhost:8443`.
+
+## Documentation
+
+Repository documentation is maintained in [.docs](.docs):
+
+- [Overview](.docs/overview.md)
+- [Roadmap](.docs/roadmap.md)
+- [Lingual Standard](.docs/lingual.md)
+
+The root [AGENTS.md](AGENTS.md) file defines the operating rules for contributors and automation.
+
+## Security Posture
+
+The system is designed around explicit identity, mTLS, and event normalization at the gateway boundary. The protocol envelope records trust decisions at ingress, while untrusted telemetry remains payload data. Security-sensitive changes must preserve that separation and must not weaken transport authentication, certificate handling, or event provenance.
 
 ## License
 
-> [!NOTE]
-> Xenomorph's License may change soon. Please check the [LICENSE](LICENSE) file for the most up-to-date information.
-
-Xenomorph is licensed under the GPL-3.0 License. For more information, see the [LICENSE](LICENSE) file.
+See [LICENSE](LICENSE) for licensing terms.

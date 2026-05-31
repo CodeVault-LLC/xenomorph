@@ -1,0 +1,60 @@
+syntax = "proto3";
+package platform.v1;
+option go_package = "./gen/go/platform/v1";
+
+import "google/protobuf/timestamp.proto";
+
+message EventEnvelope {
+  string event_id = 1;       // UUID (Gateway Generated)
+  string trace_id = 2;       // OpenTelemetry Trace ID
+  google.protobuf.Timestamp timestamp = 3; // Gateway Time (Source of Truth)
+
+  // 2. Security Context (Filled ONLY by Gateway)
+  SecurityContext security = 4;
+
+  // 3. The Actual Data
+  oneof payload {
+    Heartbeat heartbeat = 10;
+    CommandResult command_result = 11;
+    FileChunk file_chunk = 12;
+    LogEntry log_entry = 13;
+  }
+}
+
+message SecurityContext {
+  string agent_id = 1;       // Extracted from mTLS Certificate CN
+  string session_id = 2;     // Ephemeral Session UUID
+  string client_ip = 3;      // Connection IP
+  bool is_authenticated = 4;
+}
+
+// ---------------------------------------------------------
+// Payload Definitions
+// ---------------------------------------------------------
+
+message Heartbeat {
+  string hostname = 1;      // Reported by client (Untrusted meta)
+  string os_version = 2;
+  double cpu_load = 3;
+  double ram_usage = 4;
+}
+
+message FileChunk {
+  string upload_id = 1;     // Unique ID for this file transfer
+  int32 chunk_index = 2;    // Sequence number
+  bool is_last = 3;         // EOF marker
+  bytes data = 4;           // The binary chunk
+  string checksum = 5;      // SHA256 of this specific chunk
+}
+
+message CommandResult {
+  string command_id = 1;    // Reference to the command being executed
+  int32 exit_code = 2;
+  string output_log = 3;
+}
+
+message LogEntry {
+  string level = 1;         // INFO, WARN, ERROR
+  string message = 2;
+  string component = 3;
+}

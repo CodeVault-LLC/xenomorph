@@ -6,24 +6,10 @@ import (
 	"strings"
 )
 
-const unknownHostname = "unknown"
-
-// HostnameProvider returns the hostname reported in heartbeats.
-//
-// Keeping this as a function type makes telemetry gathering testable and allows
-// alternate providers to be injected in constrained runtime environments.
+// HostnameProvider returns the system hostname.
 type HostnameProvider func() (string, error)
 
-// BuildHeartbeatPayload builds a client heartbeat payload from runtime-derived
-// telemetry values.
-//
-// Security and trust model:
-// - Hostname remains untrusted client-authored metadata.
-// - Agent identity is authenticated separately by the gateway through mTLS.
-//
-// Behavior:
-// - Uses os.Hostname() by default when provider is nil.
-// - Falls back to "unknown" for empty or erroring hostname providers.
+// BuildHeartbeatPayload constructs the heartbeat payload from system telemetry.
 func BuildHeartbeatPayload(provider HostnameProvider) HeartbeatPayload {
 	if provider == nil {
 		provider = os.Hostname
@@ -34,8 +20,6 @@ func BuildHeartbeatPayload(provider HostnameProvider) HeartbeatPayload {
 	return HeartbeatPayload{
 		Hostname:  hostname,
 		OsVersion: runtime.GOOS + "/" + runtime.GOARCH,
-		CpuLoad:   15.5,
-		RamUsage:  42.0,
 	}
 }
 

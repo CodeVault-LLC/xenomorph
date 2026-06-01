@@ -61,11 +61,6 @@ type DiscordPoster interface {
 	CommandsChannelID(agentID string) (string, bool)
 }
 
-// DiscordCommandHandler processes parsed !-prefixed commands from Discord.
-type DiscordCommandHandler interface {
-	HandleDiscordCommand(ctx context.Context, agentID, channelID, command string, args []string, userName string) error
-}
-
 // Provider receives normalized agent activity events.
 type Provider interface {
 	Name() string

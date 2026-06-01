@@ -1,76 +1,43 @@
 package agent
 
 import (
-	"errors"
 	"fmt"
-	"log"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// CommandApprover prompts the user for command execution consent.
+type CommandApprover interface {
+	Approve(cmd CommandEnvelope) (bool, error)
+}
+
+var defaultApprover CommandApprover
 
 var allowedCommandTypes = map[string]struct{}{
 	"support.notice":             {},
 	"support.request_screenshot": {},
 }
 
-type CommandApprover interface {
-	Approve(cmd CommandEnvelope) (bool, error)
-}
-
-type ZenityApprover struct{}
-
-func (z ZenityApprover) Approve(cmd CommandEnvelope) (bool, error) {
-	if _, err := exec.LookPath("zenity"); err != nil {
-		return false, fmt.Errorf("zenity is required for user consent prompt: %w", err)
-	}
-
-	question := fmt.Sprintf(
-		"Remote support command request\\n\\nType: %s\\nRequested By: %s\\nReason: %s\\nCommand ID: %s\\n\\nAccept this command?",
-		nonEmptyText(cmd.Type),
-		nonEmptyText(cmd.RequestedBy),
-		nonEmptyText(cmd.Reason),
-		nonEmptyText(cmd.CommandID),
-	)
-
-	c := exec.Command(
-		"zenity",
-		"--question",
-		"--title", "Xenomorph Remote Support Request",
-		"--width", "480",
-		"--ok-label", "Allow",
-		"--cancel-label", "Deny",
-		"--text", question,
-	)
-	err := c.Run()
-	if err == nil {
-		return true, nil
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		if exitErr.ExitCode() == 1 {
-			return false, nil
-		}
-	}
-
-	return false, err
-}
-
+// CommandDecision contains the result of processing a command with user consent.
 type CommandDecision struct {
 	Result        CommandResultPayload
 	DisconnectNow bool
 }
 
+type commandOutcome struct {
+	reason     string
+	outputData []byte
+}
+
+// HandleCommandWithConsent validates, approves, and executes a command.
 func HandleCommandWithConsent(cmd CommandEnvelope, approver CommandApprover, disconnectOnDeny bool) (CommandDecision, error) {
 	if approver == nil {
-		approver = ZenityApprover{}
+		approver = defaultApprover
 	}
 
-	hostname, _ := os.Hostname()
+	hostname, _ := osHostname()
 	decision := CommandDecision{
 		Result: CommandResultPayload{
 			CommandID:      cmd.CommandID,
@@ -80,9 +47,9 @@ func HandleCommandWithConsent(cmd CommandEnvelope, approver CommandApprover, dis
 		},
 	}
 
-	if err := validateCommandEnvelope(cmd); err != nil {
+	if reason := validateCommand(cmd); reason != "" {
 		decision.Result.Status = "rejected"
-		decision.Result.Reason = err.Error()
+		decision.Result.Reason = reason
 		decision.Result.UserApproved = false
 		decision.Result.DisconnectNow = false
 		return decision, nil
@@ -117,40 +84,34 @@ func HandleCommandWithConsent(cmd CommandEnvelope, approver CommandApprover, dis
 	return decision, nil
 }
 
-func validateCommandEnvelope(cmd CommandEnvelope) error {
+func validateCommand(cmd CommandEnvelope) string {
 	if strings.TrimSpace(cmd.CommandID) == "" {
-		return fmt.Errorf("missing command_id")
+		return "missing command_id"
 	}
 	if strings.TrimSpace(cmd.Type) == "" {
-		return fmt.Errorf("missing command type")
+		return "missing command type"
 	}
 	if _, ok := allowedCommandTypes[cmd.Type]; !ok {
-		return fmt.Errorf("command type %q is not allowed", cmd.Type)
+		return fmt.Sprintf("command type %q is not allowed", cmd.Type)
 	}
 
 	now := time.Now().UTC()
 	if !cmd.ExpiresAt.IsZero() && now.After(cmd.ExpiresAt) {
-		return fmt.Errorf("command expired")
+		return "command expired"
 	}
-	if !cmd.IssuedAt.IsZero() && cmd.IssuedAt.After(now.Add(2*time.Minute)) {
-		return fmt.Errorf("command issued_at is in the future")
+	if !cmd.IssuedAt.IsZero() && cmd.IssuedAt.After(now.Add(commandExpiry)) {
+		return "command issued_at is in the future"
 	}
 	if strings.TrimSpace(cmd.Signature) == "" {
-		return fmt.Errorf("missing command signature")
+		return "missing command signature"
 	}
 
-	return nil
-}
-
-type commandOutcome struct {
-	reason     string
-	outputData []byte
+	return ""
 }
 
 func executeAllowedCommand(cmd CommandEnvelope) commandOutcome {
 	switch cmd.Type {
 	case "support.notice":
-		log.Printf("ℹ️ operator notice acknowledged command_id=%s", cmd.CommandID)
 		return commandOutcome{reason: "support notice acknowledged"}
 	case "support.request_screenshot":
 		data, err := captureScreenshot()
@@ -163,53 +124,9 @@ func executeAllowedCommand(cmd CommandEnvelope) commandOutcome {
 	}
 }
 
-func captureScreenshot() ([]byte, error) {
-	tmpDir := "/tmp"
-	if d := os.TempDir(); d != "" {
-		tmpDir = d
-	}
-
-	outputPath := filepath.Join(tmpDir, fmt.Sprintf("xeno-screenshot-%d.png", time.Now().UnixMilli()))
-
-	var (
-		cmd  *exec.Cmd
-		name string
-	)
-
-	if _, err := exec.LookPath("import"); err == nil {
-		cmd = exec.Command("import", "-window", "root", outputPath)
-		name = "import"
-	} else if _, err := exec.LookPath("gnome-screenshot"); err == nil {
-		cmd = exec.Command("gnome-screenshot", "-f", outputPath)
-		name = "gnome-screenshot"
-	} else if _, err := exec.LookPath("scrot"); err == nil {
-		cmd = exec.Command("scrot", outputPath)
-		name = "scrot"
-	} else if _, err := exec.LookPath("maim"); err == nil {
-		cmd = exec.Command("maim", outputPath)
-		name = "maim"
-	} else {
-		return nil, fmt.Errorf("no screenshot tool found (install imagemagick, scrot, maim, or gnome-screenshot)")
-	}
-
-	log.Printf("📸 capturing screenshot using %s to %s", name, outputPath)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("%s failed: %w\noutput: %s", name, err, string(out))
-	}
-
-	data, err := os.ReadFile(outputPath)
-	if err != nil {
-		return nil, fmt.Errorf("read screenshot: %w", err)
-	}
-
-	os.Remove(outputPath)
-
-	return data, nil
-}
-
+// LoadDisconnectOnDenyFromEnv reads the disconnect-on-deny policy from the environment.
 func LoadDisconnectOnDenyFromEnv() bool {
-	raw := strings.TrimSpace(strings.ToLower(os.Getenv("XENOMORPH_DISCONNECT_ON_DENY")))
+	raw := strings.TrimSpace(strings.ToLower(osGetenv("XENOMORPH_DISCONNECT_ON_DENY")))
 	if raw == "" {
 		return true
 	}
@@ -221,10 +138,13 @@ func LoadDisconnectOnDenyFromEnv() bool {
 	return value
 }
 
-func nonEmptyText(value string) string {
+func firstNonEmpty(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return "n/a"
 	}
 	return trimmed
 }
+
+var osHostname = os.Hostname
+var osGetenv = os.Getenv

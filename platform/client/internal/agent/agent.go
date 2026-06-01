@@ -1,3 +1,4 @@
+// Package agent implements the remote support client runtime.
 package agent
 
 import (
@@ -5,23 +6,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 )
 
+// HeartbeatPayload is sent to the gateway with each authentication request.
 type HeartbeatPayload struct {
 	Hostname  string  `json:"hostname"`
 	OsVersion string  `json:"os_version"`
-	CpuLoad   float64 `json:"cpu_load"`
-	RamUsage  float64 `json:"ram_usage"`
+	CPULoad   float64 `json:"cpu_load"`
+	RAMUsage  float64 `json:"ram_usage"`
 }
 
+// Stage1AuthResult contains the gateway response to the initial authentication.
 type Stage1AuthResult struct {
 	EventID    string
 	IsNewAgent bool
 }
 
+// CommandEnvelope is a command received from the gateway for local execution.
 type CommandEnvelope struct {
 	CommandID   string          `json:"command_id"`
 	Type        string          `json:"type"`
@@ -33,6 +36,7 @@ type CommandEnvelope struct {
 	Signature   string          `json:"signature"`
 }
 
+// CommandResultPayload is sent to the gateway after command execution.
 type CommandResultPayload struct {
 	CommandID      string    `json:"command_id"`
 	Type           string    `json:"type"`
@@ -45,11 +49,13 @@ type CommandResultPayload struct {
 	OutputData     []byte    `json:"output_data,omitempty"`
 }
 
+// Agent manages communication with the gateway server.
 type Agent struct {
 	client     *http.Client
 	gatewayURL string
 }
 
+// New creates an Agent with the given HTTP client and gateway URL.
 func New(client *http.Client, gatewayURL string) *Agent {
 	return &Agent{
 		client:     client,
@@ -57,11 +63,13 @@ func New(client *http.Client, gatewayURL string) *Agent {
 	}
 }
 
+// SendHeartbeat submits a heartbeat to the gateway by reusing the auth flow.
 func (a *Agent) SendHeartbeat() error {
 	_, err := a.Authenticate()
 	return err
 }
 
+// Authenticate performs stage-1 authentication with the gateway.
 func (a *Agent) Authenticate() (Stage1AuthResult, error) {
 	payload := BuildHeartbeatPayload(nil)
 
@@ -69,8 +77,6 @@ func (a *Agent) Authenticate() (Stage1AuthResult, error) {
 	if err != nil {
 		return Stage1AuthResult{}, err
 	}
-
-	log.Printf("➡️ Sending Heartbeat: %s", string(data))
 
 	req, err := http.NewRequest("POST", a.gatewayURL+"/ingest/heartbeat", bytes.NewBuffer(data))
 	if err != nil {
@@ -82,7 +88,7 @@ func (a *Agent) Authenticate() (Stage1AuthResult, error) {
 	if err != nil {
 		return Stage1AuthResult{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 202 && resp.StatusCode != 200 {
 		return Stage1AuthResult{}, fmt.Errorf("gateway rejected heartbeat: status %d", resp.StatusCode)
@@ -92,7 +98,7 @@ func (a *Agent) Authenticate() (Stage1AuthResult, error) {
 		EventID    string `json:"event_id"`
 		IsNewAgent bool   `json:"is_new_agent"`
 	}
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, heartbeatResponseSize))
 	if readErr != nil {
 		return Stage1AuthResult{}, fmt.Errorf("read heartbeat response: %w", readErr)
 	}
@@ -105,6 +111,7 @@ func (a *Agent) Authenticate() (Stage1AuthResult, error) {
 	return Stage1AuthResult{EventID: ack.EventID, IsNewAgent: ack.IsNewAgent}, nil
 }
 
+// SendEntryReport submits the stage-2 onboarding payload to the gateway.
 func (a *Agent) SendEntryReport(payload EntryPayload) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -121,7 +128,7 @@ func (a *Agent) SendEntryReport(payload EntryPayload) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("gateway rejected entry report: status %d", resp.StatusCode)
@@ -130,6 +137,7 @@ func (a *Agent) SendEntryReport(payload EntryPayload) error {
 	return nil
 }
 
+// PollNextCommand fetches the next pending command from the gateway queue.
 func (a *Agent) PollNextCommand() (*CommandEnvelope, error) {
 	req, err := http.NewRequest("GET", a.gatewayURL+"/commands/next", nil)
 	if err != nil {
@@ -140,7 +148,7 @@ func (a *Agent) PollNextCommand() (*CommandEnvelope, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNoContent {
 		return nil, nil
@@ -150,17 +158,14 @@ func (a *Agent) PollNextCommand() (*CommandEnvelope, error) {
 	}
 
 	var cmd CommandEnvelope
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8192)).Decode(&cmd); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, commandResponseSize)).Decode(&cmd); err != nil {
 		return nil, fmt.Errorf("decode command payload: %w", err)
-	}
-
-	if cmd.CommandID == "" {
-		log.Printf("⚠️ command poll returned empty command id")
 	}
 
 	return &cmd, nil
 }
 
+// SendCommandResult submits the command execution result to the gateway.
 func (a *Agent) SendCommandResult(payload CommandResultPayload) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -177,7 +182,7 @@ func (a *Agent) SendCommandResult(payload CommandResultPayload) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("command result rejected: status %d", resp.StatusCode)

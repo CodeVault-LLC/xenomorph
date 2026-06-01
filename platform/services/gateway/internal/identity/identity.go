@@ -1,3 +1,11 @@
+// Package identity derives gateway-trusted agent identity from verified mTLS
+// peer certificates. This package owns the identity trust boundary: the
+// AuthenticatedAgent struct is the only representation of agent identity that
+// downstream code should trust.
+//
+// All identity fields are server-authored or gateway-validated. Client-supplied
+// identity fields (e.g. in JSON request bodies) must never be treated as
+// authoritative.
 package identity
 
 import (
@@ -17,9 +25,10 @@ type AuthenticatedAgent struct {
 	// ID is a deterministic UUID generated from the certificate fingerprint.
 	//
 	// Properties:
-	// - Stable for a given certificate.
-	// - Distinct for different certificates.
-	// - Cannot be spoofed without presenting the same certificate during mTLS.
+	//   - Stable for a given certificate across gateway restarts.
+	//   - Distinct for different certificates.
+	//   - Cannot be spoofed without presenting the same certificate during
+	//     mTLS handshake.
 	ID string
 
 	// FingerprintSHA256 is the lowercase hex SHA-256 digest of cert.Raw.
@@ -29,14 +38,20 @@ type AuthenticatedAgent struct {
 	CertificateSerialNumber string
 
 	// SubjectCommonName is preserved for observability and operator debugging.
+	// This field must not be used for authorization decisions; use ID instead.
 	SubjectCommonName string
 }
 
 // FromPeerCertificate constructs gateway-trusted agent identity metadata from
-// a verified client certificate.
+// a verified client certificate. The agent ID is deterministically derived
+// from the certificate's SHA-256 fingerprint, ensuring the same certificate
+// always produces the same agent ID.
+//
+// The input cert must be non-nil and contain non-empty Raw bytes. Returns an
+// error when either precondition is violated.
 func FromPeerCertificate(cert *x509.Certificate) (AuthenticatedAgent, error) {
 	if cert == nil {
-		return AuthenticatedAgent{}, fmt.Errorf("missing peer certificate")
+		return AuthenticatedAgent{}, fmt.Errorf("peer certificate is nil")
 	}
 	if len(cert.Raw) == 0 {
 		return AuthenticatedAgent{}, fmt.Errorf("peer certificate has empty raw bytes")
@@ -53,10 +68,16 @@ func FromPeerCertificate(cert *x509.Certificate) (AuthenticatedAgent, error) {
 	}, nil
 }
 
+// uuidFromFingerprint produces a UUID from the first 16 bytes of the
+// certificate fingerprint with RFC 4122 variant and version markers.
+//
+// The resulting UUID is deterministic for the same input and is not
+// universally unique in the strict sense — it is unique within the scope of
+// certificates trusted by this gateway's CA.
 func uuidFromFingerprint(fingerprint [32]byte) uuid.UUID {
 	var id uuid.UUID
 	copy(id[:], fingerprint[:16])
-	id[6] = (id[6] & 0x0f) | 0x50 // RFC4122 version 5 style marker.
-	id[8] = (id[8] & 0x3f) | 0x80 // RFC4122 variant.
+	id[6] = (id[6] & 0x0f) | 0x50 // RFC 4122 version 5 style marker
+	id[8] = (id[8] & 0x3f) | 0x80 // RFC 4122 variant marker
 	return id
 }

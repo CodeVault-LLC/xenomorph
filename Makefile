@@ -9,7 +9,7 @@ GOPATH ?= $(shell $(GO) env GOPATH)
 GOFMT ?= gofmt
 
 GOBIN := $(if $(strip $(GOPATH)),$(GOPATH)/bin,$(ROOT)/bin)
-GOLANGCI_LINT ?= $(GOBIN)/golangci-lint
+GOLANGCI_LINT ?= $(or $(shell command -v golangci-lint 2>/dev/null),$(GOBIN)/golangci-lint)
 
 GATEWAY_DIR := $(ROOT)/platform/services/gateway
 CLIENT_DIR := $(ROOT)/platform/client

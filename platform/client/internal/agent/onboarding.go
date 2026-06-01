@@ -1,25 +1,21 @@
 package agent
 
 import (
-	"bufio"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 )
 
-const (
-	maxInstalledApplications = 200
-)
-
+// BrowserInstallation describes a detected browser on the system.
 type BrowserInstallation struct {
 	Name       string `json:"name"`
 	BinaryPath string `json:"binary_path"`
 	ProfileDir string `json:"profile_dir"`
 }
 
+// EntryPayload is the stage-2 onboarding data sent to the gateway.
 type EntryPayload struct {
 	Hostname              string                `json:"hostname"`
 	OSVersion             string                `json:"os_version"`
@@ -28,9 +24,8 @@ type EntryPayload struct {
 	InstalledApplications []string              `json:"installed_applications,omitempty"`
 }
 
-type homeDirProvider func() (string, error)
-
-func BuildEntryPayload(isNewAgent bool, hostnameProvider HostnameProvider, homeProvider homeDirProvider) EntryPayload {
+// BuildEntryPayload constructs the onboarding payload from runtime data.
+func BuildEntryPayload(isNewAgent bool, hostnameProvider func() (string, error), homeProvider func() (string, error)) EntryPayload {
 	if hostnameProvider == nil {
 		hostnameProvider = os.Hostname
 	}
@@ -49,21 +44,21 @@ func BuildEntryPayload(isNewAgent bool, hostnameProvider HostnameProvider, homeP
 	}
 
 	payload.Browsers = collectBrowsers(homeProvider)
-	payload.InstalledApplications = collectInstalledApplications(homeProvider)
+	payload.InstalledApplications = collectInstalledApplications()
 
 	return payload
 }
 
-func collectBrowsers(homeProvider homeDirProvider) []BrowserInstallation {
+func collectBrowsers(homeProvider func() (string, error)) []BrowserInstallation {
 	homeDir, _ := homeProvider()
 
-	type browserCandidate struct {
+	type candidate struct {
 		name       string
 		binary     string
 		profileDir string
 	}
 
-	candidates := []browserCandidate{
+	candidates := []candidate{
 		{name: "Firefox", binary: "firefox", profileDir: filepath.Join(homeDir, ".mozilla", "firefox")},
 		{name: "Chromium", binary: "chromium", profileDir: filepath.Join(homeDir, ".config", "chromium")},
 		{name: "Google Chrome", binary: "google-chrome", profileDir: filepath.Join(homeDir, ".config", "google-chrome")},
@@ -74,19 +69,19 @@ func collectBrowsers(homeProvider homeDirProvider) []BrowserInstallation {
 	}
 
 	browsers := make([]BrowserInstallation, 0, len(candidates))
-	for _, candidate := range candidates {
-		binaryPath, err := exec.LookPath(candidate.binary)
+	for _, c := range candidates {
+		binaryPath, err := exec.LookPath(c.binary)
 		if err != nil {
 			continue
 		}
 
 		profileDir := ""
-		if dirExists(candidate.profileDir) {
-			profileDir = candidate.profileDir
+		if dirExists(c.profileDir) {
+			profileDir = c.profileDir
 		}
 
 		browsers = append(browsers, BrowserInstallation{
-			Name:       candidate.name,
+			Name:       c.name,
 			BinaryPath: binaryPath,
 			ProfileDir: profileDir,
 		})
@@ -97,71 +92,6 @@ func collectBrowsers(homeProvider homeDirProvider) []BrowserInstallation {
 	})
 
 	return browsers
-}
-
-func collectInstalledApplications(homeProvider homeDirProvider) []string {
-	homeDir, _ := homeProvider()
-	dirs := []string{
-		"/usr/share/applications",
-		"/usr/local/share/applications",
-		filepath.Join(homeDir, ".local", "share", "applications"),
-	}
-
-	seen := make(map[string]struct{})
-	apps := make([]string, 0, maxInstalledApplications)
-
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			if len(apps) >= maxInstalledApplications {
-				break
-			}
-			if entry.IsDir() || filepath.Ext(entry.Name()) != ".desktop" {
-				continue
-			}
-
-			name := parseDesktopName(filepath.Join(dir, entry.Name()))
-			name = strings.TrimSpace(name)
-			if name == "" {
-				name = strings.TrimSuffix(entry.Name(), ".desktop")
-			}
-
-			if _, ok := seen[name]; ok {
-				continue
-			}
-			seen[name] = struct{}{}
-			apps = append(apps, name)
-		}
-	}
-
-	sort.Strings(apps)
-	if len(apps) > maxInstalledApplications {
-		apps = apps[:maxInstalledApplications]
-	}
-
-	return apps
-}
-
-func parseDesktopName(path string) string {
-	file, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "Name=") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "Name="))
-		}
-	}
-
-	return ""
 }
 
 func dirExists(path string) bool {

@@ -1,3 +1,7 @@
+// Package config loads and validates gateway runtime configuration from
+// environment variables. This package owns the configuration schema and
+// default values. All configuration is read once at startup and remains
+// immutable for the lifetime of the process.
 package config
 
 import (
@@ -16,6 +20,8 @@ const (
 )
 
 // GatewayConfig controls runtime wiring for ingress and outbound providers.
+// Every field has a safe default except provider-specific credentials, which
+// return an error when required but unset.
 type GatewayConfig struct {
 	NATSURL               string
 	ListenAddr            string
@@ -28,7 +34,29 @@ type GatewayConfig struct {
 	ActivitySweepInterval time.Duration
 }
 
-// LoadFromEnv loads runtime configuration with safe defaults.
+// LoadFromEnv reads configuration from environment variables with safe
+// defaults. Returns an error when a required variable is unset or when a
+// duration variable cannot be parsed.
+//
+// Required variables (no default, must be set when the corresponding
+// provider is enabled):
+//   - DISCORD_BOT_TOKEN (when "discord" is in NOTIFY_PROVIDERS)
+//   - DISCORD_GUILD_ID (when "discord" is in NOTIFY_PROVIDERS)
+//
+// Duration variables (parsed via time.ParseDuration):
+//   - ACTIVITY_OFFLINE_AFTER (default: 30s)
+//   - ACTIVITY_SWEEP_INTERVAL (default: 5s)
+//
+// Duration values must be positive (>0).
+//
+// List variables (comma-separated):
+//   - NOTIFY_PROVIDERS (e.g. "discord" or "discord,slack")
+//
+// String variables:
+//   - NATS_URL (default: nats://localhost:4222)
+//   - GATEWAY_ADDR (default: :8443)
+//   - GATEWAY_CERT_PATH (default: ../../infrastructure/certs)
+//   - DISCORD_API_BASE_URL (default: https://discord.com/api/v10)
 func LoadFromEnv() (GatewayConfig, error) {
 	offlineAfter, err := durationFromEnv("ACTIVITY_OFFLINE_AFTER", defaultOfflineAfter)
 	if err != nil {
@@ -53,15 +81,17 @@ func LoadFromEnv() (GatewayConfig, error) {
 	}
 
 	if cfg.ActivityOfflineAfter <= 0 {
-		return GatewayConfig{}, fmt.Errorf("ACTIVITY_OFFLINE_AFTER must be > 0")
+		return GatewayConfig{}, fmt.Errorf("ACTIVITY_OFFLINE_AFTER must be positive, got %v", cfg.ActivityOfflineAfter)
 	}
 	if cfg.ActivitySweepInterval <= 0 {
-		return GatewayConfig{}, fmt.Errorf("ACTIVITY_SWEEP_INTERVAL must be > 0")
+		return GatewayConfig{}, fmt.Errorf("ACTIVITY_SWEEP_INTERVAL must be positive, got %v", cfg.ActivitySweepInterval)
 	}
 
 	return cfg, nil
 }
 
+// stringFromEnv reads a string from the environment with a fallback default.
+// Empty strings after trimming whitespace trigger the fallback.
 func stringFromEnv(key, fallback string) string {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
@@ -70,6 +100,9 @@ func stringFromEnv(key, fallback string) string {
 	return value
 }
 
+// durationFromEnv reads and parses a duration from the environment.
+// Returns the fallback when the variable is unset. Returns an error when
+// the value cannot be parsed via time.ParseDuration.
 func durationFromEnv(key string, fallback time.Duration) (time.Duration, error) {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
@@ -83,6 +116,8 @@ func durationFromEnv(key string, fallback time.Duration) (time.Duration, error) 
 	return parsed, nil
 }
 
+// splitCSV splits a comma-separated string into a lowercased, trimmed
+// string slice. Empty parts are discarded. Returns nil for empty input.
 func splitCSV(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return nil

@@ -1,120 +1,68 @@
+// Command entry point for the remote support agent.
 package main
 
-import (
-	"crypto/tls"
-	"crypto/x509"
-	"log"
-	"net/http"
-	"os"
-	"time"
+import "time"
 
-	"github.com/codevault-llc/xenomorph/platform/client/internal/agent"
-)
+const pollInterval = 5 * time.Second
 
-const (
-	GatewayURL = "https://localhost:8443"
-	CertPath   = "../infrastructure/certs"
-)
-
-func main() {
-	cert, err := tls.LoadX509KeyPair(CertPath+"/client.crt", CertPath+"/client.key")
+func run() int {
+	ac, err := setupApp()
 	if err != nil {
-		log.Fatalf("❌ Failed to load client certs: %v", err)
+		return 1
 	}
 
-	caCert, err := os.ReadFile(CertPath + "/ca.crt")
+	isNewAgent, err := stage1Auth(ac)
 	if err != nil {
-		log.Fatalf("❌ Failed to read CA cert: %v", err)
-	}
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
-
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      caCertPool,
-		ServerName:   "localhost",
-		MinVersion:   tls.VersionTLS13,
+		shutdown(ac)
+		return 1
 	}
 
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
+	if err := stage2Entry(ac, isNewAgent); err != nil {
+		shutdown(ac)
+		return 1
 	}
 
-	a := agent.New(httpClient, GatewayURL)
-	disconnectOnDeny := agent.LoadDisconnectOnDenyFromEnv()
-	statePath, err := agent.DefaultStatePath()
-	if err != nil {
-		log.Fatalf("❌ Failed to resolve runtime state path: %v", err)
-	}
-	runtimeState, err := agent.LoadRuntimeState(statePath)
-	if err != nil {
-		log.Printf("⚠️ Failed to load runtime state, continuing with defaults: %v", err)
+	if err := runCommandLoop(ac); err != nil {
+		shutdown(ac)
+		return 1
 	}
 
-	log.Println("✅ Agent initialized. Stage 1 authentication...")
-	stage1, err := a.Authenticate()
-	if err != nil {
-		log.Fatalf("❌ Stage 1 authentication failed: %v", err)
-	}
-	log.Printf("✅ Stage 1 complete. event_id=%s is_new_agent=%t", stage1.EventID, stage1.IsNewAgent)
+	return 0
+}
 
-	sendExtendedEntry := stage1.IsNewAgent || !runtimeState.OnboardingSent
-	entry := agent.BuildEntryPayload(sendExtendedEntry, nil, nil)
-
-	log.Printf("✅ Stage 2 entry report (extended=%t)...", sendExtendedEntry)
-	if err := a.SendEntryReport(entry); err != nil {
-		log.Printf("⚠️ Stage 2 entry report failed: %v", err)
-	} else {
-		runtimeState.OnboardingSent = true
-		if err := agent.SaveRuntimeState(statePath, runtimeState); err != nil {
-			log.Printf("⚠️ Failed to persist runtime state: %v", err)
-		}
-		log.Printf("✅ Stage 2 complete")
-	}
-
-	log.Println("✅ Stage 3 command loop active")
-	log.Printf("🔐 Command safety policy: disconnect_on_deny=%t", disconnectOnDeny)
-
-	ticker := time.NewTicker(5 * time.Second)
+func runCommandLoop(ac *appContext) error {
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		log.Println("💓 Stage 3 heartbeat and command poll")
-
-		if err := a.SendHeartbeat(); err != nil {
-			log.Printf("⚠️ Heartbeat failed: %v", err)
-		} else {
-			log.Printf("👍 Heartbeat acknowledged")
+		if err := ac.ag.SendHeartbeat(); err != nil {
+			return err
 		}
 
-		cmd, err := a.PollNextCommand()
+		cmd, err := ac.ag.PollNextCommand()
 		if err != nil {
-			log.Printf("⚠️ Command poll failed: %v", err)
-			continue
+			return err
 		}
 
 		if cmd == nil {
 			continue
 		}
 
-		log.Printf("📥 Received command command_id=%s type=%s", cmd.CommandID, cmd.Type)
-
-		decision, err := agent.HandleCommandWithConsent(*cmd, agent.ZenityApprover{}, disconnectOnDeny)
+		disconnect, err := processCommand(ac, cmd)
 		if err != nil {
-			log.Printf("⚠️ Command handling failed: %v", err)
-			continue
+			return err
 		}
+		if disconnect {
+			return nil
+		}
+	}
 
-		if err := a.SendCommandResult(decision.Result); err != nil {
-			log.Printf("⚠️ Failed to submit command result: %v", err)
-		}
+	return nil
+}
 
-		if decision.DisconnectNow {
-			log.Printf("⛔ Disconnecting due to command denial policy command_id=%s", cmd.CommandID)
-			return
-		}
+func main() {
+	code := run()
+	if code != 0 {
+		shutdown(nil)
 	}
 }

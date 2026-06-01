@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/nats-io/nats.go"
@@ -23,13 +24,8 @@ func New(url string) (*NATS, error) {
 		return nil, fmt.Errorf("jetstream init: %w", err)
 	}
 
-	_, err = js.AddStream(&nats.StreamConfig{
-		Name:     "SYSTEM_EVENTS",
-		Subjects: []string{"sys.in.>"},
-		Storage:  nats.FileStorage,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("stream creation: %w", err)
+	if err := ensureSystemEventsStream(js); err != nil {
+		return nil, err
 	}
 
 	return &NATS{Conn: nc, JS: js}, nil
@@ -49,4 +45,33 @@ func (n *NATS) Publish(subject string, msg proto.Message) error {
 
 	_, err = n.JS.PublishAsync(subject, data)
 	return err
+}
+
+func (n *NATS) Subscribe(subject string, handler nats.MsgHandler) (*nats.Subscription, error) {
+	if n == nil || n.Conn == nil {
+		return nil, fmt.Errorf("nats connection is not initialized")
+	}
+
+	return n.Conn.Subscribe(subject, handler)
+}
+
+func ensureSystemEventsStream(js nats.JetStreamContext) error {
+	_, err := js.StreamInfo("SYSTEM_EVENTS")
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, nats.ErrStreamNotFound) {
+		return fmt.Errorf("stream lookup: %w", err)
+	}
+
+	_, err = js.AddStream(&nats.StreamConfig{
+		Name:     "SYSTEM_EVENTS",
+		Subjects: []string{"sys.in.>"},
+		Storage:  nats.FileStorage,
+	})
+	if err != nil {
+		return fmt.Errorf("stream creation: %w", err)
+	}
+
+	return nil
 }

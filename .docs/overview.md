@@ -12,6 +12,8 @@ The current system has three explicit layers:
 2. The gateway validates the client certificate, derives the agent identity from the certificate common name, and wraps the payload in a server-authored envelope.
 3. The broker publishes the normalized event into NATS JetStream for downstream consumers.
 
+An outbound provider fanout layer consumes trusted heartbeat envelopes and derives activity transitions (`online`, `offline`) per authenticated agent identity. This layer currently includes a Discord provider implementation and is designed to support additional providers without modifying gateway ingress contracts.
+
 This arrangement establishes a single ingress point for identity enforcement, schema validation, and event provenance. Payload data remains distinct from trust metadata.
 
 ## Repository Structure
@@ -34,3 +36,11 @@ The current contract is intentionally conservative:
 - Event envelopes are gateway-authored.
 - Agent identity is bound to certificate material, not to self-declared payload data.
 - Downstream consumers should treat payload fields as telemetry, not as trust evidence.
+
+## Provider Extension Contract
+
+Provider implementations operate on gateway-normalized `ActivityEvent` objects. A provider does not parse client HTTP payloads directly and does not own authentication decisions.
+
+- Owned by gateway: authentication state, `agent_id`, transition derivation, and event timestamp authority.
+- Not owned by providers: certificate validation, HTTP ingress, or schema trust decisions.
+- Client-authored fields such as hostname remain untrusted telemetry labels.

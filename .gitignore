@@ -11,3 +11,5 @@
 logs
 xenomorph.exe
 uploads
+/bin
+/certs

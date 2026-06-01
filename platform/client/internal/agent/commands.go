@@ -3,27 +3,18 @@ package agent
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
-
-// CommandApprover prompts the user for command execution consent.
-type CommandApprover interface {
-	Approve(cmd CommandEnvelope) (bool, error)
-}
-
-var defaultApprover CommandApprover
 
 var allowedCommandTypes = map[string]struct{}{
 	"support.notice":             {},
 	"support.request_screenshot": {},
 }
 
-// CommandDecision contains the result of processing a command with user consent.
+// CommandDecision contains the result of processing a command.
 type CommandDecision struct {
-	Result        CommandResultPayload
-	DisconnectNow bool
+	Result CommandResultPayload
 }
 
 type commandOutcome struct {
@@ -31,12 +22,8 @@ type commandOutcome struct {
 	outputData []byte
 }
 
-// HandleCommandWithConsent validates, approves, and executes a command.
-func HandleCommandWithConsent(cmd CommandEnvelope, approver CommandApprover, disconnectOnDeny bool) (CommandDecision, error) {
-	if approver == nil {
-		approver = defaultApprover
-	}
-
+// HandleCommand validates and executes a command.
+func HandleCommand(cmd CommandEnvelope) (CommandDecision, error) {
 	hostname, _ := osHostname()
 	decision := CommandDecision{
 		Result: CommandResultPayload{
@@ -50,27 +37,6 @@ func HandleCommandWithConsent(cmd CommandEnvelope, approver CommandApprover, dis
 	if reason := validateCommand(cmd); reason != "" {
 		decision.Result.Status = "rejected"
 		decision.Result.Reason = reason
-		decision.Result.UserApproved = false
-		decision.Result.DisconnectNow = false
-		return decision, nil
-	}
-
-	approved, err := approver.Approve(cmd)
-	if err != nil {
-		decision.Result.Status = "failed"
-		decision.Result.Reason = fmt.Sprintf("approval prompt failed: %v", err)
-		decision.Result.UserApproved = false
-		decision.Result.DisconnectNow = disconnectOnDeny
-		decision.DisconnectNow = disconnectOnDeny
-		return decision, nil
-	}
-
-	if !approved {
-		decision.Result.Status = "denied"
-		decision.Result.Reason = "user denied command"
-		decision.Result.UserApproved = false
-		decision.Result.DisconnectNow = disconnectOnDeny
-		decision.DisconnectNow = disconnectOnDeny
 		return decision, nil
 	}
 
@@ -78,9 +44,6 @@ func HandleCommandWithConsent(cmd CommandEnvelope, approver CommandApprover, dis
 	decision.Result.Status = "executed"
 	decision.Result.Reason = outcome.reason
 	decision.Result.OutputData = outcome.outputData
-	decision.Result.UserApproved = true
-	decision.Result.DisconnectNow = false
-	decision.DisconnectNow = false
 	return decision, nil
 }
 
@@ -124,27 +87,4 @@ func executeAllowedCommand(cmd CommandEnvelope) commandOutcome {
 	}
 }
 
-// LoadDisconnectOnDenyFromEnv reads the disconnect-on-deny policy from the environment.
-func LoadDisconnectOnDenyFromEnv() bool {
-	raw := strings.TrimSpace(strings.ToLower(osGetenv("XENOMORPH_DISCONNECT_ON_DENY")))
-	if raw == "" {
-		return true
-	}
-
-	value, err := strconv.ParseBool(raw)
-	if err != nil {
-		return true
-	}
-	return value
-}
-
-func firstNonEmpty(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return "n/a"
-	}
-	return trimmed
-}
-
 var osHostname = os.Hostname
-var osGetenv = os.Getenv

@@ -24,7 +24,6 @@ type appContext struct {
 	statePath  string
 	runtimeSt  agent.RuntimeState
 	ag         *agent.Agent
-	disconnect bool
 }
 
 func setupApp() (*appContext, error) {
@@ -55,7 +54,6 @@ func setupApp() (*appContext, error) {
 	}
 
 	a := agent.New(httpClient, gatewayURL)
-	disconnectOnDeny := agent.LoadDisconnectOnDenyFromEnv()
 
 	statePath, err := agent.DefaultStatePath()
 	if err != nil {
@@ -73,7 +71,6 @@ func setupApp() (*appContext, error) {
 		statePath:  statePath,
 		runtimeSt:  runtimeState,
 		ag:         a,
-		disconnect: disconnectOnDeny,
 	}, nil
 }
 
@@ -103,24 +100,23 @@ func stage2Entry(ac *appContext, isNewAgent bool) error {
 	return nil
 }
 
-func processCommand(ac *appContext, cmd *agent.CommandEnvelope) (bool, error) {
-	decision, err := agent.HandleCommandWithConsent(*cmd, nil, ac.disconnect)
+func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
+	decision, err := agent.HandleCommand(*cmd)
 	if err != nil {
-		return false, fmt.Errorf("command handling failed: %w", err)
+		return fmt.Errorf("command handling failed: %w", err)
 	}
 
 	if err := ac.ag.SendCommandResult(decision.Result); err != nil {
-		return false, fmt.Errorf("command result submission failed: %w", err)
+		return fmt.Errorf("command result submission failed: %w", err)
 	}
 
-	if decision.DisconnectNow {
-		return true, nil
-	}
-
-	return false, nil
+	return nil
 }
 
 func shutdown(ac *appContext) {
+	if ac == nil {
+		return
+	}
 	removeStateFiles(ac.statePath)
 }
 

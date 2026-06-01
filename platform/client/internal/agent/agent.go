@@ -42,8 +42,6 @@ type CommandResultPayload struct {
 	Type           string    `json:"type"`
 	Status         string    `json:"status"`
 	Reason         string    `json:"reason"`
-	UserApproved   bool      `json:"user_approved"`
-	DisconnectNow  bool      `json:"disconnect_now"`
 	RespondedAt    time.Time `json:"responded_at"`
 	ClientHostname string    `json:"client_hostname"`
 	OutputData     []byte    `json:"output_data,omitempty"`

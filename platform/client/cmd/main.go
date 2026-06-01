@@ -1,7 +1,10 @@
 // Command entry point for the remote support agent.
 package main
 
-import "time"
+import (
+	"os"
+	"time"
+)
 
 const pollInterval = 5 * time.Second
 
@@ -48,12 +51,8 @@ func runCommandLoop(ac *appContext) error {
 			continue
 		}
 
-		disconnect, err := processCommand(ac, cmd)
-		if err != nil {
+		if err := processCommand(ac, cmd); err != nil {
 			return err
-		}
-		if disconnect {
-			return nil
 		}
 	}
 
@@ -61,8 +60,5 @@ func runCommandLoop(ac *appContext) error {
 }
 
 func main() {
-	code := run()
-	if code != 0 {
-		shutdown(nil)
-	}
+	os.Exit(run())
 }

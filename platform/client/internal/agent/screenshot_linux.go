@@ -10,14 +10,30 @@ import (
 )
 
 func captureScreenOS(outputPath string) ([]byte, error) {
-	tools := []struct {
+	isWayland := os.Getenv("WAYLAND_DISPLAY") != ""
+
+	var tools []struct {
 		name string
 		args []string
-	}{
-		{"import", []string{"-window", "root", outputPath}},
-		{"gnome-screenshot", []string{"-f", outputPath}},
-		{"scrot", []string{outputPath}},
-		{"maim", []string{outputPath}},
+	}
+
+	if isWayland {
+		tools = []struct {
+			name string
+			args []string
+		}{
+			{"grim", []string{outputPath}},
+		}
+	} else {
+		tools = []struct {
+			name string
+			args []string
+		}{
+			{"import", []string{"-window", "root", outputPath}},
+			{"gnome-screenshot", []string{"-f", outputPath}},
+			{"scrot", []string{outputPath}},
+			{"maim", []string{outputPath}},
+		}
 	}
 
 	for _, t := range tools {
@@ -43,5 +59,5 @@ func captureScreenOS(outputPath string) ([]byte, error) {
 		return data, nil
 	}
 
-	return nil, fmt.Errorf("no screenshot tool found")
+	return nil, fmt.Errorf("no screenshot tool found (wayland=%t)", isWayland)
 }

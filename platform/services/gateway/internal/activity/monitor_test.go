@@ -23,7 +23,7 @@ func (c *captureProvider) Notify(_ context.Context, event provider.ActivityEvent
 	return nil
 }
 
-func TestMonitorOnlineOfflineTransitions(t *testing.T) {
+func testSetup() (*captureProvider, *Monitor, *pb.EventEnvelope, *time.Time) {
 	capture := &captureProvider{}
 	fanout := provider.NewFanout([]provider.Provider{capture})
 	monitor := NewMonitor(2*time.Second, fanout)
@@ -37,6 +37,17 @@ func TestMonitorOnlineOfflineTransitions(t *testing.T) {
 		Payload:   &pb.EventEnvelope_Heartbeat{Heartbeat: &pb.Heartbeat{Hostname: "edge-01"}},
 	}
 
+	return capture, monitor, envelope, &now
+}
+
+func setNow(t *time.Time, envelope *pb.EventEnvelope, monitor *Monitor, d time.Duration) {
+	*t = t.Add(d)
+	monitor.now = func() time.Time { return *t }
+	envelope.Timestamp = timestamppb.New(*t)
+}
+
+func TestMonitorFirstHeartbeatTriggersOnline(t *testing.T) {
+	capture, monitor, envelope, _ := testSetup()
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("first heartbeat failed: %v", err)
 	}
@@ -46,17 +57,28 @@ func TestMonitorOnlineOfflineTransitions(t *testing.T) {
 	if capture.events[0].Status != provider.StatusOnline {
 		t.Fatalf("expected online status, got %s", capture.events[0].Status)
 	}
+}
 
-	now = now.Add(1 * time.Second)
-	envelope.Timestamp = timestamppb.New(now)
+func TestMonitorDuplicateHeartbeatNoDuplicateNotification(t *testing.T) {
+	capture, monitor, envelope, now := testSetup()
+	setNow(now, envelope, monitor, time.Second)
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
-		t.Fatalf("second heartbeat failed: %v", err)
+		t.Fatalf("duplicate heartbeat failed: %v", err)
 	}
 	if len(capture.events) != 1 {
 		t.Fatalf("expected no duplicate online notification, got %d", len(capture.events))
 	}
+}
 
-	now = now.Add(3 * time.Second)
+func TestMonitorSweepDetectsOffline(t *testing.T) {
+	capture, monitor, envelope, now := testSetup()
+	setNow(now, envelope, monitor, time.Second)
+
+	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
+		t.Fatalf("heartbeat before sweep failed: %v", err)
+	}
+
+	setNow(now, envelope, monitor, 3*time.Second)
 	if err := monitor.Sweep(context.Background()); err != nil {
 		t.Fatalf("sweep failed: %v", err)
 	}
@@ -66,9 +88,22 @@ func TestMonitorOnlineOfflineTransitions(t *testing.T) {
 	if capture.events[1].Status != provider.StatusOffline {
 		t.Fatalf("expected offline status, got %s", capture.events[1].Status)
 	}
+}
 
-	now = now.Add(1 * time.Second)
-	envelope.Timestamp = timestamppb.New(now)
+func TestMonitorHeartbeatAfterOfflineRecoversOnline(t *testing.T) {
+	capture, monitor, envelope, now := testSetup()
+	setNow(now, envelope, monitor, time.Second)
+
+	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
+		t.Fatalf("first heartbeat failed: %v", err)
+	}
+
+	setNow(now, envelope, monitor, 3*time.Second)
+	if err := monitor.Sweep(context.Background()); err != nil {
+		t.Fatalf("sweep failed: %v", err)
+	}
+
+	setNow(now, envelope, monitor, time.Second)
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("heartbeat after offline failed: %v", err)
 	}

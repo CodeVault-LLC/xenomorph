@@ -75,9 +75,16 @@ func FromPeerCertificate(cert *x509.Certificate) (AuthenticatedAgent, error) {
 // universally unique in the strict sense — it is unique within the scope of
 // certificates trusted by this gateway's CA.
 func uuidFromFingerprint(fingerprint [32]byte) uuid.UUID {
+	const (
+		versionMask    byte = 0x0f
+		versionMarker  byte = 0x50
+		variantMask    byte = 0x3f
+		variantMarker  byte = 0x80
+		fingerprintLen      = 16
+	)
 	var id uuid.UUID
-	copy(id[:], fingerprint[:16])
-	id[6] = (id[6] & 0x0f) | 0x50 // RFC 4122 version 5 style marker
-	id[8] = (id[8] & 0x3f) | 0x80 // RFC 4122 variant marker
+	copy(id[:], fingerprint[:fingerprintLen])
+	id[6] = (id[6] & versionMask) | versionMarker
+	id[8] = (id[8] & variantMask) | variantMarker
 	return id
 }

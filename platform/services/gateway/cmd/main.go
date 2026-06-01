@@ -1,7 +1,9 @@
+// Command entry point for the gateway service.
 package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,30 +19,25 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/transport"
 )
 
-func main() {
+func run() error {
 	if err := sdk.InitLogger(""); err != nil {
-		slog.Error("logger initialization failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("logger initialization: %w", err)
 	}
 
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
-		slog.Error("invalid gateway configuration", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
 
 	natsBroker, err := broker.New(cfg.NATSURL)
 	if err != nil {
-		slog.Error("NATS connection failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("NATS connection: %w", err)
 	}
 	defer natsBroker.Close()
-	slog.Info("connected to NATS JetStream")
 
 	notifier, discordProvider, err := buildNotifier(cfg)
 	if err != nil {
-		slog.Error("notification provider setup failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("notification provider setup: %w", err)
 	}
 
 	monitor := activity.NewMonitor(cfg.ActivityOfflineAfter, notifier)
@@ -48,8 +45,7 @@ func main() {
 	defer cancel()
 
 	if err := activity.StartStream(ctx, natsBroker, monitor, cfg.ActivitySweepInterval); err != nil {
-		slog.Error("activity monitoring setup failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("activity monitoring setup: %w", err)
 	}
 
 	cmdQueue := command.NewQueue()
@@ -59,29 +55,30 @@ func main() {
 	srv := transport.NewServer(natsBroker, notifier, cmdQueue, discordPoster, monitor)
 
 	if discordProvider != nil {
-		gateway, err := discord.NewGatewayListener(cfg.DiscordBotToken, cfg.DiscordGuildID, srv)
+		gatewayListener, err := discord.NewGatewayListener(cfg.DiscordBotToken, cfg.DiscordGuildID, srv)
 		if err != nil {
-			slog.Error("Discord gateway listener creation failed", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("discord gateway listener creation: %w", err)
 		}
-		if err := gateway.Start(ctx); err != nil {
-			slog.Error("Discord gateway start failed", "error", err)
-			os.Exit(1)
+		if err := gatewayListener.Start(ctx); err != nil {
+			return fmt.Errorf("discord gateway start: %w", err)
 		}
-		slog.Info("Discord command listener started")
 	}
 
 	go func() {
-		slog.Info("gateway server starting", "addr", cfg.ListenAddr, "tls", "mTLS required")
 		if err := srv.Run(cfg.ListenAddr, cfg.CertPath); err != nil {
 			slog.Error("gateway server terminated with error", "error", err)
-			os.Exit(1)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	cancel()
-	slog.Info("gateway shutdown completed")
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("gateway startup failed", "error", err)
+		os.Exit(1)
+	}
 }

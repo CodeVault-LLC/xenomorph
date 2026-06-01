@@ -14,6 +14,51 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
 )
 
+const guildChannelsPath = "/guilds/g-1/channels"
+
+// embedCapture is an http.Handler that records the first message POST payload.
+type embedCapture struct {
+	t       *testing.T
+	Auth    string
+	Payload embedPayload
+	Path    string
+}
+
+type embedPayload struct {
+	Embeds []map[string]any `json:"embeds"`
+}
+
+func (h *embedCapture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == guildChannelsPath && r.Method == http.MethodGet {
+		_, _ = w.Write([]byte(`[
+			{"id":"cat-1","name":"client-host-a-agent-5","type":4,"parent_id":null,"topic":""},
+			{"id":"logs-1","name":"logs","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=logs"},
+			{"id":"up-1","name":"uploads","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=uploads"},
+			{"id":"cmd-1","name":"commands","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=commands"}
+		]`))
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/channels/") && strings.HasSuffix(r.URL.Path, "/messages") {
+		h.Path = r.URL.Path
+		h.Auth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&h.Payload); err != nil {
+			h.t.Fatalf("decode payload: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	h.t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+}
+
+func testDiscordProvider(t *testing.T, srv *httptest.Server) *Provider {
+	t.Helper()
+	p, err := New(Config{BotToken: "abc", GuildID: "g-1", APIBaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	return p
+}
+
 func TestNewRequiresBotToken(t *testing.T) {
 	_, err := New(Config{GuildID: "g-1"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "missing bot token") {
@@ -29,43 +74,12 @@ func TestNewRequiresGuildID(t *testing.T) {
 }
 
 func TestProviderNotifyPostsEmbedForOnline(t *testing.T) {
-	type embedPayload struct {
-		Embeds []map[string]any `json:"embeds"`
-	}
-
-	var gotAuth string
-	var gotPayload embedPayload
-	var gotPath string
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/guilds/g-1/channels" && r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`[
-				{"id":"cat-1","name":"client-host-a-agent-5","type":4,"parent_id":null,"topic":""},
-				{"id":"logs-1","name":"logs","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=logs"},
-				{"id":"up-1","name":"uploads","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=uploads"},
-				{"id":"cmd-1","name":"commands","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=commands"}
-			]`))
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/channels/") && strings.HasSuffix(r.URL.Path, "/messages") {
-			gotPath = r.URL.Path
-			gotAuth = r.Header.Get("Authorization")
-			if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
-				t.Fatalf("decode payload: %v", err)
-			}
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-	}))
+	capture := &embedCapture{t: t}
+	srv := httptest.NewServer(capture)
 	defer srv.Close()
 
-	p, err := New(Config{BotToken: "abc", GuildID: "g-1", APIBaseURL: srv.URL}, srv.Client())
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-
-	err = p.Notify(context.Background(), provider.ActivityEvent{
+	p := testDiscordProvider(t, srv)
+	err := p.Notify(context.Background(), provider.ActivityEvent{
 		AgentID:    "agent-5",
 		Hostname:   "host-a",
 		OccurredAt: time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
@@ -76,17 +90,17 @@ func TestProviderNotifyPostsEmbedForOnline(t *testing.T) {
 		t.Fatalf("notify failed: %v", err)
 	}
 
-	if gotAuth != "Bot abc" {
-		t.Fatalf("unexpected auth header: %q", gotAuth)
+	if capture.Auth != "Bot abc" {
+		t.Fatalf("unexpected auth header: %q", capture.Auth)
 	}
-	if !strings.Contains(gotPath, "/messages") {
-		t.Fatalf("expected messages endpoint, got: %s", gotPath)
+	if !strings.Contains(capture.Path, "/messages") {
+		t.Fatalf("expected messages endpoint, got: %s", capture.Path)
 	}
-	if len(gotPayload.Embeds) != 1 {
-		t.Fatalf("expected 1 embed, got %d", len(gotPayload.Embeds))
+	if len(capture.Payload.Embeds) != 1 {
+		t.Fatalf("expected 1 embed, got %d", len(capture.Payload.Embeds))
 	}
 
-	embed := gotPayload.Embeds[0]
+	embed := capture.Payload.Embeds[0]
 	if embed["title"] != "Agent Connected" {
 		t.Fatalf("expected title 'Agent Connected', got: %v", embed["title"])
 	}
@@ -100,39 +114,12 @@ func TestProviderNotifyPostsEmbedForOnline(t *testing.T) {
 }
 
 func TestProviderNotifyPostsEmbedForOffline(t *testing.T) {
-	type embedPayload struct {
-		Embeds []map[string]any `json:"embeds"`
-	}
-
-	var gotPayload embedPayload
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/guilds/g-1/channels" && r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`[
-				{"id":"cat-1","name":"client-host-a-agent-5","type":4,"parent_id":null,"topic":""},
-				{"id":"logs-1","name":"logs","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=logs"},
-				{"id":"up-1","name":"uploads","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=uploads"},
-				{"id":"cmd-1","name":"commands","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=commands"}
-			]`))
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/channels/") && strings.HasSuffix(r.URL.Path, "/messages") {
-			if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
-				t.Fatalf("decode payload: %v", err)
-			}
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-	}))
+	capture := &embedCapture{t: t}
+	srv := httptest.NewServer(capture)
 	defer srv.Close()
 
-	p, err := New(Config{BotToken: "abc", GuildID: "g-1", APIBaseURL: srv.URL}, srv.Client())
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-
-	err = p.Notify(context.Background(), provider.ActivityEvent{
+	p := testDiscordProvider(t, srv)
+	err := p.Notify(context.Background(), provider.ActivityEvent{
 		AgentID:    "agent-5",
 		Hostname:   "host-a",
 		OccurredAt: time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
@@ -143,11 +130,11 @@ func TestProviderNotifyPostsEmbedForOffline(t *testing.T) {
 		t.Fatalf("notify failed: %v", err)
 	}
 
-	if len(gotPayload.Embeds) != 1 {
-		t.Fatalf("expected 1 embed, got %d", len(gotPayload.Embeds))
+	if len(capture.Payload.Embeds) != 1 {
+		t.Fatalf("expected 1 embed, got %d", len(capture.Payload.Embeds))
 	}
 
-	embed := gotPayload.Embeds[0]
+	embed := capture.Payload.Embeds[0]
 	if embed["title"] != "Agent Disconnected" {
 		t.Fatalf("expected title 'Agent Disconnected', got: %v", embed["title"])
 	}
@@ -158,7 +145,7 @@ func TestProviderNotifyPostsEmbedForOffline(t *testing.T) {
 
 func TestProviderNotifyReturnsErrorOnFailureStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/guilds/g-1/channels" && r.Method == http.MethodGet {
+		if r.URL.Path == guildChannelsPath && r.Method == http.MethodGet {
 			_, _ = w.Write([]byte(`[
 				{"id":"cat-1","name":"client-host-a-agent-5","type":4,"parent_id":null,"topic":""},
 				{"id":"logs-1","name":"logs","type":0,"parent_id":"cat-1","topic":"xenomorph agent_id=agent-5 kind=logs"},
@@ -172,12 +159,8 @@ func TestProviderNotifyReturnsErrorOnFailureStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, err := New(Config{BotToken: "abc", GuildID: "g-1", APIBaseURL: srv.URL}, srv.Client())
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-
-	err = p.Notify(context.Background(), provider.ActivityEvent{
+	p := testDiscordProvider(t, srv)
+	err := p.Notify(context.Background(), provider.ActivityEvent{
 		AgentID:    "agent-5",
 		Hostname:   "host-a",
 		OccurredAt: time.Now(),
@@ -188,120 +171,85 @@ func TestProviderNotifyReturnsErrorOnFailureStatus(t *testing.T) {
 	}
 }
 
-func TestProviderNotifyCreatesAndReusesGuildChannels(t *testing.T) {
-	type channelCreateRequest struct {
-		Name     string `json:"name"`
-		Type     int    `json:"type"`
-		ParentID string `json:"parent_id"`
-		Topic    string `json:"topic"`
-	}
+// channelCreateHandler manages state for the channel create/reuse test.
+type channelCreateHandler struct {
+	mu            sync.Mutex
+	nextID        int
+	channels      []map[string]any
+	createCalls   int
+	msgPostChanID string
+}
 
-	var (
-		mu            sync.Mutex
-		nextID        = 100
-		channels      = make([]map[string]any, 0)
-		createCalls   int
-		msgPostChanID string
-	)
+func (h *channelCreateHandler) newID() string {
+	h.nextID++
+	return fmt.Sprintf("%d", h.nextID)
+}
 
-	newID := func() string {
-		nextID++
-		return fmt.Sprintf("%d", nextID)
-	}
+func (h *channelCreateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case r.URL.Path == guildChannelsPath && r.Method == http.MethodGet:
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(h.channels)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/guilds/g-1/channels" && r.Method == http.MethodGet {
-			mu.Lock()
-			defer mu.Unlock()
-			_ = json.NewEncoder(w).Encode(channels)
+	case r.URL.Path == guildChannelsPath && r.Method == http.MethodPost:
+		var req struct {
+			Name     string `json:"name"`
+			Type     int    `json:"type"`
+			ParentID string `json:"parent_id"`
+			Topic    string `json:"topic"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if r.URL.Path == "/guilds/g-1/channels" && r.Method == http.MethodPost {
-			var req channelCreateRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Fatalf("decode create request: %v", err)
-			}
 
-			mu.Lock()
-			createCalls++
-			id := newID()
-			created := map[string]any{
-				"id":        id,
-				"name":      req.Name,
-				"type":      req.Type,
-				"parent_id": req.ParentID,
-				"topic":     req.Topic,
-			}
-			channels = append(channels, created)
-			mu.Unlock()
+		h.mu.Lock()
+		h.createCalls++
+		id := h.newID()
+		created := map[string]any{
+			"id":        id,
+			"name":      req.Name,
+			"type":      req.Type,
+			"parent_id": req.ParentID,
+			"topic":     req.Topic,
+		}
+		h.channels = append(h.channels, created)
+		h.mu.Unlock()
 
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(created)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(created)
+
+	case strings.HasPrefix(r.URL.Path, "/channels/") && strings.HasSuffix(r.URL.Path, "/messages"):
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) != 3 {
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/channels/") && strings.HasSuffix(r.URL.Path, "/messages") {
-			parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-			if len(parts) != 3 {
-				t.Fatalf("unexpected message path: %s", r.URL.Path)
-			}
-			mu.Lock()
-			msgPostChanID = parts[1]
-			mu.Unlock()
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"id":"msg-1"}`))
-			return
-		}
-		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-	}))
-	defer srv.Close()
+		h.mu.Lock()
+		h.msgPostChanID = parts[1]
+		h.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"msg-1"}`))
 
-	p, err := New(Config{BotToken: "abc", GuildID: "g-1", APIBaseURL: srv.URL}, srv.Client())
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
+	default:
+		w.WriteHeader(http.StatusNotFound)
 	}
+}
 
-	event := provider.ActivityEvent{
-		AgentID:    "702d64b8-82f0-443f-a3a2-088d396582be",
-		Hostname:   "lukas",
-		OccurredAt: time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
-		Status:     provider.StatusOnline,
-		Source:     "heartbeat",
-	}
-
-	if err := p.Notify(context.Background(), event); err != nil {
-		t.Fatalf("notify first call failed: %v", err)
-	}
-	firstChanID := msgPostChanID
-
-	if err := p.Notify(context.Background(), event); err != nil {
-		t.Fatalf("notify second call failed: %v", err)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if createCalls != 4 {
-		t.Fatalf("expected 4 create calls (category + 3 channels), got %d", createCalls)
-	}
-	if firstChanID == "" {
-		t.Fatal("expected non-empty channel id for message post")
-	}
-	if msgPostChanID != firstChanID {
-		t.Fatalf("expected channel reuse, got %q and %q", firstChanID, msgPostChanID)
-	}
-
+func verifyCreatedChannels(t *testing.T, channels []map[string]any) {
+	t.Helper()
 	hasLogs := false
 	hasUploads := false
 	hasCommands := false
 	for _, ch := range channels {
 		name, _ := ch["name"].(string)
-		if name == "logs" {
+		switch name {
+		case "logs":
 			hasLogs = true
-		}
-		if name == "uploads" {
+		case "uploads":
 			hasUploads = true
-		}
-		if name == "commands" {
+		case "commands":
 			hasCommands = true
 		}
 	}
@@ -316,6 +264,46 @@ func TestProviderNotifyCreatesAndReusesGuildChannels(t *testing.T) {
 	}
 }
 
+func TestProviderNotifyCreatesAndReusesGuildChannels(t *testing.T) {
+	handler := &channelCreateHandler{nextID: 100}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	p := testDiscordProvider(t, srv)
+
+	event := provider.ActivityEvent{
+		AgentID:    "702d64b8-82f0-443f-a3a2-088d396582be",
+		Hostname:   "lukas",
+		OccurredAt: time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
+		Status:     provider.StatusOnline,
+		Source:     "heartbeat",
+	}
+
+	if err := p.Notify(context.Background(), event); err != nil {
+		t.Fatalf("notify first call failed: %v", err)
+	}
+	firstChanID := handler.msgPostChanID
+
+	if err := p.Notify(context.Background(), event); err != nil {
+		t.Fatalf("notify second call failed: %v", err)
+	}
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+
+	if handler.createCalls != 4 {
+		t.Fatalf("expected 4 create calls (category + 3 channels), got %d", handler.createCalls)
+	}
+	if firstChanID == "" {
+		t.Fatal("expected non-empty channel id for message post")
+	}
+	if handler.msgPostChanID != firstChanID {
+		t.Fatalf("expected channel reuse, got %q and %q", firstChanID, handler.msgPostChanID)
+	}
+
+	verifyCreatedChannels(t, handler.channels)
+}
+
 func TestProviderPreflightCheckSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bot abc" {
@@ -326,7 +314,7 @@ func TestProviderPreflightCheckSuccess(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case "/guilds/g-1":
 			w.WriteHeader(http.StatusOK)
-		case "/guilds/g-1/channels":
+		case guildChannelsPath:
 			w.WriteHeader(http.StatusOK)
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -334,11 +322,7 @@ func TestProviderPreflightCheckSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, err := New(Config{BotToken: "abc", GuildID: "g-1", APIBaseURL: srv.URL}, srv.Client())
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-
+	p := testDiscordProvider(t, srv)
 	if err := p.PreflightCheck(context.Background()); err != nil {
 		t.Fatalf("preflight should pass: %v", err)
 	}
@@ -361,12 +345,8 @@ func TestProviderPreflightCheckMissingAccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, err := New(Config{BotToken: "abc", GuildID: "g-1", APIBaseURL: srv.URL}, srv.Client())
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-
-	err = p.PreflightCheck(context.Background())
+	p := testDiscordProvider(t, srv)
+	err := p.PreflightCheck(context.Background())
 	if err == nil {
 		t.Fatal("expected preflight error")
 	}
@@ -380,7 +360,6 @@ func TestProviderReportEntryNotImplemented(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
 	}
-
 	if _, ok := any(p).(provider.EntryReporter); ok {
 		t.Fatal("discord provider should not implement EntryReporter")
 	}

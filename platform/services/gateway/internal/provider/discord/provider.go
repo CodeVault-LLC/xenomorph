@@ -16,14 +16,29 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
 )
 
-const defaultAPIBaseURL = "https://discord.com/api/v10"
+const (
+	defaultAPIBaseURL = "https://discord.com/api/v10"
 
+	httpClientTimeout  = 10 * time.Second
+	errBodyReadLimit   = 4096
+	maxDecodeBodySize  = 1 << 20
+	shortAgentIDLength = 8
+	maxDiscordNameLen  = 100
+	maxSlugLen         = 40
+
+	embedColorGreen = 0x2ECC71
+	embedColorRed   = 0xE74C3C
+)
+
+// Config holds the Discord bot authentication and guild targeting parameters.
 type Config struct {
 	BotToken   string
 	GuildID    string
 	APIBaseURL string
 }
 
+// Provider sends activity notifications to Discord channels and manages
+// per-agent channel sets (category, logs, uploads, commands).
 type Provider struct {
 	config Config
 	client *http.Client
@@ -54,6 +69,9 @@ const (
 
 var slugifyPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
+// New creates a Discord provider with the given config and HTTP client. When
+// client is nil a default client with a 10-second timeout is used. The config
+// BotToken and GuildID fields are required and trimmed of whitespace.
 func New(config Config, client *http.Client) (*Provider, error) {
 	config.BotToken = strings.TrimSpace(config.BotToken)
 	config.GuildID = strings.TrimSpace(config.GuildID)
@@ -69,7 +87,7 @@ func New(config Config, client *http.Client) (*Provider, error) {
 		config.APIBaseURL = defaultAPIBaseURL
 	}
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = &http.Client{Timeout: httpClientTimeout}
 	}
 
 	return &Provider{
@@ -79,10 +97,13 @@ func New(config Config, client *http.Client) (*Provider, error) {
 	}, nil
 }
 
+// Name returns "discord" as the provider identifier.
 func (p *Provider) Name() string {
 	return "discord"
 }
 
+// PreflightCheck validates bot authentication and guild access by making
+// three API calls: /users/@me, the guild, and the guild's channel list.
 func (p *Provider) PreflightCheck(ctx context.Context) error {
 	if err := p.discordGet(ctx, "/users/@me", "bot authentication check"); err != nil {
 		return err
@@ -96,6 +117,8 @@ func (p *Provider) PreflightCheck(ctx context.Context) error {
 	return nil
 }
 
+// Notify posts an activity embed to the agent's Discord logs channel.
+// Channels are created on demand via ensureAgentChannels.
 func (p *Provider) Notify(ctx context.Context, event provider.ActivityEvent) error {
 	if p.config.GuildID == "" {
 		return nil
@@ -129,10 +152,10 @@ func (p *Provider) Notify(ctx context.Context, event provider.ActivityEvent) err
 	if err != nil {
 		return fmt.Errorf("discord request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
 		return fmt.Errorf("discord status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 	return nil
@@ -142,10 +165,10 @@ func (p *Provider) buildActivityEmbed(event provider.ActivityEvent) map[string]a
 	var color int
 	var title string
 	if event.Status == provider.StatusOnline {
-		color = 0x2ECC71
+		color = embedColorGreen
 		title = "Agent Connected"
 	} else {
-		color = 0xE74C3C
+		color = embedColorRed
 		title = "Agent Disconnected"
 	}
 
@@ -173,12 +196,9 @@ func (p *Provider) ensureAgentChannels(ctx context.Context, agentID, hostname st
 		return channelSet{}, fmt.Errorf("empty agent id")
 	}
 
-	p.mu.Lock()
-	if set, ok := p.agentChannels[agentID]; ok && set.CategoryID != "" && set.LogsID != "" && set.UploadsID != "" && set.CommandsID != "" {
-		p.mu.Unlock()
+	if set, ok := p.cachedChannelSet(agentID); ok {
 		return set, nil
 	}
-	p.mu.Unlock()
 
 	channels, err := p.listGuildChannels(ctx)
 	if err != nil {
@@ -186,6 +206,32 @@ func (p *Provider) ensureAgentChannels(ctx context.Context, agentID, hostname st
 	}
 
 	set := discoverChannelSet(agentID, channels)
+	set, err = p.resolveOrCreateChannels(ctx, set, agentID, hostname)
+	if err != nil {
+		return channelSet{}, err
+	}
+
+	p.mu.Lock()
+	p.agentChannels[agentID] = set
+	p.mu.Unlock()
+
+	return set, nil
+}
+
+// cachedChannelSet returns the channel set for an agent when all four
+// channels (category, logs, uploads, commands) are already cached.
+func (p *Provider) cachedChannelSet(agentID string) (channelSet, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	set, ok := p.agentChannels[agentID]
+	if !ok || set.CategoryID == "" || set.LogsID == "" || set.UploadsID == "" || set.CommandsID == "" {
+		return channelSet{}, false
+	}
+	return set, true
+}
+
+// resolveOrCreateChannels creates any missing channels for the agent.
+func (p *Provider) resolveOrCreateChannels(ctx context.Context, set channelSet, agentID, hostname string) (channelSet, error) {
 	if set.CategoryID == "" {
 		categoryID, err := p.createCategory(ctx, categoryName(hostname, agentID))
 		if err != nil {
@@ -215,11 +261,6 @@ func (p *Provider) ensureAgentChannels(ctx context.Context, agentID, hostname st
 		}
 		set.CommandsID = id
 	}
-
-	p.mu.Lock()
-	p.agentChannels[agentID] = set
-	p.mu.Unlock()
-
 	return set, nil
 }
 
@@ -235,15 +276,15 @@ func (p *Provider) listGuildChannels(ctx context.Context) ([]discordChannel, err
 	if err != nil {
 		return nil, fmt.Errorf("guild channel list request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
 		return nil, fmt.Errorf("guild channel list status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 
 	var channels []discordChannel
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&channels); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDecodeBodySize)).Decode(&channels); err != nil {
 		return nil, fmt.Errorf("decode guild channel list: %w", err)
 	}
 
@@ -258,31 +299,38 @@ func discoverChannelSet(agentID string, channels []discordChannel) channelSet {
 		if ch.Type == discordChannelTypeCategory && strings.HasSuffix(strings.ToLower(ch.Name), "-"+short) {
 			set.CategoryID = ch.ID
 		}
-		if ch.Type != discordChannelTypeText {
+
+		name, matched := matchCommandsChannel(ch, topicNeedle)
+		if !matched {
 			continue
 		}
-		if !strings.Contains(ch.Topic, topicNeedle) {
-			continue
-		}
-		switch strings.ToLower(ch.Name) {
+		switch name {
 		case "logs":
 			set.LogsID = ch.ID
-			if set.CategoryID == "" {
-				set.CategoryID = ch.ParentID
-			}
 		case "uploads":
 			set.UploadsID = ch.ID
-			if set.CategoryID == "" {
-				set.CategoryID = ch.ParentID
-			}
 		case "commands":
 			set.CommandsID = ch.ID
-			if set.CategoryID == "" {
-				set.CategoryID = ch.ParentID
-			}
+		default:
+			continue
+		}
+		if set.CategoryID == "" {
+			set.CategoryID = ch.ParentID
 		}
 	}
 	return set
+}
+
+// matchCommandsChannel returns the lowercased channel name when ch is a text
+// channel whose topic contains the agent's topic needle.
+func matchCommandsChannel(ch discordChannel, topicNeedle string) (string, bool) {
+	if ch.Type != discordChannelTypeText {
+		return "", false
+	}
+	if !strings.Contains(ch.Topic, topicNeedle) {
+		return "", false
+	}
+	return strings.ToLower(ch.Name), true
 }
 
 func (p *Provider) createCategory(ctx context.Context, name string) (string, error) {
@@ -334,14 +382,14 @@ func (p *Provider) discordPostJSON(ctx context.Context, path string, body any, o
 	if err != nil {
 		return fmt.Errorf("%s: request failed: %w", operation, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
 		return fmt.Errorf("%s: discord status %d: %s", operation, resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 	if out != nil {
-		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
+		if err := json.NewDecoder(io.LimitReader(resp.Body, maxDecodeBodySize)).Decode(out); err != nil {
 			return fmt.Errorf("%s: decode response: %w", operation, err)
 		}
 	}
@@ -360,10 +408,10 @@ func (p *Provider) discordGet(ctx context.Context, path string, operation string
 	if err != nil {
 		return fmt.Errorf("%s: request failed: %w", operation, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
 		return fmt.Errorf("%s: discord status %d: %s", operation, resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 	return nil
@@ -388,8 +436,8 @@ func categoryName(hostname, agentID string) string {
 
 func shortAgentID(agentID string) string {
 	trimmed := strings.TrimSpace(agentID)
-	if len(trimmed) >= 8 {
-		return strings.ToLower(trimmed[:8])
+	if len(trimmed) >= shortAgentIDLength {
+		return strings.ToLower(trimmed[:shortAgentIDLength])
 	}
 	if trimmed == "" {
 		return "unknown"
@@ -402,10 +450,10 @@ func trimDiscordName(value string) string {
 	if trimmed == "" {
 		return "client-unknown"
 	}
-	if len(trimmed) <= 100 {
+	if len(trimmed) <= maxDiscordNameLen {
 		return trimmed
 	}
-	return trimmed[:100]
+	return trimmed[:maxDiscordNameLen]
 }
 
 func slugify(value string) string {
@@ -415,8 +463,8 @@ func slugify(value string) string {
 	}
 	slug := slugifyPattern.ReplaceAllString(lowered, "-")
 	slug = strings.Trim(slug, "-")
-	if len(slug) > 40 {
-		slug = strings.Trim(slug[:40], "-")
+	if len(slug) > maxSlugLen {
+		slug = strings.Trim(slug[:maxSlugLen], "-")
 	}
 	return slug
 }
@@ -429,6 +477,7 @@ func nonEmpty(value string) string {
 	return trimmed
 }
 
+// SendChannelMessage posts a plain text message to the given Discord channel.
 func (p *Provider) SendChannelMessage(ctx context.Context, channelID, content string) error {
 	payload, err := json.Marshal(map[string]string{"content": content})
 	if err != nil {
@@ -447,15 +496,17 @@ func (p *Provider) SendChannelMessage(ctx context.Context, channelID, content st
 	if err != nil {
 		return fmt.Errorf("discord request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
 		return fmt.Errorf("discord status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 	return nil
 }
 
+// SendChannelFile uploads a file attachment to the given Discord channel
+// with an optional caption message.
 func (p *Provider) SendChannelFile(ctx context.Context, channelID, fileName string, data []byte, content string) error {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
@@ -491,15 +542,17 @@ func (p *Provider) SendChannelFile(ctx context.Context, channelID, fileName stri
 	if err != nil {
 		return fmt.Errorf("discord request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
 		return fmt.Errorf("discord status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 	return nil
 }
 
+// CommandsChannelID returns the Discord channel ID for issuing commands to
+// the specified agent. Returns false when no channel mapping exists.
 func (p *Provider) CommandsChannelID(agentID string) (string, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

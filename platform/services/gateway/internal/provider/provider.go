@@ -1,3 +1,7 @@
+// Package provider owns the notification provider abstraction and fanout
+// dispatcher for agent activity events. It defines the Provider interface that
+// downstream packages (discord, etc.) implement and the Fanout that distributes
+// events to every registered provider.
 package provider
 
 import (
@@ -11,7 +15,10 @@ import (
 type Status string
 
 const (
-	StatusOnline  Status = "online"
+	// StatusOnline is published when an agent heartbeat is received within the
+	// configured offline threshold.
+	StatusOnline Status = "online"
+	// StatusOffline is published when an agent misses its heartbeat deadline.
 	StatusOffline Status = "offline"
 )
 
@@ -82,6 +89,8 @@ type Fanout struct {
 	providers []Provider
 }
 
+// NewFanout creates a Fanout that dispatches events to the given providers.
+// Nil entries in the slice are silently skipped.
 func NewFanout(providers []Provider) *Fanout {
 	copyProviders := make([]Provider, 0, len(providers))
 	for _, p := range providers {
@@ -92,6 +101,8 @@ func NewFanout(providers []Provider) *Fanout {
 	return &Fanout{providers: copyProviders}
 }
 
+// Notify dispatches an activity event to every registered provider. Errors
+// from individual providers are joined and returned together.
 func (f *Fanout) Notify(ctx context.Context, event ActivityEvent) error {
 	if f == nil || len(f.providers) == 0 {
 		return nil
@@ -107,7 +118,9 @@ func (f *Fanout) Notify(ctx context.Context, event ActivityEvent) error {
 	return errors.Join(errs...)
 }
 
-// ReportEntry dispatches stage-2 onboarding reports to capable providers.
+// ReportEntry dispatches stage-2 onboarding reports to providers that
+// implement EntryReporter. Providers that do not implement EntryReporter are
+// silently skipped. Errors are joined and returned together.
 func (f *Fanout) ReportEntry(ctx context.Context, report EntryReport) error {
 	if f == nil || len(f.providers) == 0 {
 		return nil

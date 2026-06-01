@@ -1,3 +1,5 @@
+// Package discord implements a Discord notification provider and a Gateway
+// WebSocket listener for receiving and routing !-commands from Discord.
 package discord
 
 import (
@@ -10,6 +12,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 )
+
+const channelCacheTTL = 60 * time.Second
 
 // CommandHandler is the interface for handling a parsed Discord !-command.
 // The transport.Server implements this interface to route commands to the
@@ -63,7 +67,7 @@ func NewGatewayListener(token, guildID string, handler CommandHandler) (*Gateway
 		handler:          handler,
 		guildID:          guildID,
 		channelIDtoAgent: make(map[string]string),
-		cacheTTL:         60 * time.Second,
+		cacheTTL:         channelCacheTTL,
 	}
 
 	dg.AddHandler(gl.onMessageCreate)
@@ -92,7 +96,7 @@ func (gl *GatewayListener) Start(ctx context.Context) error {
 		for {
 			select {
 			case <-ctx.Done():
-				gl.session.Close()
+				_ = gl.session.Close()
 				return
 			case <-ticker.C:
 				gl.refreshChannelCache()

@@ -12,6 +12,8 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider/discord"
 )
 
+const preflightTimeout = 10 * time.Second
+
 // buildNotifier constructs the notification provider fanout from the gateway
 // configuration and returns the Discord provider separately for direct use by
 // the command queue bridge and screenshot forwarding path.
@@ -74,7 +76,7 @@ func buildNotifier(cfg config.GatewayConfig) (*provider.Fanout, *discord.Provide
 //
 // The 10-second timeout is a hard deadline for each provider's preflight.
 func preflightProviders(providers []provider.Provider) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), preflightTimeout)
 	defer cancel()
 
 	for _, p := range providers {

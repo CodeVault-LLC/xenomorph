@@ -19,6 +19,9 @@ type contextKey string
 const (
 	// traceIDKey is the context key that carries the request trace identifier.
 	traceIDKey contextKey = "trace_id"
+
+	logDirPerm  os.FileMode = 0750
+	logFilePerm os.FileMode = 0640
 )
 
 // InitLogger configures the global slog default logger with JSON-structured
@@ -41,11 +44,11 @@ func InitLogger(filePath string) error {
 
 	if filePath != "" {
 		dir := filepath.Dir(filePath)
-		if err := os.MkdirAll(dir, 0750); err != nil {
+		if err := os.MkdirAll(dir, logDirPerm); err != nil {
 			return err
 		}
 
-		f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0640)
+		f, err := os.OpenFile(filepath.Clean(filePath), os.O_CREATE|os.O_WRONLY|os.O_APPEND, logFilePerm)
 		if err != nil {
 			return err
 		}

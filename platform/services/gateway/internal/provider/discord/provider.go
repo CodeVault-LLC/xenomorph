@@ -19,15 +19,13 @@ import (
 const (
 	defaultAPIBaseURL = "https://discord.com/api/v10"
 
-	httpClientTimeout  = 10 * time.Second
-	errBodyReadLimit   = 4096
-	maxDecodeBodySize  = 1 << 20
+	httpClientTimeout = 10 * time.Second
+	errBodyReadLimit  = 4096
+	maxDecodeBodySize = 1 << 20
+
 	shortAgentIDLength = 8
 	maxDiscordNameLen  = 100
 	maxSlugLen         = 40
-
-	embedColorGreen = 0x2ECC71
-	embedColorRed   = 0xE74C3C
 )
 
 // Config holds the Discord bot authentication and guild targeting parameters.
@@ -576,4 +574,235 @@ func (p *Provider) AllCommandsChannels() map[string]string {
 		}
 	}
 	return result
+}
+
+// AllChannelSets returns a snapshot of all known agent channel sets.
+func (p *Provider) AllChannelSets() map[string]provider.ChannelInfo {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	result := make(map[string]provider.ChannelInfo, len(p.agentChannels))
+	for id, set := range p.agentChannels {
+		result[id] = provider.ChannelInfo{
+			CategoryID: set.CategoryID,
+			LogsID:     set.LogsID,
+			UploadsID:  set.UploadsID,
+			CommandsID: set.CommandsID,
+		}
+	}
+	return result
+}
+
+// DeleteChannel removes a Discord channel by its ID.
+func (p *Provider) DeleteChannel(ctx context.Context, channelID string) error {
+	url := p.config.APIBaseURL + "/channels/" + channelID
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("build delete request: %w", err)
+	}
+	p.setAuthHeader(req)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete channel request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
+		return fmt.Errorf("delete channel status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+	return nil
+}
+
+// RespondInteraction sends an ephemeral embed response to a Discord slash
+// command interaction. The response is visible only to the invoking user.
+func (p *Provider) RespondInteraction(ctx context.Context, interactionID, interactionToken string, embed map[string]any) error {
+	payload, err := json.Marshal(map[string]any{
+		"type": 4,
+		"data": map[string]any{
+			"embeds": []map[string]any{embed},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal interaction response: %w", err)
+	}
+
+	url := p.config.APIBaseURL + "/interactions/" + interactionID + "/" + interactionToken + "/callback"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build interaction request: %w", err)
+	}
+	p.setAuthHeader(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("interaction request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
+		return fmt.Errorf("interaction status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+	return nil
+}
+
+// GetBotUser returns the bot's user ID and username from the Discord API.
+func (p *Provider) GetBotUser(ctx context.Context) (id, username string, err error) {
+	url := p.config.APIBaseURL + "/users/@me"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("build bot user request: %w", err)
+	}
+	p.setAuthHeader(req)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("bot user request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
+		return "", "", fmt.Errorf("bot user status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+
+	var user struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDecodeBodySize)).Decode(&user); err != nil {
+		return "", "", fmt.Errorf("decode bot user: %w", err)
+	}
+	return user.ID, user.Username, nil
+}
+
+// RegisterGuildCommands registers the slash commands for the given guild.
+// Existing commands with the same name are updated; new commands are created.
+func (p *Provider) RegisterGuildCommands(ctx context.Context, commands []guildCommand) error {
+	appID, _, err := p.GetBotUser(ctx)
+	if err != nil {
+		return fmt.Errorf("get bot user for command registration: %w", err)
+	}
+
+	existing, err := p.listGuildCommands(ctx, appID)
+	if err != nil {
+		return fmt.Errorf("list existing commands: %w", err)
+	}
+
+	existingByName := make(map[string]string, len(existing))
+	for _, cmd := range existing {
+		existingByName[cmd.Name] = cmd.ID
+	}
+
+	for _, cmd := range commands {
+		body := map[string]any{
+			"name":        cmd.Name,
+			"description": cmd.Description,
+			"options":     cmd.Options,
+		}
+
+		if existingID, ok := existingByName[cmd.Name]; ok {
+			if err := p.updateGuildCommand(ctx, appID, existingID, body); err != nil {
+				return fmt.Errorf("update command %q: %w", cmd.Name, err)
+			}
+		} else {
+			if err := p.createGuildCommand(ctx, appID, body); err != nil {
+				return fmt.Errorf("create command %q: %w", cmd.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// guildCommand represents a slash command to register.
+type guildCommand struct {
+	Name        string
+	Description string
+	Options     []map[string]any
+}
+
+type guildCommandEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (p *Provider) listGuildCommands(ctx context.Context, appID string) ([]guildCommandEntry, error) {
+	url := p.config.APIBaseURL + "/applications/" + appID + "/guilds/" + p.config.GuildID + "/commands"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build list commands request: %w", err)
+	}
+	p.setAuthHeader(req)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list commands request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
+		return nil, fmt.Errorf("list commands status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+
+	var entries []guildCommandEntry
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDecodeBodySize)).Decode(&entries); err != nil {
+		return nil, fmt.Errorf("decode commands: %w", err)
+	}
+	return entries, nil
+}
+
+func (p *Provider) createGuildCommand(ctx context.Context, appID string, body any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+	url := p.config.APIBaseURL + "/applications/" + appID + "/guilds/" + p.config.GuildID + "/commands"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("build create command request: %w", err)
+	}
+	p.setAuthHeader(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("create command request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
+		return fmt.Errorf("create command status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+	return nil
+}
+
+func (p *Provider) updateGuildCommand(ctx context.Context, appID, commandID string, body any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+	url := p.config.APIBaseURL + "/applications/" + appID + "/guilds/" + p.config.GuildID + "/commands/" + commandID
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("build update command request: %w", err)
+	}
+	p.setAuthHeader(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("update command request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
+		return fmt.Errorf("update command status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+	return nil
 }

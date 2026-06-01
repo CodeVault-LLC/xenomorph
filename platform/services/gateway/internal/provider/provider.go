@@ -60,12 +60,24 @@ type AgentSnapshot struct {
 	IsOnline bool
 }
 
-// DiscordPoster is implemented by the Discord provider for sending messages
-// and files back to Discord channels from command handlers.
+// ChannelInfo holds Discord channel IDs for an agent's channel set.
+type ChannelInfo struct {
+	CategoryID string
+	LogsID     string
+	UploadsID  string
+	CommandsID string
+}
+
+// DiscordPoster is implemented by the Discord provider for sending messages,
+// files, and interaction responses back to Discord from command handlers.
 type DiscordPoster interface {
 	SendChannelMessage(ctx context.Context, channelID, content string) error
 	SendChannelFile(ctx context.Context, channelID, fileName string, data []byte, content string) error
 	CommandsChannelID(agentID string) (string, bool)
+	RespondInteraction(ctx context.Context, interactionID, interactionToken string, embed map[string]any) error
+	GetBotUser(ctx context.Context) (id, username string, err error)
+	AllChannelSets() map[string]ChannelInfo
+	DeleteChannel(ctx context.Context, channelID string) error
 }
 
 // Provider receives normalized agent activity events.

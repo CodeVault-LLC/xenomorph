@@ -55,7 +55,7 @@ func run() error {
 	srv := transport.NewServer(natsBroker, notifier, cmdQueue, discordPoster, monitor)
 
 	if discordProvider != nil {
-		gatewayListener, err := discord.NewGatewayListener(cfg.DiscordBotToken, cfg.DiscordGuildID, srv)
+		gatewayListener, err := discord.NewGatewayListener(cfg.DiscordBotToken, cfg.DiscordGuildID, srv, discordProvider)
 		if err != nil {
 			return fmt.Errorf("discord gateway listener creation: %w", err)
 		}

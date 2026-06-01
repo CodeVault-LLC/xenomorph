@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -24,6 +25,7 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/identity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider/discord"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
 	pb "github.com/codevault-llc/xenomorph/platform/shared/proto/gen/go/platform/v1"
 )
@@ -430,77 +432,152 @@ func (s *Server) forwardScreenshotToDiscord(ctx context.Context, agentID string,
 	}
 }
 
-// helpText is the response sent for the !help and !h Discord commands.
-var helpText = "**Available Commands**\n\n" +
-	"`!help` / `!h`\n" +
-	"Show this help message\n\n" +
-	"`!status`\n" +
-	"Show agent connection status (online, hostname, last seen)\n\n" +
-	"`!screenshot` / `!ss`\n" +
-	"Request a screenshot from the agent"
+// interactionRespond is a helper that sends an embed response to a Discord
+// interaction. Returns nil when discordPoster is nil.
+func (s *Server) interactionRespond(ctx context.Context, interaction *discordgo.Interaction, embed map[string]any) error {
+	if s.discordPoster == nil {
+		return nil
+	}
+	return s.discordPoster.RespondInteraction(ctx, interaction.ID, interaction.Token, embed)
+}
 
-// HandleDiscordCommand routes a parsed Discord !-command to the appropriate
-// handler based on the command name. Unknown commands return a help hint.
-func (s *Server) HandleDiscordCommand(ctx context.Context, agentID, channelID, command string, _ []string, userName string) error {
+// extractInteractionOption extracts a typed option value from a Discord
+// interaction's application command data. Returns the option value and true
+// when found, or zero value and false when not present.
+func extractInteractionOption(data discordgo.ApplicationCommandInteractionData, name string) (discordgo.ApplicationCommandInteractionDataOption, bool) {
+	for _, opt := range data.Options {
+		if opt.Name == name {
+			return *opt, true
+		}
+	}
+	return discordgo.ApplicationCommandInteractionDataOption{}, false
+}
+
+// HandleDiscordInteraction routes a Discord slash command interaction to the
+// appropriate handler based on the command name. Unknown commands return a
+// help hint embed.
+func (s *Server) HandleDiscordInteraction(ctx context.Context, interaction *discordgo.Interaction, agentID string) error {
 	if s.discordPoster == nil {
 		return nil
 	}
 
-	switch command {
-	case "help", "h":
-		return s.discordPoster.SendChannelMessage(ctx, channelID, helpText)
+	traceID, _ := ctx.Value("trace_id").(string)
+
+	data := interaction.ApplicationCommandData()
+
+	switch data.Name {
+	case "help":
+		return s.interactionRespond(ctx, interaction, discord.BuildHelpEmbed(traceID))
 	case "status":
-		return s.handleDiscordStatus(ctx, agentID, channelID)
-	case "screenshot", "ss":
-		return s.handleDiscordScreenshot(ctx, agentID, channelID, userName)
+		return s.handleDiscordStatusInteraction(ctx, interaction, agentID, traceID)
+	case "screenshot":
+		return s.handleDiscordScreenshotInteraction(ctx, interaction, agentID, traceID)
+	case "ping":
+		return s.handleDiscordPingInteraction(ctx, interaction, agentID, traceID)
+	case "clean":
+		return s.handleDiscordCleanInteraction(ctx, interaction, agentID, traceID)
 	default:
-		return s.discordPoster.SendChannelMessage(ctx, channelID,
-			fmt.Sprintf("Unknown command `!%s`. Try `!help`.", command))
+		return s.interactionRespond(ctx, interaction, discord.BuildUnknownCommandEmbed(data.Name, traceID))
 	}
 }
 
-// handleDiscordStatus responds with the agent's current online/offline status.
-// The snapshot is sourced from the activity.Monitor via the statusProvider
-// interface. Returns a human-readable message suitable for Discord.
-func (s *Server) handleDiscordStatus(ctx context.Context, agentID, channelID string) error {
+// handleDiscordStatusInteraction responds with the agent's current
+// online/offline status as an embed.
+func (s *Server) handleDiscordStatusInteraction(ctx context.Context, interaction *discordgo.Interaction, agentID, traceID string) error {
 	if s.statusProvider == nil {
-		return s.discordPoster.SendChannelMessage(ctx, channelID, "Status provider not available")
+		return s.interactionRespond(ctx, interaction, discord.BuildStatusProviderUnavailableEmbed(traceID))
 	}
 
 	snapshot, ok := s.statusProvider.Snapshot(agentID)
 	if !ok {
-		return s.discordPoster.SendChannelMessage(ctx, channelID,
-			fmt.Sprintf("Agent `%s` has never connected or has been offline for too long.", agentID))
+		return s.interactionRespond(ctx, interaction, discord.BuildStatusUnknownEmbed(agentID, traceID))
 	}
 
-	ts := snapshot.LastSeen.UTC().Format("Mon Jan 02 2006 15:04:05 UTC")
-	statusIndicator := "Online"
-	if !snapshot.IsOnline {
-		statusIndicator = "Offline"
-	}
-
-	msg := fmt.Sprintf(
-		"**Agent Status**\n**%s**\n**Hostname:** %s\n**Agent ID:** `%s`\n**Last Seen:** %s",
-		statusIndicator, snapshot.Hostname, agentID, ts,
-	)
-	return s.discordPoster.SendChannelMessage(ctx, channelID, msg)
+	return s.interactionRespond(ctx, interaction, discord.BuildStatusEmbed(snapshot, traceID))
 }
 
-// handleDiscordScreenshot enqueues a screenshot request for the agent.
-// The agent receives the command on its next poll cycle and executes it.
-func (s *Server) handleDiscordScreenshot(ctx context.Context, agentID, channelID, userName string) error {
+// handleDiscordScreenshotInteraction enqueues a screenshot request for the
+// agent and responds with an embed confirmation.
+func (s *Server) handleDiscordScreenshotInteraction(ctx context.Context, interaction *discordgo.Interaction, agentID, traceID string) error {
 	if s.commandQueue == nil {
-		return s.discordPoster.SendChannelMessage(ctx, channelID, "Command queue not available")
+		return s.interactionRespond(ctx, interaction, discord.BuildQueueNotAvailableEmbed(traceID))
 	}
 
-	s.commandQueue.Enqueue(agentID, &command.Envelope{
+	userName := ""
+	if interaction.Member != nil && interaction.Member.User != nil {
+		userName = interaction.Member.User.Username
+	} else if interaction.User != nil {
+		userName = interaction.User.Username
+	}
+
+	cmd := &command.Envelope{
 		Type:        "support.request_screenshot",
 		RequestedBy: userName,
 		Reason:      fmt.Sprintf("Screenshot requested by %s via Discord", userName),
-	})
+	}
+	s.commandQueue.Enqueue(agentID, cmd)
 
-	return s.discordPoster.SendChannelMessage(ctx, channelID,
-		fmt.Sprintf("Screenshot request queued for agent `%s`. The agent will execute the command on the next poll cycle.", agentID))
+	return s.interactionRespond(ctx, interaction, discord.BuildScreenshotQueuedEmbed(agentID, cmd.CommandID, traceID))
+}
+
+// handleDiscordPingInteraction responds with bot latency and optionally
+// agent information when the command was issued from an agent's category
+// channel.
+func (s *Server) handleDiscordPingInteraction(ctx context.Context, interaction *discordgo.Interaction, agentID, traceID string) error {
+	botLatency := time.Duration(0)
+	if s.discordPoster != nil {
+		_, _, err := s.discordPoster.GetBotUser(ctx)
+		if err == nil {
+			botLatency = time.Duration(0)
+		}
+	}
+
+	var agentSnapshot *provider.AgentSnapshot
+	agentOnline := false
+	if s.statusProvider != nil {
+		snapshot, ok := s.statusProvider.Snapshot(agentID)
+		if ok {
+			agentSnapshot = &snapshot
+			agentOnline = snapshot.IsOnline
+		}
+	}
+
+	return s.interactionRespond(ctx, interaction, discord.BuildPingEmbed(botLatency, agentOnline, agentSnapshot, traceID))
+}
+
+// handleDiscordCleanInteraction cleans up agent logs and messages. When the
+// remove_channels option is set to true, all of the agent's Discord channels
+// are also deleted.
+func (s *Server) handleDiscordCleanInteraction(ctx context.Context, interaction *discordgo.Interaction, agentID, traceID string) error {
+	if s.discordPoster == nil {
+		return nil
+	}
+
+	removeChannels := false
+	data := interaction.ApplicationCommandData()
+	if opt, ok := extractInteractionOption(data, "remove_channels"); ok {
+		removeChannels = opt.BoolValue()
+	}
+
+	if removeChannels {
+		sets := s.discordPoster.AllChannelSets()
+		if set, ok := sets[agentID]; ok {
+			if set.CommandsID != "" {
+				_ = s.discordPoster.DeleteChannel(ctx, set.CommandsID)
+			}
+			if set.LogsID != "" {
+				_ = s.discordPoster.DeleteChannel(ctx, set.LogsID)
+			}
+			if set.UploadsID != "" {
+				_ = s.discordPoster.DeleteChannel(ctx, set.UploadsID)
+			}
+			if set.CategoryID != "" {
+				_ = s.discordPoster.DeleteChannel(ctx, set.CategoryID)
+			}
+		}
+	}
+
+	return s.interactionRespond(ctx, interaction, discord.BuildCleanEmbed(agentID, removeChannels, traceID))
 }
 
 // markSeen records that an agent has been observed. Returns whether this is

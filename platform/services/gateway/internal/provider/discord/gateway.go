@@ -1,5 +1,5 @@
 // Package discord implements a Discord notification provider and a Gateway
-// WebSocket listener for receiving and routing !-commands from Discord.
+// WebSocket listener for receiving and routing slash commands from Discord.
 package discord
 
 import (
@@ -15,31 +15,33 @@ import (
 
 const channelCacheTTL = 60 * time.Second
 
-// CommandHandler is the interface for handling a parsed Discord !-command.
-// The transport.Server implements this interface to route commands to the
-// correct agent handler (help, status, screenshot).
-type CommandHandler interface {
-	HandleDiscordCommand(ctx context.Context, agentID, channelID, command string, args []string, userName string) error
+// InteractionHandler is the interface for handling a parsed Discord slash
+// command interaction. The transport.Server implements this interface to route
+// commands to the correct agent handler (help, status, screenshot, ping, clean).
+type InteractionHandler interface {
+	HandleDiscordInteraction(ctx context.Context, interaction *discordgo.Interaction, agentID string) error
 }
 
 // GatewayListener uses a Discord Gateway WebSocket connection to receive
-// messages in real time, eliminating REST polling and the rate-limit
-// problems that come with it.
+// messages and interactions in real time, eliminating REST polling and the
+// rate-limit problems that come with it.
 //
 // Architecture:
 //   - discordgo.Session manages the WebSocket connection (auto-reconnect,
 //     heartbeats, resume) and provides a rate-limit-aware REST client.
-//   - MESSAGE_CREATE events are pushed over the WebSocket as they happen.
+//   - INTERACTION_CREATE events are pushed over the WebSocket as they happen.
 //   - A periodically-refreshed channel cache maps channelID -> agentID
 //     so only commands channels are processed.
 //
-// Security: the listener only processes messages from channels whose topic
+// Security: the listener only processes interactions from channels whose topic
 // contains "kind=commands". This prevents command injection through non-command
-// channels. Bot messages and the listener's own messages are always ignored.
+// channels.
 type GatewayListener struct {
-	session *discordgo.Session
-	handler CommandHandler
-	guildID string
+	session   *discordgo.Session
+	handler   InteractionHandler
+	guildID   string
+	provider  *Provider
+	channelID string
 
 	channelIDtoAgent map[string]string
 	cacheTime        time.Time
@@ -48,13 +50,13 @@ type GatewayListener struct {
 }
 
 // NewGatewayListener creates a GatewayListener with the given bot token,
-// guild ID, and command handler. The handler must be non-nil; the function
-// panics when handler is nil.
+// guild ID, command handler, and provider. The handler must be non-nil; the
+// function panics when handler is nil.
 //
 // The bot token must be prefixed with "Bot " by the caller (or the raw token
 // is accepted and prefixed internally). The intents GuildMessages and
 // MessageContent are required for command processing.
-func NewGatewayListener(token, guildID string, handler CommandHandler) (*GatewayListener, error) {
+func NewGatewayListener(token, guildID string, handler InteractionHandler, provider *Provider) (*GatewayListener, error) {
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, fmt.Errorf("discordgo session creation failed: %w", err)
@@ -66,11 +68,12 @@ func NewGatewayListener(token, guildID string, handler CommandHandler) (*Gateway
 		session:          dg,
 		handler:          handler,
 		guildID:          guildID,
+		provider:         provider,
 		channelIDtoAgent: make(map[string]string),
 		cacheTTL:         channelCacheTTL,
 	}
 
-	dg.AddHandler(gl.onMessageCreate)
+	dg.AddHandler(gl.onInteractionCreate)
 
 	return gl, nil
 }
@@ -81,14 +84,20 @@ func NewGatewayListener(token, guildID string, handler CommandHandler) (*Gateway
 // cache refresher goroutine is tied to ctx cancellation.
 //
 // The cache is seeded synchronously before Start returns so the first
-// command does not race against an empty cache. The cache is refreshed
+// interaction does not race against an empty cache. The cache is refreshed
 // every cacheTTL until ctx is cancelled.
+//
+// Slash commands are registered on startup for the configured guild.
 func (gl *GatewayListener) Start(ctx context.Context) error {
 	if err := gl.session.Open(); err != nil {
 		return fmt.Errorf("discord gateway open failed: %w", err)
 	}
 	slog.Info("Discord Gateway connected")
 	gl.refreshChannelCache()
+
+	if err := gl.registerSlashCommands(ctx); err != nil {
+		slog.Error("slash command registration failed", "error", err)
+	}
 
 	go func() {
 		ticker := time.NewTicker(gl.cacheTTL)
@@ -107,37 +116,87 @@ func (gl *GatewayListener) Start(ctx context.Context) error {
 	return nil
 }
 
-// onMessageCreate handles incoming Discord messages. It filters out bot
-// messages, messages outside commands channels, and messages that do not
-// start with "!". Parsed commands are forwarded to the handler.
-func (gl *GatewayListener) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author == nil || m.Author.Bot {
-		return
+// registerSlashCommands registers all slash commands for the guild.
+func (gl *GatewayListener) registerSlashCommands(ctx context.Context) error {
+	if gl.provider == nil {
+		return fmt.Errorf("provider not available for command registration")
 	}
-	if m.Author.ID == s.State.User.ID {
+
+	commands := []guildCommand{
+		{
+			Name:        "help",
+			Description: "Show all available commands",
+		},
+		{
+			Name:        "status",
+			Description: "Show agent connection status",
+		},
+		{
+			Name:        "screenshot",
+			Description: "Request a screenshot from the agent",
+		},
+		{
+			Name:        "ping",
+			Description: "Check bot latency and agent status",
+		},
+		{
+			Name:        "clean",
+			Description: "Clean up agent logs and messages",
+			Options: []map[string]any{
+				{
+					"name":        "remove_channels",
+					"description": "Also delete the agent's Discord channels",
+					"type":        5,
+					"required":    false,
+				},
+			},
+		},
+	}
+
+	if err := gl.provider.RegisterGuildCommands(ctx, commands); err != nil {
+		return fmt.Errorf("register guild commands: %w", err)
+	}
+
+	slog.Info("slash commands registered")
+	return nil
+}
+
+// onInteractionCreate handles incoming Discord interactions. It filters out
+// non-command interactions, looks up the agent ID from the channel cache,
+// and forwards the interaction to the handler.
+func (gl *GatewayListener) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
 
-	agentID, ok := gl.lookupChannel(m.ChannelID)
+	if i.Member == nil && i.User == nil {
+		return
+	}
+
+	channelID := i.ChannelID
+	if channelID == "" {
+		if i.GuildID != "" {
+			channelID = i.ChannelID
+		}
+	}
+
+	agentID, ok := gl.lookupChannel(channelID)
 	if !ok {
 		return
 	}
 
-	cmd, args := parseCommand(m.Content)
-	if cmd == "" {
-		return
-	}
+	cmdName := i.ApplicationCommandData().Name
 
-	slog.Info("discord command received",
+	slog.Info("discord slash command received",
 		"agent_id", agentID,
-		"channel_id", m.ChannelID,
-		"command", cmd,
-		"user", m.Author.Username,
+		"channel_id", channelID,
+		"command", cmdName,
+		"interaction_id", i.ID,
 	)
 
-	if err := gl.handler.HandleDiscordCommand(context.Background(), agentID, m.ChannelID, cmd, args, m.Author.Username); err != nil {
-		slog.Error("discord command handling failed",
-			"command", cmd,
+	if err := gl.handler.HandleDiscordInteraction(context.Background(), i.Interaction, agentID); err != nil {
+		slog.Error("discord interaction handling failed",
+			"command", cmdName,
 			"agent_id", agentID,
 			"error", err,
 		)
@@ -194,23 +253,6 @@ func (gl *GatewayListener) refreshChannelCache() {
 		"commands_channels", len(gl.channelIDtoAgent),
 		"entries_replaced", cleared,
 	)
-}
-
-// parseCommand extracts the !-command and arguments from a Discord message.
-// Returns an empty command string when the message does not start with "!".
-func parseCommand(content string) (string, []string) {
-	trimmed := strings.TrimSpace(content)
-	if !strings.HasPrefix(trimmed, "!") {
-		return "", nil
-	}
-
-	parts := strings.Fields(trimmed)
-	if len(parts) == 0 {
-		return "", nil
-	}
-
-	cmd := strings.ToLower(strings.TrimPrefix(parts[0], "!"))
-	return cmd, parts[1:]
 }
 
 // extractAgentIDFromTopic parses the "agent_id=" value from a Discord

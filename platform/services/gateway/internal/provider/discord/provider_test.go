@@ -364,3 +364,254 @@ func TestProviderReportEntryNotImplemented(t *testing.T) {
 		t.Fatal("discord provider should not implement EntryReporter")
 	}
 }
+
+func TestProviderRespondInteraction(t *testing.T) {
+	var capturedPath string
+	var capturedPayload map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&capturedPayload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"type": 4}`))
+	}))
+	defer srv.Close()
+
+	p := testDiscordProvider(t, srv)
+	embed := BuildHelpEmbed("test-trace-123")
+	err := p.RespondInteraction(context.Background(), "interaction-1", "token-abc", embed)
+	if err != nil {
+		t.Fatalf("respond interaction failed: %v", err)
+	}
+
+	expectedPath := "/interactions/interaction-1/token-abc/callback"
+	if capturedPath != expectedPath {
+		t.Fatalf("expected path %q, got %q", expectedPath, capturedPath)
+	}
+
+ResponseType, ok := capturedPayload["type"].(float64)
+	if !ok || ResponseType != 4 {
+		t.Fatalf("expected type 4, got %v", capturedPayload["type"])
+	}
+
+	data, ok := capturedPayload["data"].(map[string]any)
+	if !ok {
+		t.Fatal("expected data field in payload")
+	}
+	embeds, ok := data["embeds"].([]any)
+	if !ok || len(embeds) != 1 {
+		t.Fatalf("expected 1 embed, got %v", data["embeds"])
+	}
+}
+
+func TestProviderDeleteChannel(t *testing.T) {
+	var capturedPath string
+	var capturedMethod string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedMethod = r.Method
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	p := testDiscordProvider(t, srv)
+	err := p.DeleteChannel(context.Background(), "channel-123")
+	if err != nil {
+		t.Fatalf("delete channel failed: %v", err)
+	}
+
+	expectedPath := "/channels/channel-123"
+	if capturedPath != expectedPath {
+		t.Fatalf("expected path %q, got %q", expectedPath, capturedPath)
+	}
+	if capturedMethod != http.MethodDelete {
+		t.Fatalf("expected DELETE method, got %s", capturedMethod)
+	}
+}
+
+func TestProviderGetBotUser(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/users/@me" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"bot-123","username":"TestBot"}`))
+	}))
+	defer srv.Close()
+
+	p := testDiscordProvider(t, srv)
+	id, username, err := p.GetBotUser(context.Background())
+	if err != nil {
+		t.Fatalf("get bot user failed: %v", err)
+	}
+	if id != "bot-123" {
+		t.Fatalf("expected bot id 'bot-123', got %q", id)
+	}
+	if username != "TestBot" {
+		t.Fatalf("expected username 'TestBot', got %q", username)
+	}
+}
+
+func TestProviderAllChannelSets(t *testing.T) {
+	p, err := New(Config{BotToken: "abc", GuildID: "g-1"}, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	p.mu.Lock()
+	p.agentChannels["agent-1"] = channelSet{
+		CategoryID: "cat-1",
+		LogsID:     "logs-1",
+		UploadsID:  "up-1",
+		CommandsID: "cmd-1",
+	}
+	p.agentChannels["agent-2"] = channelSet{
+		CategoryID: "cat-2",
+		LogsID:     "logs-2",
+		UploadsID:  "up-2",
+		CommandsID: "cmd-2",
+	}
+	p.mu.Unlock()
+
+	sets := p.AllChannelSets()
+	if len(sets) != 2 {
+		t.Fatalf("expected 2 channel sets, got %d", len(sets))
+	}
+
+	set1, ok := sets["agent-1"]
+	if !ok {
+		t.Fatal("expected agent-1 in channel sets")
+	}
+	if set1.CategoryID != "cat-1" || set1.LogsID != "logs-1" {
+		t.Fatalf("unexpected agent-1 channel set: %+v", set1)
+	}
+}
+
+func TestProviderRegisterGuildCommands(t *testing.T) {
+	var createCalled bool
+	var updateCalled bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/users/@me":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"app-123","username":"Bot"}`))
+		case r.URL.Path == "/applications/app-123/guilds/g-1/commands" && r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"id":"existing-1","name":"help"}]`))
+		case r.URL.Path == "/applications/app-123/guilds/g-1/commands" && r.Method == http.MethodPost:
+			createCalled = true
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"new-1","name":"ping"}`))
+		case r.URL.Path == "/applications/app-123/guilds/g-1/commands/existing-1" && r.Method == http.MethodPatch:
+			updateCalled = true
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"existing-1","name":"help"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	p := testDiscordProvider(t, srv)
+	commands := []guildCommand{
+		{Name: "help", Description: "Show help"},
+		{Name: "ping", Description: "Check latency"},
+	}
+
+	err := p.RegisterGuildCommands(context.Background(), commands)
+	if err != nil {
+		t.Fatalf("register commands failed: %v", err)
+	}
+
+	if !updateCalled {
+		t.Fatal("expected help command to be updated")
+	}
+	if !createCalled {
+		t.Fatal("expected ping command to be created")
+	}
+}
+
+func TestBuildHelpEmbed(t *testing.T) {
+	embed := BuildHelpEmbed("trace-abc-123")
+
+	if embed["title"] != "Available Commands" {
+		t.Fatalf("expected title 'Available Commands', got %v", embed["title"])
+	}
+	if embed["color"] != embedColorBlue {
+		t.Fatalf("expected blue color, got %v", embed["color"])
+	}
+
+	fields, ok := embed["fields"].([]map[string]any)
+	if !ok || len(fields) != 5 {
+		t.Fatalf("expected 5 fields, got %v", embed["fields"])
+	}
+
+	footer, ok := embed["footer"].(map[string]any)
+	if !ok {
+		t.Fatal("expected footer")
+	}
+	footerText, ok := footer["text"].(string)
+	if !ok || !strings.Contains(footerText, "trace-ab") {
+		t.Fatalf("expected censored trace in footer, got %v", footer["text"])
+	}
+}
+
+func TestBuildStatusEmbed(t *testing.T) {
+	snapshot := provider.AgentSnapshot{
+		AgentID:  "agent-1",
+		Hostname: "host-a",
+		LastSeen: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+		IsOnline: true,
+	}
+
+	embed := BuildStatusEmbed(snapshot, "trace-123")
+
+	if embed["title"] != "Agent Status" {
+		t.Fatalf("expected title 'Agent Status', got %v", embed["title"])
+	}
+	if embed["color"] != embedColorGreen {
+		t.Fatalf("expected green color for online, got %v", embed["color"])
+	}
+
+	desc, ok := embed["description"].(string)
+	if !ok || !strings.Contains(desc, "host-a") || !strings.Contains(desc, "online") {
+		t.Fatalf("unexpected description: %v", embed["description"])
+	}
+}
+
+func TestBuildPingEmbed(t *testing.T) {
+	embed := BuildPingEmbed(50*time.Millisecond, true, nil, "trace-123")
+
+	if embed["title"] != "Pong!" {
+		t.Fatalf("expected title 'Pong!', got %v", embed["title"])
+	}
+
+	fields, ok := embed["fields"].([]map[string]any)
+	if !ok || len(fields) != 1 {
+		t.Fatalf("expected 1 field (bot latency only), got %v", embed["fields"])
+	}
+}
+
+func TestCensorTrace(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"abc123def456", "abc123de****"},
+		{"short", "short****"},
+		{"", "n/a"},
+		{"  ", "n/a"},
+		{"12345678", "12345678****"},
+	}
+
+	for _, tt := range tests {
+		result := censorTrace(tt.input)
+		if result != tt.expected {
+			t.Errorf("censorTrace(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}

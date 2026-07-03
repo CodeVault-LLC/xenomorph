@@ -31,12 +31,44 @@ type Monitor struct {
 
 	mu     sync.Mutex
 	online map[string]presence
+	all    map[string]clientRecord
 }
 
 // presence holds agent liveness state in memory.
 type presence struct {
 	lastSeen time.Time
 	hostname string
+}
+
+// ClientSnapshot is a read-only all-time view of an authenticated agent known
+// to the gateway during the current process lifetime.
+type ClientSnapshot struct {
+	AgentID    string    `json:"agent_id"`
+	Hostname   string    `json:"hostname"`
+	ClientIP   string    `json:"client_ip"`
+	OSVersion  string    `json:"os_version"`
+	CPULoad    float64   `json:"cpu_load"`
+	RAMUsage   float64   `json:"ram_usage"`
+	FirstSeen  time.Time `json:"first_seen"`
+	LastSeen   time.Time `json:"last_seen"`
+	LastOnline time.Time `json:"last_online"`
+	IsOnline   bool      `json:"is_online"`
+}
+
+// clientRecord stores the all-time presence metadata for a gateway-authenticated
+// agent. Identity and IP are gateway-authored. Hostname, OS, CPU, and RAM are
+// client-authored telemetry labels and are not used as identity evidence.
+type clientRecord struct {
+	agentID    string
+	hostname   string
+	clientIP   string
+	osVersion  string
+	cpuLoad    float64
+	ramUsage   float64
+	firstSeen  time.Time
+	lastSeen   time.Time
+	lastOnline time.Time
+	isOnline   bool
 }
 
 // NewMonitor creates a Monitor that emits offline notifications when an
@@ -47,11 +79,16 @@ type presence struct {
 // outbound notifications. This is valid for deployments without notification
 // providers.
 func NewMonitor(offlineAfter time.Duration, notify *provider.Fanout) *Monitor {
+	if notify == nil {
+		notify = provider.NewFanout(nil)
+	}
+
 	return &Monitor{
 		notify:       notify,
 		offlineAfter: offlineAfter,
 		now:          time.Now,
 		online:       make(map[string]presence),
+		all:          make(map[string]clientRecord),
 	}
 }
 
@@ -80,8 +117,14 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 
 	hb := envelope.GetHeartbeat()
 	hostname := ""
+	osVersion := ""
+	cpuLoad := 0.0
+	ramUsage := 0.0
 	if hb != nil {
 		hostname = hb.Hostname
+		osVersion = hb.OsVersion
+		cpuLoad = hb.CpuLoad
+		ramUsage = hb.RamUsage
 	}
 
 	eventTime := m.now()
@@ -97,6 +140,22 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 		shouldNotifyOnline = true
 	}
 	m.online[agentID] = presence{lastSeen: eventTime, hostname: hostname}
+	record, known := m.all[agentID]
+	if !known {
+		record = clientRecord{
+			agentID:   agentID,
+			firstSeen: eventTime,
+		}
+	}
+	record.hostname = hostname
+	record.clientIP = envelope.Security.ClientIp
+	record.osVersion = osVersion
+	record.cpuLoad = cpuLoad
+	record.ramUsage = ramUsage
+	record.lastSeen = eventTime
+	record.lastOnline = eventTime
+	record.isOnline = true
+	m.all[agentID] = record
 	m.mu.Unlock()
 
 	if shouldNotifyOnline {
@@ -134,6 +193,11 @@ func (m *Monitor) Sweep(ctx context.Context) error {
 		if now.Sub(state.lastSeen) > m.offlineAfter {
 			stale = append(stale, staleAgent{agentID: agentID, hostname: state.hostname})
 			delete(m.online, agentID)
+			record, ok := m.all[agentID]
+			if ok {
+				record.isOnline = false
+				m.all[agentID] = record
+			}
 		}
 	}
 	m.mu.Unlock()
@@ -173,4 +237,30 @@ func (m *Monitor) Snapshot(agentID string) (provider.AgentSnapshot, bool) {
 		LastSeen: p.lastSeen,
 		IsOnline: true,
 	}, true
+}
+
+// ListClients returns every authenticated agent observed by the gateway during
+// the current process lifetime. The returned slice is a copy and is safe for
+// callers to sort or modify.
+func (m *Monitor) ListClients() []ClientSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	snapshots := make([]ClientSnapshot, 0, len(m.all))
+	for _, record := range m.all {
+		snapshots = append(snapshots, ClientSnapshot{
+			AgentID:    record.agentID,
+			Hostname:   record.hostname,
+			ClientIP:   record.clientIP,
+			OSVersion:  record.osVersion,
+			CPULoad:    record.cpuLoad,
+			RAMUsage:   record.ramUsage,
+			FirstSeen:  record.firstSeen,
+			LastSeen:   record.lastSeen,
+			LastOnline: record.lastOnline,
+			IsOnline:   record.isOnline,
+		})
+	}
+
+	return snapshots
 }

@@ -552,6 +552,10 @@ func (p *Provider) SendChannelFile(ctx context.Context, channelID, fileName stri
 // CommandsChannelID returns the Discord channel ID for issuing commands to
 // the specified agent. Returns false when no channel mapping exists.
 func (p *Provider) CommandsChannelID(agentID string) (string, bool) {
+	if p == nil {
+		return "", false
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

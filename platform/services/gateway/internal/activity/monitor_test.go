@@ -122,3 +122,45 @@ func TestMonitorRejectsEnvelopeWithoutAgentID(t *testing.T) {
 		t.Fatal("expected validation error")
 	}
 }
+
+func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
+	_, monitor, envelope, now := testSetup()
+	envelope.Security.ClientIp = "192.0.2.10"
+	envelope.GetHeartbeat().OsVersion = "linux-test"
+	envelope.GetHeartbeat().CpuLoad = 0.42
+	envelope.GetHeartbeat().RamUsage = 0.73
+
+	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
+		t.Fatalf("heartbeat failed: %v", err)
+	}
+
+	clients := monitor.ListClients()
+	if len(clients) != 1 {
+		t.Fatalf("expected one client, got %d", len(clients))
+	}
+	if !clients[0].IsOnline {
+		t.Fatal("expected client to be online after heartbeat")
+	}
+	if clients[0].ClientIP != "192.0.2.10" {
+		t.Fatalf("expected client IP to be recorded, got %q", clients[0].ClientIP)
+	}
+	if clients[0].OSVersion != "linux-test" {
+		t.Fatalf("expected OS version to be recorded, got %q", clients[0].OSVersion)
+	}
+
+	setNow(now, envelope, monitor, 3*time.Second)
+	if err := monitor.Sweep(context.Background()); err != nil {
+		t.Fatalf("sweep failed: %v", err)
+	}
+
+	clients = monitor.ListClients()
+	if len(clients) != 1 {
+		t.Fatalf("expected offline client to remain in all-time list, got %d", len(clients))
+	}
+	if clients[0].IsOnline {
+		t.Fatal("expected client to be offline after sweep")
+	}
+	if !clients[0].LastOnline.Equal(clients[0].LastSeen) {
+		t.Fatalf("expected last_online to match last heartbeat; last_online=%v last_seen=%v", clients[0].LastOnline, clients[0].LastSeen)
+	}
+}

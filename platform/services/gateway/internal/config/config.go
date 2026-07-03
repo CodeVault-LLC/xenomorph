@@ -15,6 +15,7 @@ const (
 	defaultNATSURL         = "nats://localhost:4222"
 	defaultGatewayAddr     = ":8443"
 	defaultGatewayCertPath = "../../infrastructure/certs"
+	defaultDashboardAddr   = "127.0.0.1:8080"
 	defaultOfflineAfter    = 30 * time.Second
 	defaultSweepInterval   = 5 * time.Second
 )
@@ -26,6 +27,7 @@ type GatewayConfig struct {
 	NATSURL               string
 	ListenAddr            string
 	CertPath              string
+	DashboardAddr         string
 	NotifyProviders       []string
 	DiscordBotToken       string
 	DiscordGuildID        string
@@ -56,6 +58,7 @@ type GatewayConfig struct {
 //   - NATS_URL (default: nats://localhost:4222)
 //   - GATEWAY_ADDR (default: :8443)
 //   - GATEWAY_CERT_PATH (default: ../../infrastructure/certs)
+//   - DASHBOARD_ADDR (default: 127.0.0.1:8080)
 //   - DISCORD_API_BASE_URL (default: https://discord.com/api/v10)
 func LoadFromEnv() (GatewayConfig, error) {
 	offlineAfter, err := durationFromEnv("ACTIVITY_OFFLINE_AFTER", defaultOfflineAfter)
@@ -72,6 +75,7 @@ func LoadFromEnv() (GatewayConfig, error) {
 		NATSURL:               stringFromEnv("NATS_URL", defaultNATSURL),
 		ListenAddr:            stringFromEnv("GATEWAY_ADDR", defaultGatewayAddr),
 		CertPath:              stringFromEnv("GATEWAY_CERT_PATH", defaultGatewayCertPath),
+		DashboardAddr:         stringFromEnv("DASHBOARD_ADDR", defaultDashboardAddr),
 		NotifyProviders:       splitCSV(os.Getenv("NOTIFY_PROVIDERS")),
 		DiscordBotToken:       strings.TrimSpace(os.Getenv("DISCORD_BOT_TOKEN")),
 		DiscordGuildID:        strings.TrimSpace(os.Getenv("DISCORD_GUILD_ID")),

@@ -1,7 +1,9 @@
 package command
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 func TestEnqueueDequeue(t *testing.T) {
@@ -58,5 +60,37 @@ func TestDequeueDifferentAgents(t *testing.T) {
 	}
 	if cmd := q.Dequeue("agent-a"); cmd != nil {
 		t.Fatal("expected nil for agent-a after dequeue")
+	}
+}
+
+func TestWaitDequeueReturnsEnqueuedCommand(t *testing.T) {
+	q := NewQueue()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	got := make(chan *Envelope, 1)
+	go func() {
+		got <- q.WaitDequeue(ctx, "agent-1")
+	}()
+
+	q.Enqueue("agent-1", &Envelope{Type: "support.notice", Reason: "wake"})
+
+	select {
+	case cmd := <-got:
+		if cmd == nil || cmd.Reason != "wake" {
+			t.Fatalf("expected wake command, got %v", cmd)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for command")
+	}
+}
+
+func TestWaitDequeueReturnsNilOnContextCancel(t *testing.T) {
+	q := NewQueue()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if cmd := q.WaitDequeue(ctx, "agent-1"); cmd != nil {
+		t.Fatalf("expected nil command after cancel, got %v", cmd)
 	}
 }

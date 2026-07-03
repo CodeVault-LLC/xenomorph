@@ -50,7 +50,10 @@ func run() error {
 
 	cmdQueue := command.NewQueue()
 
-	var discordPoster provider.DiscordPoster = discordProvider
+	var discordPoster provider.DiscordPoster
+	if discordProvider != nil {
+		discordPoster = discordProvider
+	}
 
 	srv := transport.NewServer(natsBroker, notifier, cmdQueue, discordPoster, monitor)
 
@@ -67,6 +70,13 @@ func run() error {
 	go func() {
 		if err := srv.Run(cfg.ListenAddr, cfg.CertPath); err != nil {
 			slog.Error("gateway server terminated with error", "error", err)
+		}
+	}()
+
+	go func() {
+		slog.Info("dashboard API server starting", "addr", cfg.DashboardAddr)
+		if err := transport.RunDashboard(ctx, cfg.DashboardAddr, srv.DashboardRuntime()); err != nil {
+			slog.Error("dashboard server terminated with error", "error", err)
 		}
 	}()
 

@@ -4,6 +4,7 @@
 package command
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -35,12 +36,14 @@ type Envelope struct {
 // Operators must re-enqueue commands after a gateway restart.
 type Queue struct {
 	mu      sync.Mutex
+	notify  chan struct{}
 	entries map[string][]*Envelope
 }
 
 // NewQueue creates an empty command queue.
 func NewQueue() *Queue {
 	return &Queue{
+		notify:  make(chan struct{}),
 		entries: make(map[string][]*Envelope),
 	}
 }
@@ -67,6 +70,8 @@ func (q *Queue) Enqueue(agentID string, cmd *Envelope) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.entries[agentID] = append(q.entries[agentID], cmd)
+	close(q.notify)
+	q.notify = make(chan struct{})
 }
 
 // Dequeue removes and returns the next command for the agent. Returns nil
@@ -74,7 +79,30 @@ func (q *Queue) Enqueue(agentID string, cmd *Envelope) {
 func (q *Queue) Dequeue(agentID string) *Envelope {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	return q.dequeueLocked(agentID)
+}
 
+// WaitDequeue removes and returns the next command for the agent. It blocks
+// until a command is available or ctx is canceled.
+func (q *Queue) WaitDequeue(ctx context.Context, agentID string) *Envelope {
+	for {
+		q.mu.Lock()
+		if cmd := q.dequeueLocked(agentID); cmd != nil {
+			q.mu.Unlock()
+			return cmd
+		}
+		notify := q.notify
+		q.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-notify:
+		}
+	}
+}
+
+func (q *Queue) dequeueLocked(agentID string) *Envelope {
 	queue := q.entries[agentID]
 	if len(queue) == 0 {
 		return nil

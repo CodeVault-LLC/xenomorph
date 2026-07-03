@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func captureScreenshot() ([]byte, error) {
+func CaptureScreenshot() ([]byte, error) {
 	tmpDir := os.TempDir()
 	if tmpDir == "" {
 		tmpDir = "/tmp"

@@ -8,8 +8,10 @@ import (
 )
 
 var allowedCommandTypes = map[string]struct{}{
-	"support.notice":             {},
-	"support.request_screenshot": {},
+	"support.notice":              {},
+	"support.request_screenshot":  {},
+	"support.start_screen_stream": {},
+	"support.stop_screen_stream":  {},
 }
 
 // CommandDecision contains the result of processing a command.
@@ -77,11 +79,15 @@ func executeAllowedCommand(cmd CommandEnvelope) commandOutcome {
 	case "support.notice":
 		return commandOutcome{reason: "support notice acknowledged"}
 	case "support.request_screenshot":
-		data, err := captureScreenshot()
+		data, err := CaptureScreenshot()
 		if err != nil {
 			return commandOutcome{reason: fmt.Sprintf("screenshot failed: %v", err)}
 		}
 		return commandOutcome{reason: "screenshot captured", outputData: data}
+	case "support.start_screen_stream":
+		return commandOutcome{reason: "screen stream start acknowledged"}
+	case "support.stop_screen_stream":
+		return commandOutcome{reason: "screen stream stop acknowledged"}
 	default:
 		return commandOutcome{reason: "no-op"}
 	}

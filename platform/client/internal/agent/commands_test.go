@@ -66,3 +66,18 @@ func TestHandleCommandRejectsExpiredCommand(t *testing.T) {
 		t.Fatalf("expected rejected status, got %q", decision.Result.Status)
 	}
 }
+
+func TestHandleCommandAllowsScreenStreamControls(t *testing.T) {
+	for _, commandType := range []string{"support.start_screen_stream", "support.stop_screen_stream"} {
+		cmd := validCommand()
+		cmd.Type = commandType
+
+		decision, err := HandleCommand(cmd)
+		if err != nil {
+			t.Fatalf("expected nil error for %s, got %v", commandType, err)
+		}
+		if decision.Result.Status != "executed" {
+			t.Fatalf("expected executed status for %s, got %q", commandType, decision.Result.Status)
+		}
+	}
+}

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"os"
-	"runtime"
 	"strings"
 )
 
@@ -16,10 +15,13 @@ func BuildHeartbeatPayload(provider HostnameProvider) HeartbeatPayload {
 	}
 
 	hostname := resolveHostname(provider)
+	osVersion, cpuLoad, ramUsage := collectSystemTelemetry()
 
 	return HeartbeatPayload{
 		Hostname:  hostname,
-		OsVersion: runtime.GOOS + "/" + runtime.GOARCH,
+		OsVersion: osVersion,
+		CPULoad:   cpuLoad,
+		RAMUsage:  ramUsage,
 	}
 }
 
@@ -35,4 +37,14 @@ func resolveHostname(provider HostnameProvider) string {
 	}
 
 	return hostname
+}
+
+func clampRatio(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }

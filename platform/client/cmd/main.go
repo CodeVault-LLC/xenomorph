@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const pollInterval = 5 * time.Second
+const heartbeatInterval = 500 * time.Millisecond
 
 func run() int {
 	ac, err := setupApp()
@@ -25,7 +25,7 @@ func run() int {
 		return 1
 	}
 
-	if err := runCommandLoop(ac); err != nil {
+	if err := runRuntimeLoops(ac); err != nil {
 		shutdown(ac)
 		return 1
 	}
@@ -33,15 +33,33 @@ func run() int {
 	return 0
 }
 
-func runCommandLoop(ac *appContext) error {
-	ticker := time.NewTicker(pollInterval)
+func runRuntimeLoops(ac *appContext) error {
+	errCh := make(chan error, 2)
+	go func() {
+		errCh <- runHeartbeatLoop(ac)
+	}()
+	go func() {
+		errCh <- runCommandLoop(ac)
+	}()
+
+	return <-errCh
+}
+
+func runHeartbeatLoop(ac *appContext) error {
+	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		if err := ac.ag.SendHeartbeat(); err != nil {
 			return err
 		}
+	}
 
+	return nil
+}
+
+func runCommandLoop(ac *appContext) error {
+	for {
 		cmd, err := ac.ag.PollNextCommand()
 		if err != nil {
 			return err

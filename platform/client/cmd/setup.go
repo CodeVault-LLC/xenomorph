@@ -21,9 +21,11 @@ const (
 type appContext struct {
 	httpClient *http.Client
 	gatewayURL string
+	tlsConfig  *tls.Config
 	statePath  string
 	runtimeSt  agent.RuntimeState
 	ag         *agent.Agent
+	streamer   *screenStreamer
 }
 
 func setupApp() (*appContext, error) {
@@ -68,9 +70,11 @@ func setupApp() (*appContext, error) {
 	return &appContext{
 		httpClient: httpClient,
 		gatewayURL: gatewayURL,
+		tlsConfig:  tlsConfig,
 		statePath:  statePath,
 		runtimeSt:  runtimeState,
 		ag:         a,
+		streamer:   newScreenStreamer(gatewayURL, tlsConfig),
 	}, nil
 }
 
@@ -106,6 +110,21 @@ func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 		return fmt.Errorf("command handling failed: %w", err)
 	}
 
+	if decision.Result.Status == "executed" {
+		switch cmd.Type {
+		case "support.start_screen_stream":
+			if err := ac.streamer.Start(cmd.Payload); err != nil {
+				decision.Result.Status = "rejected"
+				decision.Result.Reason = err.Error()
+			} else {
+				decision.Result.Reason = "screen stream started"
+			}
+		case "support.stop_screen_stream":
+			ac.streamer.Stop()
+			decision.Result.Reason = "screen stream stopped"
+		}
+	}
+
 	if err := ac.ag.SendCommandResult(decision.Result); err != nil {
 		return fmt.Errorf("command result submission failed: %w", err)
 	}
@@ -117,6 +136,7 @@ func shutdown(ac *appContext) {
 	if ac == nil {
 		return
 	}
+	ac.streamer.Stop()
 	removeStateFiles(ac.statePath)
 }
 

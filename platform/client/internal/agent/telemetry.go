@@ -8,6 +8,23 @@ import (
 // HostnameProvider returns the system hostname.
 type HostnameProvider func() (string, error)
 
+// SystemTelemetry contains client-authored host facts included in heartbeat
+// payloads. These fields are operational labels, not identity evidence.
+type SystemTelemetry struct {
+	OSVersion        string
+	CPULoad          float64
+	RAMUsage         float64
+	UptimeSeconds    uint64
+	CPUModel         string
+	CPUCores         int32
+	CPUThreads       int32
+	TotalRAMBytes    uint64
+	GPUDevices       []string
+	NetworkName      string
+	NetworkAddresses []string
+	KernelVersion    string
+}
+
 // BuildHeartbeatPayload constructs the heartbeat payload from system telemetry.
 func BuildHeartbeatPayload(provider HostnameProvider) HeartbeatPayload {
 	if provider == nil {
@@ -15,13 +32,22 @@ func BuildHeartbeatPayload(provider HostnameProvider) HeartbeatPayload {
 	}
 
 	hostname := resolveHostname(provider)
-	osVersion, cpuLoad, ramUsage := collectSystemTelemetry()
+	telemetry := collectSystemTelemetry()
 
 	return HeartbeatPayload{
-		Hostname:  hostname,
-		OsVersion: osVersion,
-		CPULoad:   cpuLoad,
-		RAMUsage:  ramUsage,
+		Hostname:         hostname,
+		OsVersion:        telemetry.OSVersion,
+		CPULoad:          telemetry.CPULoad,
+		RAMUsage:         telemetry.RAMUsage,
+		UptimeSeconds:    telemetry.UptimeSeconds,
+		CPUModel:         telemetry.CPUModel,
+		CPUCores:         telemetry.CPUCores,
+		CPUThreads:       telemetry.CPUThreads,
+		TotalRAMBytes:    telemetry.TotalRAMBytes,
+		GPUDevices:       telemetry.GPUDevices,
+		NetworkName:      telemetry.NetworkName,
+		NetworkAddresses: telemetry.NetworkAddresses,
+		KernelVersion:    telemetry.KernelVersion,
 	}
 }
 

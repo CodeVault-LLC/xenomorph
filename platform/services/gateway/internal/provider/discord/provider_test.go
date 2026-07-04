@@ -391,7 +391,7 @@ func TestProviderRespondInteraction(t *testing.T) {
 		t.Fatalf("expected path %q, got %q", expectedPath, capturedPath)
 	}
 
-ResponseType, ok := capturedPayload["type"].(float64)
+	ResponseType, ok := capturedPayload["type"].(float64)
 	if !ok || ResponseType != 4 {
 		t.Fatalf("expected type 4, got %v", capturedPayload["type"])
 	}

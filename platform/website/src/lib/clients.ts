@@ -13,10 +13,29 @@ export type ClientSnapshot = {
   os_version: string
   cpu_load: number
   ram_usage: number
+  uptime_seconds: number
+  cpu_model: string
+  cpu_cores: number
+  cpu_threads: number
+  total_ram_bytes: number
+  gpu_devices: string[]
+  network_name: string
+  network_addresses: string[]
+  kernel_version: string
   first_seen: string
   last_seen: string
   last_online: string
   is_online: boolean
+}
+
+export type AgentLogEntry = {
+  event_id: string
+  agent_id: string
+  client_ip: string
+  observed_at: string
+  level: "DEBUG" | "INFO" | "WARN" | "ERROR" | string
+  component: string
+  message: string
 }
 
 export type OSInfo = {
@@ -30,6 +49,10 @@ type ClientsResponse = {
   clients?: ClientSnapshot[]
 }
 
+type AgentLogsResponse = {
+  logs?: AgentLogEntry[]
+}
+
 export async function fetchClients() {
   const response = await fetch("/api/clients", { cache: "no-store" })
   if (!response.ok) {
@@ -38,6 +61,18 @@ export async function fetchClients() {
 
   const payload = (await response.json()) as ClientsResponse
   return Array.isArray(payload.clients) ? payload.clients : []
+}
+
+export async function fetchAgentLogs(agentId: string) {
+  const response = await fetch(`/api/clients/${agentId}/logs`, {
+    cache: "no-store",
+  })
+  if (!response.ok) {
+    throw new Error(`Agent log API returned HTTP ${response.status}`)
+  }
+
+  const payload = (await response.json()) as AgentLogsResponse
+  return Array.isArray(payload.logs) ? payload.logs : []
 }
 
 export function subscribeClients(
@@ -80,10 +115,7 @@ export function formatRelative(value: string) {
     return "Unknown"
   }
 
-  const seconds = Math.max(
-    0,
-    Math.floor((Date.now() - date.getTime()) / 1000)
-  )
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000))
   if (seconds < 60) {
     return `${seconds}s ago`
   }
@@ -109,8 +141,42 @@ export function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`
 }
 
+export function formatBytes(value: number) {
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
+    return "n/a"
+  }
+
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"]
+  let size = value
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024
+    unit += 1
+  }
+
+  return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+export function formatDuration(seconds: number) {
+  if (typeof seconds !== "number" || Number.isNaN(seconds) || seconds <= 0) {
+    return "n/a"
+  }
+
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+
+  if (days > 0) {
+    return `${days}d ${hours}h`
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  }
+  return `${minutes}m`
+}
+
 export function display(value: string) {
-  return value.trim() === "" ? "n/a" : value
+  return typeof value !== "string" || value.trim() === "" ? "n/a" : value
 }
 
 export function detectOS(value: string) {

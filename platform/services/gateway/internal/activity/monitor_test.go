@@ -129,6 +129,15 @@ func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
 	envelope.GetHeartbeat().OsVersion = "linux-test"
 	envelope.GetHeartbeat().CpuLoad = 0.42
 	envelope.GetHeartbeat().RamUsage = 0.73
+	envelope.GetHeartbeat().UptimeSeconds = 1234
+	envelope.GetHeartbeat().CpuModel = "test cpu"
+	envelope.GetHeartbeat().CpuCores = 4
+	envelope.GetHeartbeat().CpuThreads = 8
+	envelope.GetHeartbeat().TotalRamBytes = 16 * 1024 * 1024 * 1024
+	envelope.GetHeartbeat().GpuDevices = []string{"0x10de 0x2684"}
+	envelope.GetHeartbeat().NetworkName = "eth0"
+	envelope.GetHeartbeat().NetworkAddresses = []string{"192.0.2.20/24"}
+	envelope.GetHeartbeat().KernelVersion = "6.9.0-test"
 
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("heartbeat failed: %v", err)
@@ -146,6 +155,24 @@ func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
 	}
 	if clients[0].OSVersion != "linux-test" {
 		t.Fatalf("expected OS version to be recorded, got %q", clients[0].OSVersion)
+	}
+	if clients[0].UptimeSeconds != 1234 {
+		t.Fatalf("expected uptime to be recorded, got %d", clients[0].UptimeSeconds)
+	}
+	if clients[0].CPUModel != "test cpu" || clients[0].CPUCores != 4 || clients[0].CPUThreads != 8 {
+		t.Fatalf("expected CPU details to be recorded, got model=%q cores=%d threads=%d", clients[0].CPUModel, clients[0].CPUCores, clients[0].CPUThreads)
+	}
+	if clients[0].TotalRAMBytes != 16*1024*1024*1024 {
+		t.Fatalf("expected total RAM to be recorded, got %d", clients[0].TotalRAMBytes)
+	}
+	if len(clients[0].GPUDevices) != 1 || clients[0].GPUDevices[0] != "0x10de 0x2684" {
+		t.Fatalf("expected GPU devices to be recorded, got %#v", clients[0].GPUDevices)
+	}
+	if clients[0].NetworkName != "eth0" || len(clients[0].NetworkAddresses) != 1 || clients[0].NetworkAddresses[0] != "192.0.2.20/24" {
+		t.Fatalf("expected network details to be recorded, got name=%q addresses=%#v", clients[0].NetworkName, clients[0].NetworkAddresses)
+	}
+	if clients[0].KernelVersion != "6.9.0-test" {
+		t.Fatalf("expected kernel version to be recorded, got %q", clients[0].KernelVersion)
 	}
 
 	setNow(now, envelope, monitor, 3*time.Second)

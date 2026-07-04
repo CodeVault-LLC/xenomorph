@@ -26,6 +26,7 @@ func run() int {
 	}
 
 	if err := runRuntimeLoops(ac); err != nil {
+		reportClientLog(ac, "ERROR", "client.runtime", err.Error())
 		shutdown(ac)
 		return 1
 	}
@@ -51,6 +52,7 @@ func runHeartbeatLoop(ac *appContext) error {
 
 	for range ticker.C {
 		if err := ac.ag.SendHeartbeat(); err != nil {
+			reportClientLog(ac, "ERROR", "client.heartbeat", err.Error())
 			return err
 		}
 	}
@@ -62,6 +64,7 @@ func runCommandLoop(ac *appContext) error {
 	for {
 		cmd, err := ac.ag.PollNextCommand()
 		if err != nil {
+			reportClientLog(ac, "ERROR", "client.command.poll", err.Error())
 			return err
 		}
 
@@ -70,6 +73,7 @@ func runCommandLoop(ac *appContext) error {
 		}
 
 		if err := processCommand(ac, cmd); err != nil {
+			reportClientLog(ac, "ERROR", "client.command.process", err.Error())
 			return err
 		}
 	}

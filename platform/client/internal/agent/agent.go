@@ -12,10 +12,19 @@ import (
 
 // HeartbeatPayload is sent to the gateway with each authentication request.
 type HeartbeatPayload struct {
-	Hostname  string  `json:"hostname"`
-	OsVersion string  `json:"os_version"`
-	CPULoad   float64 `json:"cpu_load"`
-	RAMUsage  float64 `json:"ram_usage"`
+	Hostname         string   `json:"hostname"`
+	OsVersion        string   `json:"os_version"`
+	CPULoad          float64  `json:"cpu_load"`
+	RAMUsage         float64  `json:"ram_usage"`
+	UptimeSeconds    uint64   `json:"uptime_seconds"`
+	CPUModel         string   `json:"cpu_model"`
+	CPUCores         int32    `json:"cpu_cores"`
+	CPUThreads       int32    `json:"cpu_threads"`
+	TotalRAMBytes    uint64   `json:"total_ram_bytes"`
+	GPUDevices       []string `json:"gpu_devices"`
+	NetworkName      string   `json:"network_name"`
+	NetworkAddresses []string `json:"network_addresses"`
+	KernelVersion    string   `json:"kernel_version"`
 }
 
 // Stage1AuthResult contains the gateway response to the initial authentication.
@@ -38,13 +47,26 @@ type CommandEnvelope struct {
 
 // CommandResultPayload is sent to the gateway after command execution.
 type CommandResultPayload struct {
-	CommandID      string    `json:"command_id"`
-	Type           string    `json:"type"`
-	Status         string    `json:"status"`
-	Reason         string    `json:"reason"`
-	RespondedAt    time.Time `json:"responded_at"`
-	ClientHostname string    `json:"client_hostname"`
-	OutputData     []byte    `json:"output_data,omitempty"`
+	CommandID                string    `json:"command_id"`
+	Type                     string    `json:"type"`
+	Status                   string    `json:"status"`
+	Reason                   string    `json:"reason"`
+	RespondedAt              time.Time `json:"responded_at"`
+	ClientHostname           string    `json:"client_hostname"`
+	OutputData               []byte    `json:"output_data,omitempty"`
+	TerminalSessionID        string    `json:"terminal_session_id,omitempty"`
+	TerminalShell            string    `json:"terminal_shell,omitempty"`
+	TerminalCommand          string    `json:"terminal_command,omitempty"`
+	TerminalWorkingDirectory string    `json:"terminal_working_directory,omitempty"`
+	TerminalExitCode         int       `json:"terminal_exit_code,omitempty"`
+}
+
+// LogEntryPayload is client-authored diagnostic information submitted to the
+// gateway for dashboard visibility.
+type LogEntryPayload struct {
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+	Component string `json:"component"`
 }
 
 // Agent manages communication with the gateway server.
@@ -184,6 +206,32 @@ func (a *Agent) SendCommandResult(payload CommandResultPayload) error {
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("command result rejected: status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// SendLogEntry submits a bounded client diagnostic log to the gateway.
+func (a *Agent) SendLogEntry(payload LogEntryPayload) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", a.gatewayURL+"/ingest/logs", bytes.NewBuffer(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("log entry rejected: status %d", resp.StatusCode)
 	}
 
 	return nil

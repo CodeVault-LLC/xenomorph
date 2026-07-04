@@ -37,6 +37,24 @@ type ClientDirectory interface {
 	ListClients() []activity.ClientSnapshot
 }
 
+// AgentLogDirectory is the read-only recent log view required by the browser
+// dashboard. The transport AgentLogStore implements this interface.
+type AgentLogDirectory interface {
+	List(agentID string, limit int) []AgentLogEntry
+}
+
+// TerminalDirectory is the dashboard terminal read model required by the
+// browser API. It stores gateway-authored command IDs and authenticated agent
+// responses in memory.
+type TerminalDirectory interface {
+	CreateSession(agentID, label, shell, workingDirectory string) TerminalSession
+	ListSessions(agentID string) []TerminalSession
+	Session(agentID, sessionID string) (TerminalSession, bool)
+	DeleteSession(agentID, sessionID string) bool
+	AppendQueued(entry TerminalEntry)
+	ListEntries(agentID, sessionID string, limit int) []TerminalEntry
+}
+
 // DashboardRuntime contains the read and command dependencies needed by the
 // browser dashboard API. The dashboard does not own agent authentication or
 // event ingestion.
@@ -45,6 +63,8 @@ type DashboardRuntime struct {
 	CommandQueue *command.Queue
 	Screens      *ScreenStore
 	Sessions     *ScreenSessions
+	Logs         AgentLogDirectory
+	Terminals    TerminalDirectory
 }
 
 // RunDashboard starts the read-only browser API listener. This listener is
@@ -66,6 +86,186 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 	mux.HandleFunc("GET /api/clients/stream", func(w http.ResponseWriter, r *http.Request) {
 		streamDashboardEvents(w, r, clientStreamInterval, func() any {
 			return map[string]any{"clients": dashboardClients(runtime.Directory)}
+		})
+	})
+
+	mux.HandleFunc("GET /api/clients/{agentID}/logs", func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.PathValue("agentID")
+		if _, ok := findClient(runtime.Directory, agentID); !ok {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
+			return
+		}
+
+		writeDashboardJSON(w, http.StatusOK, map[string]any{
+			"agent_id": agentID,
+			"logs":     dashboardLogs(runtime.Logs, agentID),
+		})
+	})
+
+	mux.HandleFunc("GET /api/clients/{agentID}/terminal/sessions", func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.PathValue("agentID")
+		if _, ok := findClient(runtime.Directory, agentID); !ok {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
+			return
+		}
+		if runtime.Terminals == nil {
+			writeDashboardJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "terminal store unavailable"})
+			return
+		}
+
+		writeDashboardJSON(w, http.StatusOK, map[string]any{
+			"agent_id": agentID,
+			"sessions": runtime.Terminals.ListSessions(agentID),
+		})
+	})
+
+	mux.HandleFunc("POST /api/clients/{agentID}/terminal/sessions", func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.PathValue("agentID")
+		client, ok := findClient(runtime.Directory, agentID)
+		if !ok {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
+			return
+		}
+		if runtime.Terminals == nil {
+			writeDashboardJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "terminal store unavailable"})
+			return
+		}
+
+		var req terminalSessionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeDashboardJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid terminal session request"})
+			return
+		}
+		shell := req.Shell
+		if shell == "" {
+			shell = defaultTerminalShell(client.OSVersion)
+		}
+		session := runtime.Terminals.CreateSession(agentID, req.Label, shell, req.WorkingDirectory)
+		writeDashboardJSON(w, http.StatusCreated, map[string]any{
+			"agent_id": agentID,
+			"session":  session,
+		})
+	})
+
+	mux.HandleFunc("GET /api/clients/{agentID}/terminal/sessions/{sessionID}/entries", func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.PathValue("agentID")
+		sessionID := r.PathValue("sessionID")
+		if _, ok := findClient(runtime.Directory, agentID); !ok {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
+			return
+		}
+		if runtime.Terminals == nil {
+			writeDashboardJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "terminal store unavailable"})
+			return
+		}
+		if _, ok := runtime.Terminals.Session(agentID, sessionID); !ok {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown terminal session"})
+			return
+		}
+
+		writeDashboardJSON(w, http.StatusOK, map[string]any{
+			"agent_id":   agentID,
+			"session_id": sessionID,
+			"entries":    runtime.Terminals.ListEntries(agentID, sessionID, maxTerminalEntriesPerAgent),
+		})
+	})
+
+	mux.HandleFunc("DELETE /api/clients/{agentID}/terminal/sessions/{sessionID}", func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.PathValue("agentID")
+		sessionID := r.PathValue("sessionID")
+		if _, ok := findClient(runtime.Directory, agentID); !ok {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
+			return
+		}
+		if runtime.Terminals == nil {
+			writeDashboardJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "terminal store unavailable"})
+			return
+		}
+		if !runtime.Terminals.DeleteSession(agentID, sessionID) {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown terminal session"})
+			return
+		}
+
+		writeDashboardJSON(w, http.StatusOK, map[string]any{
+			"status":     "deleted",
+			"agent_id":   agentID,
+			"session_id": sessionID,
+		})
+	})
+
+	mux.HandleFunc("POST /api/clients/{agentID}/terminal/sessions/{sessionID}/commands", func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.PathValue("agentID")
+		sessionID := r.PathValue("sessionID")
+		client, ok := findClient(runtime.Directory, agentID)
+		if !ok {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
+			return
+		}
+		if !client.IsOnline {
+			writeDashboardJSON(w, http.StatusConflict, map[string]string{"error": "agent is offline"})
+			return
+		}
+		if runtime.CommandQueue == nil || runtime.Terminals == nil {
+			writeDashboardJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "terminal command path unavailable"})
+			return
+		}
+		session, ok := runtime.Terminals.Session(agentID, sessionID)
+		if !ok {
+			writeDashboardJSON(w, http.StatusNotFound, map[string]string{"error": "unknown terminal session"})
+			return
+		}
+
+		var req terminalCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeDashboardJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid terminal command request"})
+			return
+		}
+		req.Command = clampText(req.Command, maxLogMessageLen)
+		if req.Command == "" {
+			writeDashboardJSON(w, http.StatusBadRequest, map[string]string{"error": "command is required"})
+			return
+		}
+
+		workingDirectory := session.WorkingDirectory
+		if req.WorkingDirectory != "" {
+			workingDirectory = clampText(req.WorkingDirectory, maxPathLen)
+		}
+		payload, err := json.Marshal(map[string]string{
+			"session_id":        sessionID,
+			"command":           req.Command,
+			"shell":             session.Shell,
+			"working_directory": workingDirectory,
+		})
+		if err != nil {
+			writeDashboardJSON(w, http.StatusInternalServerError, map[string]string{"error": "terminal payload encode failed"})
+			return
+		}
+
+		cmd := &command.Envelope{
+			Type:        "support.terminal.run",
+			Payload:     payload,
+			RequestedBy: "website",
+			Reason:      "Terminal command requested from website dashboard",
+		}
+		runtime.CommandQueue.Enqueue(agentID, cmd)
+		entry := TerminalEntry{
+			AgentID:          agentID,
+			SessionID:        sessionID,
+			CommandID:        cmd.CommandID,
+			Command:          req.Command,
+			Shell:            session.Shell,
+			WorkingDirectory: workingDirectory,
+			Status:           "queued",
+			SubmittedAt:      time.Now().UTC(),
+		}
+		runtime.Terminals.AppendQueued(entry)
+
+		writeDashboardJSON(w, http.StatusAccepted, map[string]any{
+			"status":     "queued",
+			"agent_id":   agentID,
+			"session_id": sessionID,
+			"command_id": cmd.CommandID,
+			"entry":      entry,
 		})
 	})
 
@@ -283,6 +483,17 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 	return nil
 }
 
+type terminalSessionRequest struct {
+	Label            string `json:"label"`
+	Shell            string `json:"shell"`
+	WorkingDirectory string `json:"working_directory"`
+}
+
+type terminalCommandRequest struct {
+	Command          string `json:"command"`
+	WorkingDirectory string `json:"working_directory"`
+}
+
 func dashboardClients(directory ClientDirectory) []activity.ClientSnapshot {
 	clients := []activity.ClientSnapshot{}
 	if directory != nil {
@@ -297,6 +508,13 @@ func dashboardClients(directory ClientDirectory) []activity.ClientSnapshot {
 	})
 
 	return clients
+}
+
+func dashboardLogs(directory AgentLogDirectory, agentID string) []AgentLogEntry {
+	if directory == nil {
+		return []AgentLogEntry{}
+	}
+	return directory.List(agentID, maxLogEntriesPerAgent)
 }
 
 func streamDashboardEvents(w http.ResponseWriter, r *http.Request, interval time.Duration, snapshot func() any) {

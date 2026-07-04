@@ -129,7 +129,20 @@ func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 		return fmt.Errorf("command result submission failed: %w", err)
 	}
 
+	reportClientLog(ac, "INFO", "client.command", fmt.Sprintf("command_id=%s type=%s status=%s reason=%s", decision.Result.CommandID, decision.Result.Type, decision.Result.Status, decision.Result.Reason))
+
 	return nil
+}
+
+func reportClientLog(ac *appContext, level, component, message string) {
+	if ac == nil || ac.ag == nil {
+		return
+	}
+	_ = ac.ag.SendLogEntry(agent.LogEntryPayload{
+		Level:     level,
+		Component: component,
+		Message:   message,
+	})
 }
 
 func shutdown(ac *appContext) {

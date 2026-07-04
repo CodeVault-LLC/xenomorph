@@ -1,9 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 
-import { AgentAnalytics } from "@/components/dashboard/agent-analytics"
-import { AgentDetails } from "@/components/dashboard/agent-details"
-import { AgentSidebar } from "@/components/dashboard/agent-sidebar"
-import { LiveScreen } from "@/components/dashboard/live-screen"
+import { AgentWorkspace } from "@/components/dashboard/agent-workspace"
 import { useClients } from "@/components/data/use-clients"
 import { ErrorBanner } from "@/components/layout/error-banner"
 import { PageHeader } from "@/components/layout/page-header"
@@ -17,7 +14,6 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { formatDate } from "@/lib/clients"
-import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/agents/$agentId")({
   component: AgentRoute,
@@ -29,16 +25,10 @@ function AgentRoute() {
   const client = clients.find((item) => item.agent_id === agentId)
 
   return (
-    <PageShell className={cn("grid lg:grid-cols-[280px_minmax(0,1fr)]")}>
-      {client ? (
-        <AgentSidebar client={client} />
-      ) : (
-        <div className="lg:sticky lg:top-6 lg:self-start" />
-      )}
-
+    <PageShell className="max-w-none">
       <section className="flex min-w-0 flex-col gap-5">
         <PageHeader
-          title="Agent"
+          title="Workspace"
           description={<span className="font-mono text-xs">{agentId}</span>}
           actions={
             <RefreshControl
@@ -53,11 +43,7 @@ function AgentRoute() {
         <ErrorBanner message={error} />
 
         {client ? (
-          <>
-            <LiveScreen client={client} />
-            <AgentAnalytics client={client} />
-            <AgentDetails client={client} />
-          </>
+          <AgentWorkspace client={client} />
         ) : (
           <Card>
             <CardHeader>

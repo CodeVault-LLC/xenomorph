@@ -1,6 +1,6 @@
 // Package transport owns the HTTP/mTLS transport layer for the gateway. It
 // handles request authentication, agent identity extraction, event ingestion,
-// command queue dispatching, and Discord command forwarding.
+// command queue dispatching, and dashboard state delivery.
 package transport
 
 import (
@@ -22,11 +22,11 @@ import (
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/fileworkspace"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/identity"
-	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
 	pb "github.com/codevault-llc/xenomorph/platform/shared/proto/gen/go/platform/v1"
 )
@@ -49,10 +49,9 @@ const (
 	maxBrowsers = 32
 	maxApps     = 200
 
-	readHeaderTimeout           = 30 * time.Second
-	commandPollTimeout          = 5 * time.Second
-	commandResultForwardTimeout = 10 * time.Second
-	maxScreenMediaFrameBytes    = 10 << 20
+	readHeaderTimeout        = 30 * time.Second
+	commandPollTimeout       = 5 * time.Second
+	maxScreenMediaFrameBytes = 10 << 20
 )
 
 var screenMediaUpgrader = websocket.Upgrader{
@@ -66,9 +65,7 @@ var screenMediaUpgrader = websocket.Upgrader{
 // publishing to the NATS broker.
 type Server struct {
 	broker          *broker.NATS
-	notifier        *provider.Fanout
 	commandQueue    *command.Queue
-	discordPoster   provider.DiscordPoster
 	statusProvider  agentStatusProvider
 	screenStore     *ScreenStore
 	screenSessions  *ScreenSessions
@@ -86,22 +83,14 @@ type Server struct {
 // agentStatusProvider is the interface the Server requires for agent presence
 // queries. The activity.Monitor implements this interface.
 type agentStatusProvider interface {
-	Snapshot(agentID string) (provider.AgentSnapshot, bool)
+	Snapshot(agentID string) (activity.AgentSnapshot, bool)
 }
 
-// NewServer constructs a Server with the given dependencies. All parameters
-// are required except notifier (defaults to no-op Fanout) and discordPoster
-// (nil is valid when Discord is not configured).
-func NewServer(b *broker.NATS, notifier *provider.Fanout, commandQueue *command.Queue, discordPoster provider.DiscordPoster, statusProvider agentStatusProvider) *Server {
-	if notifier == nil {
-		notifier = provider.NewFanout(nil)
-	}
-
+// NewServer constructs a Server with the given gateway dependencies.
+func NewServer(b *broker.NATS, commandQueue *command.Queue, statusProvider agentStatusProvider) *Server {
 	s := &Server{
 		broker:         b,
-		notifier:       notifier,
 		commandQueue:   commandQueue,
-		discordPoster:  discordPoster,
 		statusProvider: statusProvider,
 		screenStore:    NewScreenStore(),
 		screenSessions: NewScreenSessions(),
@@ -310,12 +299,30 @@ type entryRequest struct {
 	InstalledApplications []string       `json:"installed_applications"`
 }
 
+// browserInfo is normalized client-authored browser installation metadata.
+type browserInfo struct {
+	Name       string
+	BinaryPath string
+	ProfileDir string
+}
+
+// normalizedEntryReport is the validated onboarding data used to construct a
+// gateway-authored audit event. Its fields remain client-authored telemetry.
+type normalizedEntryReport struct {
+	AgentID               string
+	Hostname              string
+	OSVersion             string
+	IsNewAgent            bool
+	Browsers              []browserInfo
+	InstalledApplications []string
+	OccurredAt            time.Time
+}
+
 // handleEntry processes an authenticated stage-2 onboarding report.
 //
 // The agent identity is extracted from the mTLS session. The request body
 // is validated and normalized through normalizeEntryRequest, which applies
-// length limits to every text field. The normalized report is published to
-// NATS and forwarded to notification providers that implement EntryReporter.
+// length limits to every text field. The normalized report is published to NATS.
 //
 // Expected request body: entryRequest JSON.
 // Response: 202 Accepted with event_id.
@@ -369,13 +376,6 @@ func (s *Server) handleEntry(c *gin.Context) {
 
 	s.storeLogEnvelope(env)
 
-	if err := s.notifier.ReportEntry(c.Request.Context(), report); err != nil {
-		slog.ErrorContext(c.Request.Context(), "entry notification delivery failed",
-			"agent_id", agentID,
-			"error", err,
-		)
-	}
-
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "event_id": env.EventId})
 }
 
@@ -423,9 +423,7 @@ type commandResultRequest struct {
 
 // handleCommandResult processes an authenticated command execution result.
 //
-// The result is published as an audit log entry to NATS. When the result
-// includes screenshot output data and a Discord poster is configured, the
-// screenshot is forwarded to the agent's Discord commands channel.
+// The result is published as an audit log entry to NATS.
 func (s *Server) handleCommandResult(c *gin.Context) {
 	agentID := c.GetString("agent_id")
 	if agentID == "" {
@@ -507,14 +505,6 @@ func (s *Server) recordScreenshotResult(agentID string, req commandResultRequest
 			Content: append([]byte(nil), req.OutputData...),
 		})
 	}
-	if len(req.OutputData) == 0 || s.discordPoster == nil {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), commandResultForwardTimeout)
-		defer cancel()
-		s.forwardScreenshotToDiscord(ctx, agentID, req)
-	}()
 }
 
 // handleScreenMedia receives binary live screen frames from an authenticated
@@ -659,44 +649,6 @@ func normalizeLogEntry(entry *pb.LogEntry) *pb.LogEntry {
 	}
 }
 
-// forwardScreenshotToDiscord sends a command result screenshot to the agent's
-// Discord commands channel. The function is a no-op when the agent has no
-// mapped Discord commands channel or when the Discord poster is nil.
-//
-// Security: screenshot output data originates from a remote agent and is
-// forwarded as-is. The data is treated as opaque bytes and no content
-// inspection is performed before forwarding to Discord.
-func (s *Server) forwardScreenshotToDiscord(ctx context.Context, agentID string, req commandResultRequest) {
-	channelID, ok := s.discordPoster.CommandsChannelID(agentID)
-	if !ok {
-		slog.WarnContext(ctx, "no Discord commands channel found for agent; screenshot not forwarded",
-			"agent_id", agentID,
-		)
-		return
-	}
-
-	if req.Status != "executed" {
-		_ = s.discordPoster.SendChannelMessage(ctx, channelID,
-			fmt.Sprintf("Screenshot request **%s** was **%s**: %s", req.CommandID, req.Status, req.Reason))
-		return
-	}
-
-	if len(req.OutputData) == 0 {
-		_ = s.discordPoster.SendChannelMessage(ctx, channelID, "Screenshot returned empty data")
-		return
-	}
-
-	fileName := fmt.Sprintf("screenshot_%s.png", time.Now().UTC().Format("20060102_150405"))
-	caption := fmt.Sprintf("Screenshot captured from **%s** (command: `%s`)", req.ClientHostname, req.CommandID)
-	if err := s.discordPoster.SendChannelFile(ctx, channelID, fileName, req.OutputData, caption); err != nil {
-		slog.ErrorContext(ctx, "failed to post screenshot to Discord",
-			"agent_id", agentID,
-			"command_id", req.CommandID,
-			"error", err,
-		)
-	}
-}
-
 // markSeen records that an agent has been observed. Returns whether this is
 // the first observation (inserted) and whether the agent was previously known
 // (existed). Thread-safe.
@@ -714,7 +666,7 @@ func (s *Server) markSeen(agentID string) (inserted bool, existed bool) {
 }
 
 // normalizeEntryRequest validates and constrains an entry request into a
-// provider.EntryReport. Every client-supplied text field is clamped to a
+// normalizedEntryReport. Every client-supplied text field is clamped to a
 // maximum length before entering the event pipeline.
 //
 // Length limits and why:
@@ -726,8 +678,8 @@ func (s *Server) markSeen(agentID string) (inserted bool, existed bool) {
 //   - Application name: 120 characters.
 //   - Maximum browsers: 32 (reasonable upper bound for browser enumeration).
 //   - Maximum applications: 200 (prevents unbounded memory growth).
-func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryReport {
-	browsers := make([]provider.BrowserInfo, 0, len(req.Browsers))
+func normalizeEntryRequest(agentID string, req entryRequest) normalizedEntryReport {
+	browsers := make([]browserInfo, 0, len(req.Browsers))
 	for _, b := range req.Browsers {
 		if len(browsers) >= maxBrowsers {
 			break
@@ -738,7 +690,7 @@ func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryRepor
 			continue
 		}
 
-		browsers = append(browsers, provider.BrowserInfo{
+		browsers = append(browsers, browserInfo{
 			Name:       name,
 			BinaryPath: clampText(b.BinaryPath, maxPathLen),
 			ProfileDir: clampText(b.ProfileDir, maxPathLen),
@@ -758,7 +710,7 @@ func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryRepor
 		apps = append(apps, item)
 	}
 
-	return provider.EntryReport{
+	return normalizedEntryReport{
 		AgentID:               agentID,
 		Hostname:              clampText(req.Hostname, maxHostnameLen),
 		OSVersion:             clampText(req.OSVersion, maxOSVersionLen),
@@ -766,7 +718,6 @@ func normalizeEntryRequest(agentID string, req entryRequest) provider.EntryRepor
 		Browsers:              browsers,
 		InstalledApplications: apps,
 		OccurredAt:            timestamppb.Now().AsTime(),
-		Source:                "entry",
 	}
 }
 

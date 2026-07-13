@@ -1,6 +1,5 @@
 // Package command implements a per-agent FIFO command queue. Commands are
-// enqueued by the gateway operator or Discord command handler and dequeued
-// by agents on their poll cycle.
+// enqueued by the dashboard operator and dequeued by agents on their poll cycle.
 package command
 
 import (

@@ -2,7 +2,7 @@
 //
 // This package owns the structured logging initialization and trace ID
 // propagation used across all gateway components. It does not own business
-// logic, protocol handling, or provider implementations.
+// logic or protocol handling.
 package sdk
 
 import (

@@ -31,12 +31,7 @@ func run() error {
 	}
 	defer natsBroker.Close()
 
-	notifier, discordProvider, err := buildNotifier(cfg)
-	if err != nil {
-		return fmt.Errorf("notification provider setup: %w", err)
-	}
-
-	monitor := activity.NewMonitor(cfg.ActivityOfflineAfter, notifier)
+	monitor := activity.NewMonitor(cfg.ActivityOfflineAfter)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -44,11 +39,8 @@ func run() error {
 		return fmt.Errorf("activity monitoring setup: %w", err)
 	}
 
-	srv, err := buildGatewayServer(cfg, natsBroker, notifier, discordProvider, monitor)
+	srv, err := buildGatewayServer(cfg, natsBroker, monitor)
 	if err != nil {
-		return err
-	}
-	if err := startDiscordGateway(ctx, cfg, srv, discordProvider); err != nil {
 		return err
 	}
 	startHTTPServers(ctx, cfg, srv)

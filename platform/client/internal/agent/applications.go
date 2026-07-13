@@ -63,7 +63,7 @@ func classifyApplication(application string) string {
 	}{
 		{category: "Browsers", keywords: []string{"browser", "chrome", "chromium", "edge", "firefox", "opera", "vivaldi", "brave"}},
 		{category: "Development", keywords: []string{"code", "developer", "git", "ide", "studio", "terminal", "docker", "podman"}},
-		{category: "Communication", keywords: []string{"chat", "discord", "mail", "meet", "slack", "teams", "telegram", "zoom"}},
+		{category: "Communication", keywords: []string{"chat", "mail", "meet", "slack", "teams", "telegram", "zoom"}},
 		{category: "Media", keywords: []string{"audio", "image", "media", "music", "photo", "player", "spotify", "video", "vlc"}},
 		{category: "Games", keywords: []string{"game", "steam", "epic"}},
 		{category: "Productivity", keywords: []string{"calendar", "document", "excel", "libreoffice", "office", "pdf", "powerpoint", "word"}},

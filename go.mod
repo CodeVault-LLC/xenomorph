@@ -4,7 +4,6 @@ go 1.25.12
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.37.2
-	github.com/bwmarrin/discordgo v0.29.0
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1

@@ -5,28 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
 	pb "github.com/codevault-llc/xenomorph/platform/shared/proto/gen/go/platform/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type captureProvider struct {
-	events []provider.ActivityEvent
-}
-
-func (c *captureProvider) Name() string {
-	return "capture"
-}
-
-func (c *captureProvider) Notify(_ context.Context, event provider.ActivityEvent) error {
-	c.events = append(c.events, event)
-	return nil
-}
-
-func testSetup() (*captureProvider, *Monitor, *pb.EventEnvelope, *time.Time) {
-	capture := &captureProvider{}
-	fanout := provider.NewFanout([]provider.Provider{capture})
-	monitor := NewMonitor(2*time.Second, fanout)
+func testSetup() (*Monitor, *pb.EventEnvelope, *time.Time) {
+	monitor := NewMonitor(2 * time.Second)
 
 	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
 	monitor.now = func() time.Time { return now }
@@ -37,7 +21,7 @@ func testSetup() (*captureProvider, *Monitor, *pb.EventEnvelope, *time.Time) {
 		Payload:   &pb.EventEnvelope_Heartbeat{Heartbeat: &pb.Heartbeat{Hostname: "edge-01"}},
 	}
 
-	return capture, monitor, envelope, &now
+	return monitor, envelope, &now
 }
 
 func setNow(t *time.Time, envelope *pb.EventEnvelope, monitor *Monitor, d time.Duration) {
@@ -46,32 +30,31 @@ func setNow(t *time.Time, envelope *pb.EventEnvelope, monitor *Monitor, d time.D
 	envelope.Timestamp = timestamppb.New(*t)
 }
 
-func TestMonitorFirstHeartbeatTriggersOnline(t *testing.T) {
-	capture, monitor, envelope, _ := testSetup()
+func TestMonitorFirstHeartbeatMarksAgentOnline(t *testing.T) {
+	monitor, envelope, _ := testSetup()
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("first heartbeat failed: %v", err)
 	}
-	if len(capture.events) != 1 {
-		t.Fatalf("expected 1 online notification, got %d", len(capture.events))
-	}
-	if capture.events[0].Status != provider.StatusOnline {
-		t.Fatalf("expected online status, got %s", capture.events[0].Status)
+	snapshot, ok := monitor.Snapshot("agent-1")
+	if !ok || !snapshot.IsOnline {
+		t.Fatal("expected agent to be online after first heartbeat")
 	}
 }
 
-func TestMonitorDuplicateHeartbeatNoDuplicateNotification(t *testing.T) {
-	capture, monitor, envelope, now := testSetup()
+func TestMonitorDuplicateHeartbeatKeepsAgentOnline(t *testing.T) {
+	monitor, envelope, now := testSetup()
 	setNow(now, envelope, monitor, time.Second)
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("duplicate heartbeat failed: %v", err)
 	}
-	if len(capture.events) != 1 {
-		t.Fatalf("expected no duplicate online notification, got %d", len(capture.events))
+	snapshot, ok := monitor.Snapshot("agent-1")
+	if !ok || !snapshot.LastSeen.Equal(*now) {
+		t.Fatal("expected latest heartbeat to update online agent state")
 	}
 }
 
 func TestMonitorSweepDetectsOffline(t *testing.T) {
-	capture, monitor, envelope, now := testSetup()
+	monitor, envelope, now := testSetup()
 	setNow(now, envelope, monitor, time.Second)
 
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
@@ -82,16 +65,13 @@ func TestMonitorSweepDetectsOffline(t *testing.T) {
 	if err := monitor.Sweep(context.Background()); err != nil {
 		t.Fatalf("sweep failed: %v", err)
 	}
-	if len(capture.events) != 2 {
-		t.Fatalf("expected offline notification, got %d events", len(capture.events))
-	}
-	if capture.events[1].Status != provider.StatusOffline {
-		t.Fatalf("expected offline status, got %s", capture.events[1].Status)
+	if _, ok := monitor.Snapshot("agent-1"); ok {
+		t.Fatal("expected stale agent to be removed from online state")
 	}
 }
 
 func TestMonitorHeartbeatAfterOfflineRecoversOnline(t *testing.T) {
-	capture, monitor, envelope, now := testSetup()
+	monitor, envelope, now := testSetup()
 	setNow(now, envelope, monitor, time.Second)
 
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
@@ -107,16 +87,13 @@ func TestMonitorHeartbeatAfterOfflineRecoversOnline(t *testing.T) {
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("heartbeat after offline failed: %v", err)
 	}
-	if len(capture.events) != 3 {
-		t.Fatalf("expected online recovery notification, got %d", len(capture.events))
-	}
-	if capture.events[2].Status != provider.StatusOnline {
-		t.Fatalf("expected online status after recovery, got %s", capture.events[2].Status)
+	if _, ok := monitor.Snapshot("agent-1"); !ok {
+		t.Fatal("expected heartbeat after sweep to restore online state")
 	}
 }
 
 func TestMonitorRejectsEnvelopeWithoutAgentID(t *testing.T) {
-	monitor := NewMonitor(5*time.Second, provider.NewFanout(nil))
+	monitor := NewMonitor(5 * time.Second)
 	err := monitor.ProcessHeartbeat(context.Background(), &pb.EventEnvelope{})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -124,7 +101,7 @@ func TestMonitorRejectsEnvelopeWithoutAgentID(t *testing.T) {
 }
 
 func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
-	_, monitor, envelope, now := testSetup()
+	monitor, envelope, now := testSetup()
 	envelope.Security.ClientIp = "192.0.2.10"
 	envelope.GetHeartbeat().OsVersion = "linux-test"
 	envelope.GetHeartbeat().CpuLoad = 0.42

@@ -3,7 +3,6 @@ module github.com/codevault-llc/xenomorph/platform/services/gateway
 go 1.25.12
 
 require (
-	github.com/bwmarrin/discordgo v0.29.0
 	github.com/codevault-llc/xenomorph/platform/shared v0.0.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0

@@ -53,6 +53,21 @@ message Heartbeat {
   uint64 total_storage_bytes = 18;     // Root filesystem capacity reported by client
   uint64 available_storage_bytes = 19; // Root filesystem available capacity reported by client
   string network_ssid = 20;            // Associated wireless network name; never a credential
+  uint64 used_storage_bytes = 21;      // System filesystem bytes in use reported by client
+  double storage_usage = 22;           // System filesystem utilization ratio in [0,1]
+  double storage_inode_usage = 23;     // System filesystem inode utilization ratio in [0,1], when available
+  string storage_device = 24;          // System filesystem device label reported by client
+  string storage_filesystem = 25;      // System filesystem type reported by client
+  string storage_mountpoint = 26;      // System filesystem mount point reported by client
+  string storage_model = 27;           // Bounded hardware model label when exposed by the OS
+  string storage_type = 28;            // Allowlisted media type reported by the OS; unknown when unavailable
+  bool storage_read_only = 29;         // Whether the system filesystem reports a read-only mount
+  repeated ApplicationTypeUsage application_types = 30; // Cached, bounded installed application category counts
+}
+
+message ApplicationTypeUsage {
+  string category = 1; // Allowlisted client-authored application category
+  uint32 count = 2;    // Number of detected installed applications in the category
 }
 
 message FileChunk {

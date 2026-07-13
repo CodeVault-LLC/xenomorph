@@ -7,6 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,46 +37,148 @@ type Monitor struct {
 	all    map[string]clientRecord
 }
 
+func clampTelemetryRatio(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}
+
+func clampTelemetryText(value string, limit int) string {
+	value = strings.TrimSpace(strings.ToValidUTF8(value, ""))
+	if len(value) > limit {
+		return value[:limit]
+	}
+	return value
+}
+
+func normalizeStorageType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "solid-state":
+		return "solid-state"
+	case "rotational":
+		return "rotational"
+	case "fixed", "removable", "network", "optical":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "unknown"
+	}
+}
+
+func normalizeApplicationTypes(values []*pb.ApplicationTypeUsage) []ApplicationTypeUsage {
+	const maxDetectedApplications uint32 = 200
+	counts := make(map[string]uint32, 8)
+	total := uint32(0)
+	for _, value := range values {
+		if total >= maxDetectedApplications || value == nil || !allowedApplicationCategory(value.GetCategory()) {
+			continue
+		}
+		remaining := maxDetectedApplications - total
+		if value.GetCount() < remaining {
+			remaining = value.GetCount()
+		}
+		counts[value.GetCategory()] += remaining
+		total += remaining
+	}
+	result := make([]ApplicationTypeUsage, 0, len(counts))
+	for category, count := range counts {
+		if count > 0 {
+			result = append(result, ApplicationTypeUsage{Category: category, Count: count})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Count == result[j].Count {
+			return result[i].Category < result[j].Category
+		}
+		return result[i].Count > result[j].Count
+	})
+	return result
+}
+
+func normalizeStorageBytes(total, available, used uint64) (uint64, uint64, uint64) {
+	const maxStorageBytes uint64 = 1 << 50
+	if total > maxStorageBytes {
+		total = maxStorageBytes
+	}
+	if available > total {
+		available = total
+	}
+	if used > total {
+		used = total
+	}
+	return total, available, used
+}
+
+func allowedApplicationCategory(category string) bool {
+	switch category {
+	case "Browsers", "Development", "Communication", "Media", "Games", "Productivity", "Security", "Utilities and other":
+		return true
+	default:
+		return false
+	}
+}
+
 // presence holds agent liveness state in memory.
 type presence struct {
 	lastSeen time.Time
 	hostname string
 }
 
+// ApplicationTypeUsage is a bounded client-authored installed application
+// category count. It is telemetry and is never identity evidence.
+type ApplicationTypeUsage struct {
+	Category string `json:"category"`
+	Count    uint32 `json:"count"`
+}
+
 // ClientSnapshot is a read-only all-time view of an authenticated agent known
 // to the gateway during the current process lifetime.
 type ClientSnapshot struct {
-	AgentID               string    `json:"agent_id"`
-	Hostname              string    `json:"hostname"`
-	ClientIP              string    `json:"client_ip"`
-	OSVersion             string    `json:"os_version"`
-	CPULoad               float64   `json:"cpu_load"`
-	RAMUsage              float64   `json:"ram_usage"`
-	UptimeSeconds         uint64    `json:"uptime_seconds"`
-	CPUModel              string    `json:"cpu_model"`
-	CPUCores              int32     `json:"cpu_cores"`
-	CPUThreads            int32     `json:"cpu_threads"`
-	TotalRAMBytes         uint64    `json:"total_ram_bytes"`
-	GPUDevices            []string  `json:"gpu_devices"`
-	NetworkName           string    `json:"network_name"`
-	NetworkAddresses      []string  `json:"network_addresses"`
-	KernelVersion         string    `json:"kernel_version"`
-	CPUFrequencyMHz       uint64    `json:"cpu_frequency_mhz"`
-	NetworkOnline         bool      `json:"network_online"`
-	NetworkLinkSpeedMbps  uint64    `json:"network_link_speed_mbps"`
-	NetworkType           string    `json:"network_type"`
-	TotalStorageBytes     uint64    `json:"total_storage_bytes"`
-	AvailableStorageBytes uint64    `json:"available_storage_bytes"`
-	NetworkSSID           string    `json:"network_ssid"`
-	FirstSeen             time.Time `json:"first_seen"`
-	LastSeen              time.Time `json:"last_seen"`
-	LastOnline            time.Time `json:"last_online"`
-	IsOnline              bool      `json:"is_online"`
+	AgentID               string                 `json:"agent_id"`
+	Hostname              string                 `json:"hostname"`
+	ClientIP              string                 `json:"client_ip"`
+	OSVersion             string                 `json:"os_version"`
+	CPULoad               float64                `json:"cpu_load"`
+	RAMUsage              float64                `json:"ram_usage"`
+	UptimeSeconds         uint64                 `json:"uptime_seconds"`
+	CPUModel              string                 `json:"cpu_model"`
+	CPUCores              int32                  `json:"cpu_cores"`
+	CPUThreads            int32                  `json:"cpu_threads"`
+	TotalRAMBytes         uint64                 `json:"total_ram_bytes"`
+	GPUDevices            []string               `json:"gpu_devices"`
+	NetworkName           string                 `json:"network_name"`
+	NetworkAddresses      []string               `json:"network_addresses"`
+	KernelVersion         string                 `json:"kernel_version"`
+	CPUFrequencyMHz       uint64                 `json:"cpu_frequency_mhz"`
+	NetworkOnline         bool                   `json:"network_online"`
+	NetworkLinkSpeedMbps  uint64                 `json:"network_link_speed_mbps"`
+	NetworkType           string                 `json:"network_type"`
+	TotalStorageBytes     uint64                 `json:"total_storage_bytes"`
+	AvailableStorageBytes uint64                 `json:"available_storage_bytes"`
+	UsedStorageBytes      uint64                 `json:"used_storage_bytes"`
+	StorageUsage          float64                `json:"storage_usage"`
+	StorageInodeUsage     float64                `json:"storage_inode_usage"`
+	StorageDevice         string                 `json:"storage_device"`
+	StorageFilesystem     string                 `json:"storage_filesystem"`
+	StorageMountpoint     string                 `json:"storage_mountpoint"`
+	StorageModel          string                 `json:"storage_model"`
+	StorageType           string                 `json:"storage_type"`
+	StorageReadOnly       bool                   `json:"storage_read_only"`
+	ApplicationTypes      []ApplicationTypeUsage `json:"application_types"`
+	NetworkSSID           string                 `json:"network_ssid"`
+	FirstSeen             time.Time              `json:"first_seen"`
+	LastSeen              time.Time              `json:"last_seen"`
+	LastOnline            time.Time              `json:"last_online"`
+	IsOnline              bool                   `json:"is_online"`
 }
 
 // clientRecord stores the all-time presence metadata for a gateway-authenticated
-// agent. Identity and IP are gateway-authored. Hostname, OS, CPU, and RAM are
-// client-authored telemetry labels and are not used as identity evidence.
+// agent. Identity and IP are gateway-authored. Hostname, OS, CPU, RAM, storage,
+// and application inventory are client-authored telemetry labels and are not
+// used as identity evidence.
 type clientRecord struct {
 	agentID               string
 	hostname              string
@@ -96,6 +201,16 @@ type clientRecord struct {
 	networkType           string
 	totalStorageBytes     uint64
 	availableStorageBytes uint64
+	usedStorageBytes      uint64
+	storageUsage          float64
+	storageInodeUsage     float64
+	storageDevice         string
+	storageFilesystem     string
+	storageMountpoint     string
+	storageModel          string
+	storageType           string
+	storageReadOnly       bool
+	applicationTypes      []ApplicationTypeUsage
 	networkSSID           string
 	firstSeen             time.Time
 	lastSeen              time.Time
@@ -167,6 +282,16 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 	networkType := ""
 	totalStorageBytes := uint64(0)
 	availableStorageBytes := uint64(0)
+	usedStorageBytes := uint64(0)
+	storageUsage := 0.0
+	storageInodeUsage := 0.0
+	storageDevice := ""
+	storageFilesystem := ""
+	storageMountpoint := ""
+	storageModel := ""
+	storageType := ""
+	storageReadOnly := false
+	var applicationTypes []ApplicationTypeUsage
 	networkSSID := ""
 	if hb != nil {
 		hostname = hb.Hostname
@@ -188,8 +313,23 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 		networkType = hb.GetNetworkType()
 		totalStorageBytes = hb.GetTotalStorageBytes()
 		availableStorageBytes = hb.GetAvailableStorageBytes()
+		usedStorageBytes = hb.GetUsedStorageBytes()
+		storageUsage = clampTelemetryRatio(hb.GetStorageUsage())
+		storageInodeUsage = clampTelemetryRatio(hb.GetStorageInodeUsage())
+		storageDevice = clampTelemetryText(hb.GetStorageDevice(), 160)
+		storageFilesystem = clampTelemetryText(hb.GetStorageFilesystem(), 32)
+		storageMountpoint = clampTelemetryText(hb.GetStorageMountpoint(), 260)
+		storageModel = clampTelemetryText(hb.GetStorageModel(), 160)
+		storageType = normalizeStorageType(hb.GetStorageType())
+		storageReadOnly = hb.GetStorageReadOnly()
+		applicationTypes = normalizeApplicationTypes(hb.GetApplicationTypes())
 		networkSSID = hb.GetNetworkSsid()
 	}
+	totalStorageBytes, availableStorageBytes, usedStorageBytes = normalizeStorageBytes(
+		totalStorageBytes,
+		availableStorageBytes,
+		usedStorageBytes,
+	)
 
 	eventTime := m.now()
 	if envelope.Timestamp != nil {
@@ -231,6 +371,16 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 	record.networkType = networkType
 	record.totalStorageBytes = totalStorageBytes
 	record.availableStorageBytes = availableStorageBytes
+	record.usedStorageBytes = usedStorageBytes
+	record.storageUsage = storageUsage
+	record.storageInodeUsage = storageInodeUsage
+	record.storageDevice = storageDevice
+	record.storageFilesystem = storageFilesystem
+	record.storageMountpoint = storageMountpoint
+	record.storageModel = storageModel
+	record.storageType = storageType
+	record.storageReadOnly = storageReadOnly
+	record.applicationTypes = applicationTypes
 	record.networkSSID = networkSSID
 	record.lastSeen = eventTime
 	record.lastOnline = eventTime
@@ -350,6 +500,16 @@ func (m *Monitor) ListClients() []ClientSnapshot {
 			NetworkType:           record.networkType,
 			TotalStorageBytes:     record.totalStorageBytes,
 			AvailableStorageBytes: record.availableStorageBytes,
+			UsedStorageBytes:      record.usedStorageBytes,
+			StorageUsage:          record.storageUsage,
+			StorageInodeUsage:     record.storageInodeUsage,
+			StorageDevice:         record.storageDevice,
+			StorageFilesystem:     record.storageFilesystem,
+			StorageMountpoint:     record.storageMountpoint,
+			StorageModel:          record.storageModel,
+			StorageType:           record.storageType,
+			StorageReadOnly:       record.storageReadOnly,
+			ApplicationTypes:      append([]ApplicationTypeUsage(nil), record.applicationTypes...),
 			NetworkSSID:           record.networkSSID,
 			FirstSeen:             record.firstSeen,
 			LastSeen:              record.lastSeen,

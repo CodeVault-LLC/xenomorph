@@ -28,11 +28,26 @@ export type ClientSnapshot = {
   network_type: string
   total_storage_bytes: number
   available_storage_bytes: number
+  used_storage_bytes: number
+  storage_usage: number
+  storage_inode_usage: number
+  storage_device: string
+  storage_filesystem: string
+  storage_mountpoint: string
+  storage_model: string
+  storage_type: string
+  storage_read_only: boolean
+  application_types: ApplicationTypeUsage[]
   network_ssid: string
   first_seen: string
   last_seen: string
   last_online: string
   is_online: boolean
+}
+
+export type ApplicationTypeUsage = {
+  category: string
+  count: number
 }
 
 export type AgentLogEntry = {

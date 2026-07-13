@@ -13,14 +13,13 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
 func collectSystemTelemetry() SystemTelemetry {
 	ramUsage, totalRAMBytes := linuxRAMUsage()
 	network := linuxNetwork()
-	totalStorageBytes, availableStorageBytes := linuxStorage()
+	storage := collectDiskTelemetry()
 	return SystemTelemetry{
 		OSVersion:             linuxOSVersion(),
 		CPULoad:               linuxLoadAverage(),
@@ -38,8 +37,18 @@ func collectSystemTelemetry() SystemTelemetry {
 		NetworkOnline:         network.online,
 		NetworkLinkSpeedMbps:  network.linkSpeedMbps,
 		NetworkType:           network.networkType,
-		TotalStorageBytes:     totalStorageBytes,
-		AvailableStorageBytes: availableStorageBytes,
+		TotalStorageBytes:     storage.totalBytes,
+		AvailableStorageBytes: storage.availableBytes,
+		UsedStorageBytes:      storage.usedBytes,
+		StorageUsage:          storage.usage,
+		StorageInodeUsage:     storage.inodeUsage,
+		StorageDevice:         storage.device,
+		StorageFilesystem:     storage.filesystem,
+		StorageMountpoint:     storage.mountpoint,
+		StorageModel:          storage.model,
+		StorageType:           storage.driveType,
+		StorageReadOnly:       storage.readOnly,
+		ApplicationTypes:      storage.applicationTypes,
 		NetworkSSID:           network.ssid,
 	}
 }
@@ -451,15 +460,6 @@ func linuxLinkSpeedMbps(ifaceName string) uint64 {
 		return 0
 	}
 	return speed
-}
-
-func linuxStorage() (uint64, uint64) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs("/", &stat); err != nil || stat.Bsize <= 0 {
-		return 0, 0
-	}
-	blockSize := uint64(stat.Bsize)
-	return stat.Blocks * blockSize, stat.Bavail * blockSize
 }
 
 func linuxDefaultInterface() string {

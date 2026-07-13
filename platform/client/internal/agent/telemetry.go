@@ -29,6 +29,16 @@ type SystemTelemetry struct {
 	NetworkType           string
 	TotalStorageBytes     uint64
 	AvailableStorageBytes uint64
+	UsedStorageBytes      uint64
+	StorageUsage          float64
+	StorageInodeUsage     float64
+	StorageDevice         string
+	StorageFilesystem     string
+	StorageMountpoint     string
+	StorageModel          string
+	StorageType           string
+	StorageReadOnly       bool
+	ApplicationTypes      []ApplicationTypeUsage
 	NetworkSSID           string
 }
 
@@ -61,6 +71,16 @@ func BuildHeartbeatPayload(provider HostnameProvider) HeartbeatPayload {
 		NetworkType:           telemetry.NetworkType,
 		TotalStorageBytes:     telemetry.TotalStorageBytes,
 		AvailableStorageBytes: telemetry.AvailableStorageBytes,
+		UsedStorageBytes:      telemetry.UsedStorageBytes,
+		StorageUsage:          telemetry.StorageUsage,
+		StorageInodeUsage:     telemetry.StorageInodeUsage,
+		StorageDevice:         telemetry.StorageDevice,
+		StorageFilesystem:     telemetry.StorageFilesystem,
+		StorageMountpoint:     telemetry.StorageMountpoint,
+		StorageModel:          telemetry.StorageModel,
+		StorageType:           telemetry.StorageType,
+		StorageReadOnly:       telemetry.StorageReadOnly,
+		ApplicationTypes:      telemetry.ApplicationTypes,
 		NetworkSSID:           telemetry.NetworkSSID,
 	}
 }

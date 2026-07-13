@@ -1,7 +1,7 @@
-//go:build !linux
+//go:build !linux && !windows && !darwin
 
 package agent
 
-func collectInstalledApplications() []string {
+func scanInstalledApplications() []string {
 	return nil
 }

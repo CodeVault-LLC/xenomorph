@@ -240,27 +240,37 @@ func (x *SecurityContext) GetIsAuthenticated() bool {
 }
 
 type Heartbeat struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Hostname              string                 `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"` // Reported by client (Untrusted meta)
-	OsVersion             string                 `protobuf:"bytes,2,opt,name=os_version,json=osVersion,proto3" json:"os_version,omitempty"`
-	CpuLoad               float64                `protobuf:"fixed64,3,opt,name=cpu_load,json=cpuLoad,proto3" json:"cpu_load,omitempty"`
-	RamUsage              float64                `protobuf:"fixed64,4,opt,name=ram_usage,json=ramUsage,proto3" json:"ram_usage,omitempty"`
-	UptimeSeconds         uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
-	CpuModel              string                 `protobuf:"bytes,6,opt,name=cpu_model,json=cpuModel,proto3" json:"cpu_model,omitempty"`
-	CpuCores              int32                  `protobuf:"varint,7,opt,name=cpu_cores,json=cpuCores,proto3" json:"cpu_cores,omitempty"`
-	CpuThreads            int32                  `protobuf:"varint,8,opt,name=cpu_threads,json=cpuThreads,proto3" json:"cpu_threads,omitempty"`
-	TotalRamBytes         uint64                 `protobuf:"varint,9,opt,name=total_ram_bytes,json=totalRamBytes,proto3" json:"total_ram_bytes,omitempty"`
-	GpuDevices            []string               `protobuf:"bytes,10,rep,name=gpu_devices,json=gpuDevices,proto3" json:"gpu_devices,omitempty"`
-	NetworkName           string                 `protobuf:"bytes,11,opt,name=network_name,json=networkName,proto3" json:"network_name,omitempty"`
-	NetworkAddresses      []string               `protobuf:"bytes,12,rep,name=network_addresses,json=networkAddresses,proto3" json:"network_addresses,omitempty"`
-	KernelVersion         string                 `protobuf:"bytes,13,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"`
-	CpuFrequencyMhz       uint64                 `protobuf:"varint,14,opt,name=cpu_frequency_mhz,json=cpuFrequencyMhz,proto3" json:"cpu_frequency_mhz,omitempty"`                   // Current reported average CPU frequency
-	NetworkOnline         bool                   `protobuf:"varint,15,opt,name=network_online,json=networkOnline,proto3" json:"network_online,omitempty"`                           // Default interface carrier/link state
-	NetworkLinkSpeedMbps  uint64                 `protobuf:"varint,16,opt,name=network_link_speed_mbps,json=networkLinkSpeedMbps,proto3" json:"network_link_speed_mbps,omitempty"`  // Default interface reported link speed
-	NetworkType           string                 `protobuf:"bytes,17,opt,name=network_type,json=networkType,proto3" json:"network_type,omitempty"`                                  // Default interface medium, e.g. ethernet or wireless
-	TotalStorageBytes     uint64                 `protobuf:"varint,18,opt,name=total_storage_bytes,json=totalStorageBytes,proto3" json:"total_storage_bytes,omitempty"`             // Root filesystem capacity reported by client
-	AvailableStorageBytes uint64                 `protobuf:"varint,19,opt,name=available_storage_bytes,json=availableStorageBytes,proto3" json:"available_storage_bytes,omitempty"` // Root filesystem available capacity reported by client
-	NetworkSsid           string                 `protobuf:"bytes,20,opt,name=network_ssid,json=networkSsid,proto3" json:"network_ssid,omitempty"`                                  // Associated wireless network name; never a credential
+	state                 protoimpl.MessageState  `protogen:"open.v1"`
+	Hostname              string                  `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"` // Reported by client (Untrusted meta)
+	OsVersion             string                  `protobuf:"bytes,2,opt,name=os_version,json=osVersion,proto3" json:"os_version,omitempty"`
+	CpuLoad               float64                 `protobuf:"fixed64,3,opt,name=cpu_load,json=cpuLoad,proto3" json:"cpu_load,omitempty"`
+	RamUsage              float64                 `protobuf:"fixed64,4,opt,name=ram_usage,json=ramUsage,proto3" json:"ram_usage,omitempty"`
+	UptimeSeconds         uint64                  `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
+	CpuModel              string                  `protobuf:"bytes,6,opt,name=cpu_model,json=cpuModel,proto3" json:"cpu_model,omitempty"`
+	CpuCores              int32                   `protobuf:"varint,7,opt,name=cpu_cores,json=cpuCores,proto3" json:"cpu_cores,omitempty"`
+	CpuThreads            int32                   `protobuf:"varint,8,opt,name=cpu_threads,json=cpuThreads,proto3" json:"cpu_threads,omitempty"`
+	TotalRamBytes         uint64                  `protobuf:"varint,9,opt,name=total_ram_bytes,json=totalRamBytes,proto3" json:"total_ram_bytes,omitempty"`
+	GpuDevices            []string                `protobuf:"bytes,10,rep,name=gpu_devices,json=gpuDevices,proto3" json:"gpu_devices,omitempty"`
+	NetworkName           string                  `protobuf:"bytes,11,opt,name=network_name,json=networkName,proto3" json:"network_name,omitempty"`
+	NetworkAddresses      []string                `protobuf:"bytes,12,rep,name=network_addresses,json=networkAddresses,proto3" json:"network_addresses,omitempty"`
+	KernelVersion         string                  `protobuf:"bytes,13,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"`
+	CpuFrequencyMhz       uint64                  `protobuf:"varint,14,opt,name=cpu_frequency_mhz,json=cpuFrequencyMhz,proto3" json:"cpu_frequency_mhz,omitempty"`                   // Current reported average CPU frequency
+	NetworkOnline         bool                    `protobuf:"varint,15,opt,name=network_online,json=networkOnline,proto3" json:"network_online,omitempty"`                           // Default interface carrier/link state
+	NetworkLinkSpeedMbps  uint64                  `protobuf:"varint,16,opt,name=network_link_speed_mbps,json=networkLinkSpeedMbps,proto3" json:"network_link_speed_mbps,omitempty"`  // Default interface reported link speed
+	NetworkType           string                  `protobuf:"bytes,17,opt,name=network_type,json=networkType,proto3" json:"network_type,omitempty"`                                  // Default interface medium, e.g. ethernet or wireless
+	TotalStorageBytes     uint64                  `protobuf:"varint,18,opt,name=total_storage_bytes,json=totalStorageBytes,proto3" json:"total_storage_bytes,omitempty"`             // Root filesystem capacity reported by client
+	AvailableStorageBytes uint64                  `protobuf:"varint,19,opt,name=available_storage_bytes,json=availableStorageBytes,proto3" json:"available_storage_bytes,omitempty"` // Root filesystem available capacity reported by client
+	NetworkSsid           string                  `protobuf:"bytes,20,opt,name=network_ssid,json=networkSsid,proto3" json:"network_ssid,omitempty"`                                  // Associated wireless network name; never a credential
+	UsedStorageBytes      uint64                  `protobuf:"varint,21,opt,name=used_storage_bytes,json=usedStorageBytes,proto3" json:"used_storage_bytes,omitempty"`                // System filesystem bytes in use reported by client
+	StorageUsage          float64                 `protobuf:"fixed64,22,opt,name=storage_usage,json=storageUsage,proto3" json:"storage_usage,omitempty"`                             // System filesystem utilization ratio in [0,1]
+	StorageInodeUsage     float64                 `protobuf:"fixed64,23,opt,name=storage_inode_usage,json=storageInodeUsage,proto3" json:"storage_inode_usage,omitempty"`            // System filesystem inode utilization ratio in [0,1], when available
+	StorageDevice         string                  `protobuf:"bytes,24,opt,name=storage_device,json=storageDevice,proto3" json:"storage_device,omitempty"`                            // System filesystem device label reported by client
+	StorageFilesystem     string                  `protobuf:"bytes,25,opt,name=storage_filesystem,json=storageFilesystem,proto3" json:"storage_filesystem,omitempty"`                // System filesystem type reported by client
+	StorageMountpoint     string                  `protobuf:"bytes,26,opt,name=storage_mountpoint,json=storageMountpoint,proto3" json:"storage_mountpoint,omitempty"`                // System filesystem mount point reported by client
+	StorageModel          string                  `protobuf:"bytes,27,opt,name=storage_model,json=storageModel,proto3" json:"storage_model,omitempty"`                               // Bounded hardware model label when exposed by the OS
+	StorageType           string                  `protobuf:"bytes,28,opt,name=storage_type,json=storageType,proto3" json:"storage_type,omitempty"`                                  // Allowlisted media type reported by the OS; unknown when unavailable
+	StorageReadOnly       bool                    `protobuf:"varint,29,opt,name=storage_read_only,json=storageReadOnly,proto3" json:"storage_read_only,omitempty"`                   // Whether the system filesystem reports a read-only mount
+	ApplicationTypes      []*ApplicationTypeUsage `protobuf:"bytes,30,rep,name=application_types,json=applicationTypes,proto3" json:"application_types,omitempty"`                   // Cached, bounded installed application category counts
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -435,6 +445,128 @@ func (x *Heartbeat) GetNetworkSsid() string {
 	return ""
 }
 
+func (x *Heartbeat) GetUsedStorageBytes() uint64 {
+	if x != nil {
+		return x.UsedStorageBytes
+	}
+	return 0
+}
+
+func (x *Heartbeat) GetStorageUsage() float64 {
+	if x != nil {
+		return x.StorageUsage
+	}
+	return 0
+}
+
+func (x *Heartbeat) GetStorageInodeUsage() float64 {
+	if x != nil {
+		return x.StorageInodeUsage
+	}
+	return 0
+}
+
+func (x *Heartbeat) GetStorageDevice() string {
+	if x != nil {
+		return x.StorageDevice
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetStorageFilesystem() string {
+	if x != nil {
+		return x.StorageFilesystem
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetStorageMountpoint() string {
+	if x != nil {
+		return x.StorageMountpoint
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetStorageModel() string {
+	if x != nil {
+		return x.StorageModel
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetStorageType() string {
+	if x != nil {
+		return x.StorageType
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetStorageReadOnly() bool {
+	if x != nil {
+		return x.StorageReadOnly
+	}
+	return false
+}
+
+func (x *Heartbeat) GetApplicationTypes() []*ApplicationTypeUsage {
+	if x != nil {
+		return x.ApplicationTypes
+	}
+	return nil
+}
+
+type ApplicationTypeUsage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Category      string                 `protobuf:"bytes,1,opt,name=category,proto3" json:"category,omitempty"` // Allowlisted client-authored application category
+	Count         uint32                 `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`      // Number of detected installed applications in the category
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplicationTypeUsage) Reset() {
+	*x = ApplicationTypeUsage{}
+	mi := &file_events_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplicationTypeUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplicationTypeUsage) ProtoMessage() {}
+
+func (x *ApplicationTypeUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_events_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplicationTypeUsage.ProtoReflect.Descriptor instead.
+func (*ApplicationTypeUsage) Descriptor() ([]byte, []int) {
+	return file_events_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ApplicationTypeUsage) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *ApplicationTypeUsage) GetCount() uint32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
 type FileChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UploadId      string                 `protobuf:"bytes,1,opt,name=upload_id,json=uploadId,proto3" json:"upload_id,omitempty"`        // Unique ID for this file transfer
@@ -448,7 +580,7 @@ type FileChunk struct {
 
 func (x *FileChunk) Reset() {
 	*x = FileChunk{}
-	mi := &file_events_proto_msgTypes[3]
+	mi := &file_events_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -460,7 +592,7 @@ func (x *FileChunk) String() string {
 func (*FileChunk) ProtoMessage() {}
 
 func (x *FileChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_events_proto_msgTypes[3]
+	mi := &file_events_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -473,7 +605,7 @@ func (x *FileChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileChunk.ProtoReflect.Descriptor instead.
 func (*FileChunk) Descriptor() ([]byte, []int) {
-	return file_events_proto_rawDescGZIP(), []int{3}
+	return file_events_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FileChunk) GetUploadId() string {
@@ -522,7 +654,7 @@ type CommandResult struct {
 
 func (x *CommandResult) Reset() {
 	*x = CommandResult{}
-	mi := &file_events_proto_msgTypes[4]
+	mi := &file_events_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -534,7 +666,7 @@ func (x *CommandResult) String() string {
 func (*CommandResult) ProtoMessage() {}
 
 func (x *CommandResult) ProtoReflect() protoreflect.Message {
-	mi := &file_events_proto_msgTypes[4]
+	mi := &file_events_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -547,7 +679,7 @@ func (x *CommandResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
 func (*CommandResult) Descriptor() ([]byte, []int) {
-	return file_events_proto_rawDescGZIP(), []int{4}
+	return file_events_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CommandResult) GetCommandId() string {
@@ -582,7 +714,7 @@ type LogEntry struct {
 
 func (x *LogEntry) Reset() {
 	*x = LogEntry{}
-	mi := &file_events_proto_msgTypes[5]
+	mi := &file_events_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -594,7 +726,7 @@ func (x *LogEntry) String() string {
 func (*LogEntry) ProtoMessage() {}
 
 func (x *LogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_events_proto_msgTypes[5]
+	mi := &file_events_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -607,7 +739,7 @@ func (x *LogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogEntry.ProtoReflect.Descriptor instead.
 func (*LogEntry) Descriptor() ([]byte, []int) {
-	return file_events_proto_rawDescGZIP(), []int{5}
+	return file_events_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *LogEntry) GetLevel() string {
@@ -653,7 +785,7 @@ const file_events_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1b\n" +
 	"\tclient_ip\x18\x03 \x01(\tR\bclientIp\x12)\n" +
-	"\x10is_authenticated\x18\x04 \x01(\bR\x0fisAuthenticated\"\xf8\x05\n" +
+	"\x10is_authenticated\x18\x04 \x01(\bR\x0fisAuthenticated\"\xc4\t\n" +
 	"\tHeartbeat\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x1d\n" +
 	"\n" +
@@ -678,7 +810,20 @@ const file_events_proto_rawDesc = "" +
 	"\fnetwork_type\x18\x11 \x01(\tR\vnetworkType\x12.\n" +
 	"\x13total_storage_bytes\x18\x12 \x01(\x04R\x11totalStorageBytes\x126\n" +
 	"\x17available_storage_bytes\x18\x13 \x01(\x04R\x15availableStorageBytes\x12!\n" +
-	"\fnetwork_ssid\x18\x14 \x01(\tR\vnetworkSsid\"\x92\x01\n" +
+	"\fnetwork_ssid\x18\x14 \x01(\tR\vnetworkSsid\x12,\n" +
+	"\x12used_storage_bytes\x18\x15 \x01(\x04R\x10usedStorageBytes\x12#\n" +
+	"\rstorage_usage\x18\x16 \x01(\x01R\fstorageUsage\x12.\n" +
+	"\x13storage_inode_usage\x18\x17 \x01(\x01R\x11storageInodeUsage\x12%\n" +
+	"\x0estorage_device\x18\x18 \x01(\tR\rstorageDevice\x12-\n" +
+	"\x12storage_filesystem\x18\x19 \x01(\tR\x11storageFilesystem\x12-\n" +
+	"\x12storage_mountpoint\x18\x1a \x01(\tR\x11storageMountpoint\x12#\n" +
+	"\rstorage_model\x18\x1b \x01(\tR\fstorageModel\x12!\n" +
+	"\fstorage_type\x18\x1c \x01(\tR\vstorageType\x12*\n" +
+	"\x11storage_read_only\x18\x1d \x01(\bR\x0fstorageReadOnly\x12N\n" +
+	"\x11application_types\x18\x1e \x03(\v2!.platform.v1.ApplicationTypeUsageR\x10applicationTypes\"H\n" +
+	"\x14ApplicationTypeUsage\x12\x1a\n" +
+	"\bcategory\x18\x01 \x01(\tR\bcategory\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\rR\x05count\"\x92\x01\n" +
 	"\tFileChunk\x12\x1b\n" +
 	"\tupload_id\x18\x01 \x01(\tR\buploadId\x12\x1f\n" +
 	"\vchunk_index\x18\x02 \x01(\x05R\n" +
@@ -709,28 +854,30 @@ func file_events_proto_rawDescGZIP() []byte {
 	return file_events_proto_rawDescData
 }
 
-var file_events_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_events_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_events_proto_goTypes = []any{
 	(*EventEnvelope)(nil),         // 0: platform.v1.EventEnvelope
 	(*SecurityContext)(nil),       // 1: platform.v1.SecurityContext
 	(*Heartbeat)(nil),             // 2: platform.v1.Heartbeat
-	(*FileChunk)(nil),             // 3: platform.v1.FileChunk
-	(*CommandResult)(nil),         // 4: platform.v1.CommandResult
-	(*LogEntry)(nil),              // 5: platform.v1.LogEntry
-	(*timestamppb.Timestamp)(nil), // 6: google.protobuf.Timestamp
+	(*ApplicationTypeUsage)(nil),  // 3: platform.v1.ApplicationTypeUsage
+	(*FileChunk)(nil),             // 4: platform.v1.FileChunk
+	(*CommandResult)(nil),         // 5: platform.v1.CommandResult
+	(*LogEntry)(nil),              // 6: platform.v1.LogEntry
+	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
 }
 var file_events_proto_depIdxs = []int32{
-	6, // 0: platform.v1.EventEnvelope.timestamp:type_name -> google.protobuf.Timestamp
+	7, // 0: platform.v1.EventEnvelope.timestamp:type_name -> google.protobuf.Timestamp
 	1, // 1: platform.v1.EventEnvelope.security:type_name -> platform.v1.SecurityContext
 	2, // 2: platform.v1.EventEnvelope.heartbeat:type_name -> platform.v1.Heartbeat
-	4, // 3: platform.v1.EventEnvelope.command_result:type_name -> platform.v1.CommandResult
-	3, // 4: platform.v1.EventEnvelope.file_chunk:type_name -> platform.v1.FileChunk
-	5, // 5: platform.v1.EventEnvelope.log_entry:type_name -> platform.v1.LogEntry
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	5, // 3: platform.v1.EventEnvelope.command_result:type_name -> platform.v1.CommandResult
+	4, // 4: platform.v1.EventEnvelope.file_chunk:type_name -> platform.v1.FileChunk
+	6, // 5: platform.v1.EventEnvelope.log_entry:type_name -> platform.v1.LogEntry
+	3, // 6: platform.v1.Heartbeat.application_types:type_name -> platform.v1.ApplicationTypeUsage
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_events_proto_init() }
@@ -750,7 +897,7 @@ func file_events_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_events_proto_rawDesc), len(file_events_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func collectInstalledApplications() []string {
+func scanInstalledApplications() []string {
 	homeDir, _ := os.UserHomeDir()
 	dirs := []string{
 		"/usr/share/applications",

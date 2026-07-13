@@ -144,6 +144,18 @@ func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
 	envelope.GetHeartbeat().NetworkType = "ethernet"
 	envelope.GetHeartbeat().TotalStorageBytes = 512 * 1024 * 1024 * 1024
 	envelope.GetHeartbeat().AvailableStorageBytes = 128 * 1024 * 1024 * 1024
+	envelope.GetHeartbeat().UsedStorageBytes = 384 * 1024 * 1024 * 1024
+	envelope.GetHeartbeat().StorageUsage = 0.75
+	envelope.GetHeartbeat().StorageInodeUsage = 0.15
+	envelope.GetHeartbeat().StorageDevice = "/dev/nvme0n1p2"
+	envelope.GetHeartbeat().StorageFilesystem = "ext4"
+	envelope.GetHeartbeat().StorageMountpoint = "/"
+	envelope.GetHeartbeat().StorageModel = "Example NVMe"
+	envelope.GetHeartbeat().StorageType = "solid-state"
+	envelope.GetHeartbeat().ApplicationTypes = []*pb.ApplicationTypeUsage{
+		{Category: "Development", Count: 12},
+		{Category: "Browsers", Count: 4},
+	}
 	envelope.GetHeartbeat().NetworkSsid = "office-wifi"
 
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
@@ -189,6 +201,15 @@ func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
 	}
 	if clients[0].TotalStorageBytes != 512*1024*1024*1024 || clients[0].AvailableStorageBytes != 128*1024*1024*1024 {
 		t.Fatalf("expected storage details to be recorded, got total=%d available=%d", clients[0].TotalStorageBytes, clients[0].AvailableStorageBytes)
+	}
+	if clients[0].UsedStorageBytes != 384*1024*1024*1024 || clients[0].StorageUsage != 0.75 || clients[0].StorageInodeUsage != 0.15 {
+		t.Fatalf("expected storage utilization to be recorded, got used=%d usage=%f inode_usage=%f", clients[0].UsedStorageBytes, clients[0].StorageUsage, clients[0].StorageInodeUsage)
+	}
+	if clients[0].StorageDevice != "/dev/nvme0n1p2" || clients[0].StorageFilesystem != "ext4" || clients[0].StorageMountpoint != "/" {
+		t.Fatalf("expected filesystem details to be recorded, got device=%q filesystem=%q mountpoint=%q", clients[0].StorageDevice, clients[0].StorageFilesystem, clients[0].StorageMountpoint)
+	}
+	if clients[0].StorageModel != "Example NVMe" || clients[0].StorageType != "solid-state" || len(clients[0].ApplicationTypes) != 2 {
+		t.Fatalf("expected cached disk inventory to be recorded, got model=%q type=%q application_types=%#v", clients[0].StorageModel, clients[0].StorageType, clients[0].ApplicationTypes)
 	}
 	if clients[0].NetworkSSID != "office-wifi" {
 		t.Fatalf("expected wireless network name to be recorded, got %q", clients[0].NetworkSSID)

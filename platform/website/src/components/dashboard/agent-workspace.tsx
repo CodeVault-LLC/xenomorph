@@ -240,11 +240,10 @@ function GeneralTab({ client }: { client: ClientSnapshot }) {
               value={client.ram_usage}
               detail={`${formatBytes(client.total_ram_bytes)} total reported RAM`}
             />
-            <Fact
-              icon={HardDrive}
-              label="Disk Space"
-              value="Not reported by current heartbeat"
-              className="rounded-lg border p-4"
+            <ResourceMeter
+              label="Disk Utilization"
+              value={client.storage_usage || 0}
+              detail={`${formatBytes(client.used_storage_bytes)} used of ${formatBytes(client.total_storage_bytes)}`}
             />
             <Fact
               icon={Monitor}
@@ -394,6 +393,9 @@ function SystemTab({ client }: { client: ClientSnapshot }) {
   const addresses = Array.isArray(client.network_addresses)
     ? client.network_addresses
     : []
+  const applicationTypes = Array.isArray(client.application_types)
+    ? client.application_types
+    : []
   const networkReported = client.network_name.trim() !== ""
   const networkStatus = !networkReported
     ? "Not reported"
@@ -435,17 +437,84 @@ function SystemTab({ client }: { client: ClientSnapshot }) {
             value={`${client.cpu_cores || 0} cores / ${client.cpu_threads || 0} threads`}
           />
           <Fact label="Total RAM" value={formatBytes(client.total_ram_bytes)} />
-          <Fact
-            label="Root Storage"
-            value={formatBytes(client.total_storage_bytes)}
-          />
-          <Fact
-            label="Root Storage Available"
-            value={formatBytes(client.available_storage_bytes)}
-          />
           <Fact label="Uptime" value={formatDuration(client.uptime_seconds)} />
           <Fact label="OS" value={display(client.os_version)} />
           <Fact label="Kernel" value={display(client.kernel_version)} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>System Disk</CardTitle>
+          <CardDescription>
+            Client-authored capacity, filesystem, and cached application
+            inventory for the operating-system volume.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          <ResourceMeter
+            label="Storage Utilization"
+            value={client.storage_usage || 0}
+            detail={`${formatBytes(client.available_storage_bytes)} available of ${formatBytes(client.total_storage_bytes)}`}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Fact
+              icon={HardDrive}
+              label="Device"
+              value={display(client.storage_device)}
+              mono
+            />
+            <Fact label="Model" value={display(client.storage_model)} />
+            <Fact label="Media Type" value={display(client.storage_type)} />
+            <Fact
+              label="Filesystem"
+              value={display(client.storage_filesystem)}
+            />
+            <Fact
+              label="Mount Point"
+              value={display(client.storage_mountpoint)}
+              mono
+            />
+            <Fact
+              label="Mount Mode"
+              value={client.storage_read_only ? "Read-only" : "Read/write"}
+            />
+            <Fact
+              label="Used Capacity"
+              value={formatBytes(client.used_storage_bytes)}
+            />
+            <Fact
+              label="Inode Utilization"
+              value={
+                client.storage_inode_usage > 0
+                  ? formatPercent(client.storage_inode_usage)
+                  : "n/a"
+              }
+            />
+          </div>
+          <Separator />
+          <div className="flex flex-col gap-3">
+            <div>
+              <p className="font-medium">Installed Application Mix</p>
+              <p className="text-sm text-muted-foreground">
+                Most prevalent application types from the bounded,
+                process-cached OS inventory.
+              </p>
+            </div>
+            {applicationTypes.length ? (
+              <div className="flex flex-wrap gap-2">
+                {applicationTypes.map((applicationType) => (
+                  <Badge key={applicationType.category} variant="secondary">
+                    {applicationType.category}: {applicationType.count}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No installed application categories were reported.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 

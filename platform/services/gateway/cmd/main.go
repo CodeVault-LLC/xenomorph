@@ -11,12 +11,8 @@ import (
 
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
-	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/config"
-	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
-	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider/discord"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
-	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/transport"
 )
 
 func run() error {
@@ -48,37 +44,14 @@ func run() error {
 		return fmt.Errorf("activity monitoring setup: %w", err)
 	}
 
-	cmdQueue := command.NewQueue()
-
-	var discordPoster provider.DiscordPoster
-	if discordProvider != nil {
-		discordPoster = discordProvider
+	srv, err := buildGatewayServer(cfg, natsBroker, notifier, discordProvider, monitor)
+	if err != nil {
+		return err
 	}
-
-	srv := transport.NewServer(natsBroker, notifier, cmdQueue, discordPoster, monitor)
-
-	if discordProvider != nil {
-		gatewayListener, err := discord.NewGatewayListener(cfg.DiscordBotToken, cfg.DiscordGuildID, srv, discordProvider)
-		if err != nil {
-			return fmt.Errorf("discord gateway listener creation: %w", err)
-		}
-		if err := gatewayListener.Start(ctx); err != nil {
-			return fmt.Errorf("discord gateway start: %w", err)
-		}
+	if err := startDiscordGateway(ctx, cfg, srv, discordProvider); err != nil {
+		return err
 	}
-
-	go func() {
-		if err := srv.Run(cfg.ListenAddr, cfg.CertPath); err != nil {
-			slog.Error("gateway server terminated with error", "error", err)
-		}
-	}()
-
-	go func() {
-		slog.Info("dashboard API server starting", "addr", cfg.DashboardAddr)
-		if err := transport.RunDashboard(ctx, cfg.DashboardAddr, srv.DashboardRuntime()); err != nil {
-			slog.Error("dashboard server terminated with error", "error", err)
-		}
-	}()
+	startHTTPServers(ctx, cfg, srv)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

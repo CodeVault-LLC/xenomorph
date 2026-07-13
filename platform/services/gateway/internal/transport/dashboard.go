@@ -2,11 +2,13 @@ package transport
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/fileworkspace"
 )
 
 const dashboardReadHeaderTimeout time.Duration = 10 * time.Second
@@ -25,12 +28,6 @@ const (
 	liveScreenQuality    int           = 70
 	maxLiveViewers       int           = 25
 )
-
-var dashboardScreenUpgrader = websocket.Upgrader{
-	CheckOrigin: func(*http.Request) bool {
-		return true
-	},
-}
 
 // ClientDirectory is the read-only presence view required by the browser
 // dashboard. The activity.Monitor implements this interface.
@@ -60,19 +57,23 @@ type TerminalDirectory interface {
 // browser dashboard API. The dashboard does not own agent authentication or
 // event ingestion.
 type DashboardRuntime struct {
-	Directory    ClientDirectory
-	CommandQueue *command.Queue
-	Screens      *ScreenStore
-	Sessions     *ScreenSessions
-	Logs         AgentLogDirectory
-	Terminals    TerminalDirectory
+	Directory       ClientDirectory
+	CommandQueue    *command.Queue
+	Screens         *ScreenStore
+	Sessions        *ScreenSessions
+	Logs            AgentLogDirectory
+	Terminals       TerminalDirectory
+	Files           *fileworkspace.Service
+	FileOperatorID  string
+	DashboardOrigin string
 }
 
 // RunDashboard starts the read-only browser API listener. This listener is
 // separate from the mTLS gateway listener so browser access does not weaken
 // the authenticated agent ingestion boundary.
-func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) error {
+func RunDashboard(ctx context.Context, addr, certPath string, runtime DashboardRuntime) error {
 	mux := http.NewServeMux()
+	registerFileRoutes(mux, runtime)
 
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeDashboardJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -248,7 +249,10 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 			RequestedBy: "website",
 			Reason:      "Terminal command requested from website dashboard",
 		}
-		runtime.CommandQueue.Enqueue(agentID, cmd)
+		if err := runtime.CommandQueue.Enqueue(agentID, cmd); err != nil {
+			writeDashboardJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "terminal command queue unavailable"})
+			return
+		}
 		entry := TerminalEntry{
 			AgentID:          agentID,
 			SessionID:        sessionID,
@@ -291,7 +295,10 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 			RequestedBy: "website",
 			Reason:      "Live screen frame requested from website dashboard",
 		}
-		runtime.CommandQueue.Enqueue(agentID, cmd)
+		if err := runtime.CommandQueue.Enqueue(agentID, cmd); err != nil {
+			writeDashboardJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "screen command queue unavailable"})
+			return
+		}
 		writeDashboardJSON(w, http.StatusAccepted, map[string]any{
 			"status":     "queued",
 			"command_id": cmd.CommandID,
@@ -377,7 +384,10 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 			enqueueScreenStreamCommand(runtime.CommandQueue, agentID, true)
 		}
 
-		conn, err := dashboardScreenUpgrader.Upgrade(w, r, nil)
+		upgrader := websocket.Upgrader{CheckOrigin: func(request *http.Request) bool {
+			return request.Header.Get("Origin") == runtime.DashboardOrigin
+		}}
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
@@ -443,7 +453,11 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 				RequestedBy: "website",
 				Reason:      "Live screen stream requested from website dashboard",
 			}
-			runtime.CommandQueue.Enqueue(agentID, cmd)
+			if err := runtime.CommandQueue.Enqueue(agentID, cmd); err != nil {
+				writeDashboardSSE(w, "error", map[string]string{"error": "screen command queue unavailable"})
+				flusher.Flush()
+				return
+			}
 
 			waitCtx, cancel := context.WithTimeout(r.Context(), screenFrameTimeout)
 			frame, ok := runtime.Screens.WaitLatestAfter(waitCtx, agentID, after)
@@ -467,6 +481,7 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: dashboardReadHeaderTimeout,
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS13},
 	}
 
 	go func() {
@@ -478,7 +493,9 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 		}
 	}()
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	certificate := filepath.Join(certPath, "server.crt")
+	privateKey := filepath.Join(certPath, "server.key")
+	if err := server.ListenAndServeTLS(certificate, privateKey); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
@@ -577,12 +594,14 @@ func enqueueScreenStreamCommand(queue *command.Queue, agentID string, start bool
 		payload = json.RawMessage(fmt.Sprintf(`{"fps":%d,"quality":%d}`, liveScreenFPS, liveScreenQuality))
 	}
 
-	queue.Enqueue(agentID, &command.Envelope{
+	if err := queue.Enqueue(agentID, &command.Envelope{
 		Type:        cmdType,
 		Payload:     payload,
 		RequestedBy: "website",
 		Reason:      reason,
-	})
+	}); err != nil {
+		slog.Error("screen stream command enqueue failed", "error", err)
+	}
 }
 
 func latestScreen(store *ScreenStore, agentID string) (ScreenFrame, bool) {

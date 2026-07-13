@@ -3,12 +3,16 @@ package agent
 import (
 	"os"
 	"time"
+
+	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
 )
 
 const (
 	heartbeatResponseSize int64         = 4096
 	commandResponseSize   int64         = 8192
 	commandExpiry         time.Duration = 2 * time.Minute
+	commandClockSkew      time.Duration = 30 * time.Second
+	maxSeenCommandNonces  int           = 256
 	stateDirPermission    os.FileMode   = 0700
 	stateFilePermission   os.FileMode   = 0600
 	maxInstalledApps      int           = 200
@@ -35,6 +39,14 @@ const (
 	// CommandTypeTerminalRun requests execution of a shell command in a
 	// terminal session.
 	CommandTypeTerminalRun CommandType = "support.terminal.run"
+	// CommandTypeFilesRootsList requests filesystem root capability observations.
+	CommandTypeFilesRootsList CommandType = fileprotocol.CommandRootsList
+	// CommandTypeFilesDirectoryList requests a bounded directory page.
+	CommandTypeFilesDirectoryList CommandType = fileprotocol.CommandDirectoryList
+	// CommandTypeFilesMetadataGet requests no-follow entry metadata.
+	CommandTypeFilesMetadataGet CommandType = fileprotocol.CommandMetadataGet
+	// CommandTypeFilesPreviewRead requests a bounded regular-file byte range.
+	CommandTypeFilesPreviewRead CommandType = fileprotocol.CommandPreviewRead
 )
 
 // CommandStatus is a typed result status for command execution.

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/fileworkspace"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/identity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
@@ -54,8 +56,8 @@ const (
 )
 
 var screenMediaUpgrader = websocket.Upgrader{
-	CheckOrigin: func(*http.Request) bool {
-		return true
+	CheckOrigin: func(request *http.Request) bool {
+		return strings.TrimSpace(request.Header.Get("Origin")) == ""
 	},
 }
 
@@ -63,16 +65,19 @@ var screenMediaUpgrader = websocket.Upgrader{
 // termination, agent identity extraction, request routing, and event
 // publishing to the NATS broker.
 type Server struct {
-	broker         *broker.NATS
-	notifier       *provider.Fanout
-	commandQueue   *command.Queue
-	discordPoster  provider.DiscordPoster
-	statusProvider agentStatusProvider
-	screenStore    *ScreenStore
-	screenSessions *ScreenSessions
-	logStore       *AgentLogStore
-	terminalStore  *TerminalStore
-	engine         *gin.Engine
+	broker          *broker.NATS
+	notifier        *provider.Fanout
+	commandQueue    *command.Queue
+	discordPoster   provider.DiscordPoster
+	statusProvider  agentStatusProvider
+	screenStore     *ScreenStore
+	screenSessions  *ScreenSessions
+	logStore        *AgentLogStore
+	terminalStore   *TerminalStore
+	fileWorkspace   *fileworkspace.Service
+	fileOperatorID  string
+	dashboardOrigin string
+	engine          *gin.Engine
 
 	seenMu     sync.Mutex
 	seenAgents map[string]struct{}
@@ -399,17 +404,18 @@ func (s *Server) handleNextCommand(c *gin.Context) {
 
 // commandResultRequest is the JSON shape for a command execution result.
 type commandResultRequest struct {
-	CommandID                string `json:"command_id" binding:"required"`
-	Type                     string `json:"type" binding:"required"`
-	Status                   string `json:"status" binding:"required"`
-	Reason                   string `json:"reason"`
-	ClientHostname           string `json:"client_hostname"`
-	OutputData               []byte `json:"output_data,omitempty"`
-	TerminalSessionID        string `json:"terminal_session_id"`
-	TerminalShell            string `json:"terminal_shell"`
-	TerminalCommand          string `json:"terminal_command"`
-	TerminalWorkingDirectory string `json:"terminal_working_directory"`
-	TerminalExitCode         int    `json:"terminal_exit_code"`
+	CommandID                string          `json:"command_id" binding:"required"`
+	Type                     string          `json:"type" binding:"required"`
+	Status                   string          `json:"status" binding:"required"`
+	Reason                   string          `json:"reason"`
+	ClientHostname           string          `json:"client_hostname"`
+	OutputData               []byte          `json:"output_data,omitempty"`
+	TerminalSessionID        string          `json:"terminal_session_id"`
+	TerminalShell            string          `json:"terminal_shell"`
+	TerminalCommand          string          `json:"terminal_command"`
+	TerminalWorkingDirectory string          `json:"terminal_working_directory"`
+	TerminalExitCode         int             `json:"terminal_exit_code"`
+	Result                   json.RawMessage `json:"result"`
 }
 
 // handleCommandResult processes an authenticated command execution result.
@@ -424,6 +430,7 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 		return
 	}
 
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxScreenMediaFrameBytes+maxTerminalOutputLen)
 	var req commandResultRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schema"})
@@ -469,27 +476,42 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 	}
 
 	s.storeLogEnvelope(env)
-
-	if CommandType(req.Type) == CommandTypeRequestScreenshot && req.Status == "executed" && len(req.OutputData) > 0 {
-		s.screenStore.Save(agentID, ScreenFrame{
-			AgentID:    agentID,
-			CommandID:  req.CommandID,
-			CapturedAt: time.Now().UTC(),
-			Content:    append([]byte(nil), req.OutputData...),
-		})
-	}
-	if CommandType(req.Type) == CommandTypeTerminalRun {
-		s.storeTerminalResult(agentID, req)
-	}
-	if CommandType(req.Type) == CommandTypeRequestScreenshot && len(req.OutputData) > 0 && s.discordPoster != nil {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), commandResultForwardTimeout)
-			defer cancel()
-			s.forwardScreenshotToDiscord(ctx, agentID, req)
-		}()
+	if err := s.recordSpecialCommandResult(agentID, req); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "command result does not match an active operation"})
+		return
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "event_id": env.EventId})
+}
+
+func (s *Server) recordSpecialCommandResult(agentID string, req commandResultRequest) error {
+	commandType := CommandType(req.Type)
+	switch {
+	case commandType == CommandTypeRequestScreenshot:
+		s.recordScreenshotResult(agentID, req)
+	case commandType == CommandTypeTerminalRun:
+		s.storeTerminalResult(agentID, req)
+	case strings.HasPrefix(req.Type, "files.") && s.fileWorkspace != nil:
+		return s.fileWorkspace.Complete(agentID, req.CommandID, req.Status, req.Result)
+	}
+	return nil
+}
+
+func (s *Server) recordScreenshotResult(agentID string, req commandResultRequest) {
+	if req.Status == "executed" && len(req.OutputData) > 0 {
+		s.screenStore.Save(agentID, ScreenFrame{
+			AgentID: agentID, CommandID: req.CommandID, CapturedAt: time.Now().UTC(),
+			Content: append([]byte(nil), req.OutputData...),
+		})
+	}
+	if len(req.OutputData) == 0 || s.discordPoster == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), commandResultForwardTimeout)
+		defer cancel()
+		s.forwardScreenshotToDiscord(ctx, agentID, req)
+	}()
 }
 
 // handleScreenMedia receives binary live screen frames from an authenticated
@@ -541,13 +563,29 @@ func (s *Server) handleScreenMedia(c *gin.Context) {
 func (s *Server) DashboardRuntime() DashboardRuntime {
 	directory, _ := s.statusProvider.(ClientDirectory)
 	return DashboardRuntime{
-		Directory:    directory,
-		CommandQueue: s.commandQueue,
-		Screens:      s.screenStore,
-		Sessions:     s.screenSessions,
-		Logs:         s.logStore,
-		Terminals:    s.terminalStore,
+		Directory:       directory,
+		CommandQueue:    s.commandQueue,
+		Screens:         s.screenStore,
+		Sessions:        s.screenSessions,
+		Logs:            s.logStore,
+		Terminals:       s.terminalStore,
+		Files:           s.fileWorkspace,
+		FileOperatorID:  s.fileOperatorID,
+		DashboardOrigin: s.dashboardOrigin,
 	}
+}
+
+// ConfigureFileWorkspace attaches the gateway-owned durable file service and
+// its server-authored audit source label to the dashboard transport.
+func (s *Server) ConfigureFileWorkspace(service *fileworkspace.Service, operatorID string) {
+	s.fileWorkspace = service
+	s.fileOperatorID = operatorID
+}
+
+// ConfigureDashboardOrigin sets the exact browser origin permitted to open
+// administrative WebSocket connections.
+func (s *Server) ConfigureDashboardOrigin(origin string) {
+	s.dashboardOrigin = strings.TrimSpace(origin)
 }
 
 func (s *Server) storeTerminalResult(agentID string, req commandResultRequest) {

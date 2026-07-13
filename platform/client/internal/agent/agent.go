@@ -52,30 +52,35 @@ type Stage1AuthResult struct {
 
 // CommandEnvelope is a command received from the gateway for local execution.
 type CommandEnvelope struct {
-	CommandID   string          `json:"command_id"`
-	Type        CommandType     `json:"type"`
-	Payload     json.RawMessage `json:"payload"`
-	RequestedBy string          `json:"requested_by"`
-	IssuedAt    time.Time       `json:"issued_at"`
-	ExpiresAt   time.Time       `json:"expires_at"`
-	Reason      string          `json:"reason"`
-	Signature   string          `json:"signature"`
+	ProtocolVersion int             `json:"protocol_version"`
+	CommandID       string          `json:"command_id"`
+	AudienceAgentID string          `json:"audience_agent_id"`
+	Type            CommandType     `json:"type"`
+	Payload         json.RawMessage `json:"payload"`
+	RequestedBy     string          `json:"requested_by"`
+	IssuedAt        time.Time       `json:"issued_at"`
+	ExpiresAt       time.Time       `json:"expires_at"`
+	Nonce           string          `json:"nonce"`
+	Reason          string          `json:"reason"`
+	KeyID           string          `json:"key_id"`
+	Signature       string          `json:"signature"`
 }
 
 // CommandResultPayload is sent to the gateway after command execution.
 type CommandResultPayload struct {
-	CommandID                string        `json:"command_id"`
-	Type                     CommandType   `json:"type"`
-	Status                   CommandStatus `json:"status"`
-	Reason                   string        `json:"reason"`
-	RespondedAt              time.Time     `json:"responded_at"`
-	ClientHostname           string        `json:"client_hostname"`
-	OutputData               []byte        `json:"output_data,omitempty"`
-	TerminalSessionID        string        `json:"terminal_session_id,omitempty"`
-	TerminalShell            string        `json:"terminal_shell,omitempty"`
-	TerminalCommand          string        `json:"terminal_command,omitempty"`
-	TerminalWorkingDirectory string        `json:"terminal_working_directory,omitempty"`
-	TerminalExitCode         int           `json:"terminal_exit_code,omitempty"`
+	CommandID                string          `json:"command_id"`
+	Type                     CommandType     `json:"type"`
+	Status                   CommandStatus   `json:"status"`
+	Reason                   string          `json:"reason"`
+	RespondedAt              time.Time       `json:"responded_at"`
+	ClientHostname           string          `json:"client_hostname"`
+	OutputData               []byte          `json:"output_data,omitempty"`
+	TerminalSessionID        string          `json:"terminal_session_id,omitempty"`
+	TerminalShell            string          `json:"terminal_shell,omitempty"`
+	TerminalCommand          string          `json:"terminal_command,omitempty"`
+	TerminalWorkingDirectory string          `json:"terminal_working_directory,omitempty"`
+	TerminalExitCode         int             `json:"terminal_exit_code,omitempty"`
+	Result                   json.RawMessage `json:"result,omitempty"`
 }
 
 // LogEntryPayload is client-authored diagnostic information submitted to the

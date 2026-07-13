@@ -9,7 +9,20 @@ import (
 
 // RuntimeState tracks agent state that persists across restarts.
 type RuntimeState struct {
-	OnboardingSent bool `json:"onboarding_sent"`
+	OnboardingSent    bool     `json:"onboarding_sent"`
+	SeenCommandNonces []string `json:"seen_command_nonces,omitempty"`
+}
+
+// RecordCommandNonce appends a verified nonce and evicts the oldest replay
+// record when the bounded persistent history reaches its limit.
+func (s *RuntimeState) RecordCommandNonce(nonce string) {
+	if s == nil || nonce == "" {
+		return
+	}
+	s.SeenCommandNonces = append(s.SeenCommandNonces, nonce)
+	if overflow := len(s.SeenCommandNonces) - maxSeenCommandNonces; overflow > 0 {
+		s.SeenCommandNonces = append([]string(nil), s.SeenCommandNonces[overflow:]...)
+	}
 }
 
 // DefaultStatePath returns the default path for the runtime state file.
@@ -52,7 +65,28 @@ func SaveRuntimeState(path string, state RuntimeState) error {
 		return fmt.Errorf("encode runtime state: %w", err)
 	}
 
-	if err := os.WriteFile(filepath.Clean(path), data, stateFilePermission); err != nil {
+	temporary, err := os.CreateTemp(dir, ".agent-state-*")
+	if err != nil {
+		return fmt.Errorf("create temporary state file: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporary.Chmod(stateFilePermission); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("set temporary state permissions: %w", err)
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write temporary state: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("sync temporary state: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary state: %w", err)
+	}
+	if err := os.Rename(temporaryPath, filepath.Clean(path)); err != nil {
 		return fmt.Errorf("write runtime state: %w", err)
 	}
 

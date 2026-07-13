@@ -18,6 +18,8 @@ const (
 	defaultDashboardAddr   string        = "127.0.0.1:8080"
 	defaultOfflineAfter    time.Duration = 30 * time.Second
 	defaultSweepInterval   time.Duration = 5 * time.Second
+	defaultStatePath       string        = "./data"
+	defaultDashboardOrigin string        = "https://localhost:5173"
 )
 
 // GatewayConfig controls runtime wiring for ingress and outbound providers.
@@ -34,6 +36,9 @@ type GatewayConfig struct {
 	DiscordAPIBaseURL     string
 	ActivityOfflineAfter  time.Duration
 	ActivitySweepInterval time.Duration
+	StatePath             string
+	FileOperatorID        string
+	DashboardOrigin       string
 }
 
 // LoadFromEnv reads configuration from environment variables with safe
@@ -60,6 +65,9 @@ type GatewayConfig struct {
 //   - GATEWAY_CERT_PATH (default: ../../infrastructure/certs)
 //   - DASHBOARD_ADDR (default: 127.0.0.1:8080)
 //   - DISCORD_API_BASE_URL (default: https://discord.com/api/v10)
+//   - GATEWAY_STATE_PATH (default: ./data)
+//   - FILE_OPERATOR_ID (audit source label; default: internal-website)
+//   - DASHBOARD_ALLOWED_ORIGIN (default: https://localhost:5173)
 func LoadFromEnv() (GatewayConfig, error) {
 	offlineAfter, err := durationFromEnv("ACTIVITY_OFFLINE_AFTER", defaultOfflineAfter)
 	if err != nil {
@@ -82,6 +90,9 @@ func LoadFromEnv() (GatewayConfig, error) {
 		DiscordAPIBaseURL:     strings.TrimSpace(os.Getenv("DISCORD_API_BASE_URL")),
 		ActivityOfflineAfter:  offlineAfter,
 		ActivitySweepInterval: sweepInterval,
+		StatePath:             stringFromEnv("GATEWAY_STATE_PATH", defaultStatePath),
+		FileOperatorID:        stringFromEnv("FILE_OPERATOR_ID", "internal-website"),
+		DashboardOrigin:       stringFromEnv("DASHBOARD_ALLOWED_ORIGIN", defaultDashboardOrigin),
 	}
 
 	if cfg.ActivityOfflineAfter <= 0 {
@@ -90,7 +101,6 @@ func LoadFromEnv() (GatewayConfig, error) {
 	if cfg.ActivitySweepInterval <= 0 {
 		return GatewayConfig{}, fmt.Errorf("ACTIVITY_SWEEP_INTERVAL must be positive, got %v", cfg.ActivitySweepInterval)
 	}
-
 	return cfg, nil
 }
 

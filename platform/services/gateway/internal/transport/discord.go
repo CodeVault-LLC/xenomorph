@@ -96,7 +96,9 @@ func (s *Server) handleDiscordScreenshotInteraction(ctx context.Context, interac
 		RequestedBy: userName,
 		Reason:      fmt.Sprintf("Screenshot requested by %s via Discord", userName),
 	}
-	s.commandQueue.Enqueue(agentID, cmd)
+	if err := s.commandQueue.Enqueue(agentID, cmd); err != nil {
+		return fmt.Errorf("enqueue signed screenshot command: %w", err)
+	}
 
 	return s.interactionRespond(ctx, interaction, discord.BuildScreenshotQueuedEmbed(agentID, cmd.CommandID, traceID))
 }

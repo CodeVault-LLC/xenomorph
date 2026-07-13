@@ -1,15 +1,19 @@
 package main
 
 import (
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
+	"path/filepath"
 	"time"
 
 	"github.com/codevault-llc/xenomorph/platform/client/internal/agent"
+	"github.com/codevault-llc/xenomorph/platform/shared/commandauth"
+	sharedidentity "github.com/codevault-llc/xenomorph/platform/shared/identity"
 )
 
 const (
@@ -26,6 +30,7 @@ type appContext struct {
 	runtimeSt  agent.RuntimeState
 	ag         *agent.Agent
 	streamer   *screenStreamer
+	validator  *agent.CommandValidator
 }
 
 func setupApp() (*appContext, error) {
@@ -67,7 +72,20 @@ func setupApp() (*appContext, error) {
 		runtimeState = agent.RuntimeState{}
 	}
 
-	return &appContext{
+	clientCertificate, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("parse client identity certificate: %w", err)
+	}
+	audience, err := sharedidentity.AgentIDFromCertificate(clientCertificate)
+	if err != nil {
+		return nil, fmt.Errorf("derive command audience: %w", err)
+	}
+	verificationKey, keyID, err := loadCommandVerificationKey(filepath.Join(certPath, "server.crt"))
+	if err != nil {
+		return nil, err
+	}
+
+	ac := &appContext{
 		httpClient: httpClient,
 		gatewayURL: gatewayURL,
 		tlsConfig:  tlsConfig,
@@ -75,7 +93,40 @@ func setupApp() (*appContext, error) {
 		runtimeSt:  runtimeState,
 		ag:         a,
 		streamer:   newScreenStreamer(gatewayURL, tlsConfig),
-	}, nil
+	}
+	validator, err := agent.NewCommandValidator(verificationKey, keyID, audience, runtimeState.SeenCommandNonces, func(nonce string) error {
+		ac.runtimeSt.RecordCommandNonce(nonce)
+		return agent.SaveRuntimeState(ac.statePath, ac.runtimeSt)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize command validator: %w", err)
+	}
+	ac.validator = validator
+	return ac, nil
+}
+
+func loadCommandVerificationKey(path string) (*rsa.PublicKey, string, error) {
+	encoded, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, "", fmt.Errorf("read command verification certificate: %w", err)
+	}
+	block, _ := pem.Decode(encoded)
+	if block == nil {
+		return nil, "", fmt.Errorf("decode command verification certificate: invalid PEM data")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, "", fmt.Errorf("parse command verification certificate: %w", err)
+	}
+	publicKey, ok := certificate.PublicKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, "", fmt.Errorf("parse command verification certificate: RSA key required")
+	}
+	keyID, err := commandauth.KeyID(publicKey)
+	if err != nil {
+		return nil, "", err
+	}
+	return publicKey, keyID, nil
 }
 
 func stage1Auth(ac *appContext) (bool, error) {
@@ -105,7 +156,7 @@ func stage2Entry(ac *appContext, isNewAgent bool) error {
 }
 
 func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
-	decision, err := agent.HandleCommand(*cmd)
+	decision, err := agent.HandleCommand(*cmd, ac.validator)
 	if err != nil {
 		return fmt.Errorf("command handling failed: %w", err)
 	}
@@ -150,13 +201,4 @@ func shutdown(ac *appContext) {
 		return
 	}
 	ac.streamer.Stop()
-	removeStateFiles(ac.statePath)
-}
-
-func removeStateFiles(path string) {
-	if strings.TrimSpace(path) == "" {
-		return
-	}
-	_ = os.Remove(path)
-	_ = os.RemoveAll(strings.TrimSuffix(path, "agent-state.json"))
 }

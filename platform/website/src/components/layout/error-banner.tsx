@@ -81,7 +81,13 @@ export function ErrorBanner({
                 />
               }
             >
-              {reportReady ? <Check /> : navigator.share ? <Share2 /> : <Copy />}
+              {reportReady ? (
+                <Check />
+              ) : typeof navigator.share === "function" ? (
+                <Share2 />
+              ) : (
+                <Copy />
+              )}
             </TooltipTrigger>
             <TooltipContent>
               {reportReady

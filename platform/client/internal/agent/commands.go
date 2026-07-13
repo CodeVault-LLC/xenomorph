@@ -1,18 +1,27 @@
 package agent
 
 import (
+	"crypto/rsa"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/codevault-llc/xenomorph/platform/shared/commandauth"
 )
 
 var allowedCommandTypes = map[CommandType]struct{}{
-	CommandTypeNotice:            {},
-	CommandTypeRequestScreenshot: {},
-	CommandTypeStartScreenStream: {},
-	CommandTypeStopScreenStream:  {},
-	CommandTypeTerminalRun:       {},
+	CommandTypeNotice:             {},
+	CommandTypeRequestScreenshot:  {},
+	CommandTypeStartScreenStream:  {},
+	CommandTypeStopScreenStream:   {},
+	CommandTypeTerminalRun:        {},
+	CommandTypeFilesRootsList:     {},
+	CommandTypeFilesDirectoryList: {},
+	CommandTypeFilesMetadataGet:   {},
+	CommandTypeFilesPreviewRead:   {},
 }
 
 // CommandDecision contains the result of processing a command.
@@ -24,10 +33,49 @@ type commandOutcome struct {
 	reason           string
 	outputData       []byte
 	terminalMetadata terminalResultMetadata
+	resultData       json.RawMessage
+}
+
+// CommandValidator verifies gateway command authenticity, audience binding,
+// expiry, and replay state before local execution. The gateway remains the
+// authority for agent identity and policy; the audience value derived locally
+// is used only to reject commands signed for a different certificate.
+type CommandValidator struct {
+	mu          sync.Mutex
+	publicKey   *rsa.PublicKey
+	keyID       string
+	audience    string
+	seenNonces  map[string]struct{}
+	recordNonce func(string) error
+	now         func() time.Time
+}
+
+// NewCommandValidator creates a validator backed by persistent replay state.
+func NewCommandValidator(publicKey *rsa.PublicKey, keyID, audience string, seenNonces []string, recordNonce func(string) error) (*CommandValidator, error) {
+	if publicKey == nil || strings.TrimSpace(keyID) == "" || strings.TrimSpace(audience) == "" {
+		return nil, fmt.Errorf("command verification key, key ID, and audience are required")
+	}
+	if recordNonce == nil {
+		return nil, fmt.Errorf("command nonce recorder is required")
+	}
+	seen := make(map[string]struct{}, len(seenNonces))
+	for _, nonce := range seenNonces {
+		if nonce != "" {
+			seen[nonce] = struct{}{}
+		}
+	}
+	return &CommandValidator{
+		publicKey:   publicKey,
+		keyID:       keyID,
+		audience:    audience,
+		seenNonces:  seen,
+		recordNonce: recordNonce,
+		now:         func() time.Time { return time.Now().UTC() },
+	}, nil
 }
 
 // HandleCommand validates and executes a command.
-func HandleCommand(cmd CommandEnvelope) (CommandDecision, error) {
+func HandleCommand(cmd CommandEnvelope, validator *CommandValidator) (CommandDecision, error) {
 	hostname, _ := osHostname()
 	decision := CommandDecision{
 		Result: CommandResultPayload{
@@ -38,7 +86,10 @@ func HandleCommand(cmd CommandEnvelope) (CommandDecision, error) {
 		},
 	}
 
-	if reason := validateCommand(cmd); reason != "" {
+	if reason, err := validateCommand(cmd, validator); reason != "" || err != nil {
+		if err != nil {
+			return decision, err
+		}
 		decision.Result.Status = CommandStatusRejected
 		decision.Result.Reason = reason
 		return decision, nil
@@ -53,10 +104,31 @@ func HandleCommand(cmd CommandEnvelope) (CommandDecision, error) {
 	decision.Result.TerminalCommand = outcome.terminalMetadata.Command
 	decision.Result.TerminalWorkingDirectory = outcome.terminalMetadata.WorkingDirectory
 	decision.Result.TerminalExitCode = outcome.terminalMetadata.ExitCode
+	decision.Result.Result = outcome.resultData
 	return decision, nil
 }
 
-func validateCommand(cmd CommandEnvelope) string {
+func validateCommand(cmd CommandEnvelope, validator *CommandValidator) (string, error) {
+	if validator == nil {
+		return "command validator unavailable", nil
+	}
+	if reason := validateCommandShape(cmd, validator); reason != "" {
+		return reason, nil
+	}
+	if reason := validateCommandWindow(cmd, validator.now()); reason != "" {
+		return reason, nil
+	}
+	if !hasValidCommandSignature(cmd, validator.publicKey) {
+		return "invalid command signature", nil
+	}
+	return validator.recordVerifiedNonce(cmd.Nonce)
+}
+
+func hasValidCommandSignature(cmd CommandEnvelope, publicKey *rsa.PublicKey) bool {
+	return commandauth.Verify(toAuthEnvelope(cmd), publicKey) == nil
+}
+
+func validateCommandShape(cmd CommandEnvelope, validator *CommandValidator) string {
 	if strings.TrimSpace(cmd.CommandID) == "" {
 		return "missing command_id"
 	}
@@ -66,19 +138,65 @@ func validateCommand(cmd CommandEnvelope) string {
 	if _, ok := allowedCommandTypes[cmd.Type]; !ok {
 		return fmt.Sprintf("command type %q is not allowed", cmd.Type)
 	}
+	if cmd.ProtocolVersion != commandauth.ProtocolVersion {
+		return "unsupported command protocol version"
+	}
+	if cmd.AudienceAgentID != validator.audience {
+		return "command audience mismatch"
+	}
+	if cmd.KeyID != validator.keyID {
+		return "command signing key mismatch"
+	}
+	if strings.TrimSpace(cmd.Nonce) == "" || strings.TrimSpace(cmd.Signature) == "" {
+		return "missing command authenticity fields"
+	}
+	return ""
+}
 
-	now := time.Now().UTC()
-	if !cmd.ExpiresAt.IsZero() && now.After(cmd.ExpiresAt) {
+func validateCommandWindow(cmd CommandEnvelope, now time.Time) string {
+	if cmd.IssuedAt.IsZero() || cmd.ExpiresAt.IsZero() || !cmd.ExpiresAt.After(cmd.IssuedAt) {
+		return "invalid command validity window"
+	}
+	if now.After(cmd.ExpiresAt) {
 		return "command expired"
 	}
-	if !cmd.IssuedAt.IsZero() && cmd.IssuedAt.After(now.Add(commandExpiry)) {
+	if cmd.IssuedAt.After(now.Add(commandClockSkew)) {
 		return "command issued_at is in the future"
 	}
-	if strings.TrimSpace(cmd.Signature) == "" {
-		return "missing command signature"
+	if cmd.ExpiresAt.Sub(cmd.IssuedAt) > commandExpiry {
+		return "command validity window exceeds limit"
 	}
-
 	return ""
+}
+
+func (validator *CommandValidator) recordVerifiedNonce(nonce string) (string, error) {
+	validator.mu.Lock()
+	defer validator.mu.Unlock()
+	if _, exists := validator.seenNonces[nonce]; exists {
+		return "command replay detected", nil
+	}
+	if err := validator.recordNonce(nonce); err != nil {
+		return "", fmt.Errorf("persist command replay state: %w", err)
+	}
+	validator.seenNonces[nonce] = struct{}{}
+	return "", nil
+}
+
+func toAuthEnvelope(cmd CommandEnvelope) commandauth.Envelope {
+	return commandauth.Envelope{
+		ProtocolVersion: cmd.ProtocolVersion,
+		CommandID:       cmd.CommandID,
+		AudienceAgentID: cmd.AudienceAgentID,
+		Type:            string(cmd.Type),
+		Payload:         cmd.Payload,
+		RequestedBy:     cmd.RequestedBy,
+		IssuedAt:        cmd.IssuedAt,
+		ExpiresAt:       cmd.ExpiresAt,
+		Nonce:           cmd.Nonce,
+		Reason:          cmd.Reason,
+		KeyID:           cmd.KeyID,
+		Signature:       cmd.Signature,
+	}
 }
 
 func executeAllowedCommand(cmd CommandEnvelope) commandOutcome {
@@ -97,6 +215,8 @@ func executeAllowedCommand(cmd CommandEnvelope) commandOutcome {
 		return commandOutcome{reason: "screen stream stop acknowledged"}
 	case CommandTypeTerminalRun:
 		return executeTerminalCommand(cmd.Payload)
+	case CommandTypeFilesRootsList, CommandTypeFilesDirectoryList, CommandTypeFilesMetadataGet, CommandTypeFilesPreviewRead:
+		return executeFileCommand(cmd.Type, cmd.Payload)
 	default:
 		return commandOutcome{reason: "no-op"}
 	}

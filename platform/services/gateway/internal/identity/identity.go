@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
+	sharedidentity "github.com/codevault-llc/xenomorph/platform/shared/identity"
 )
 
 // AuthenticatedAgent captures gateway-authored identity facts derived from a
@@ -58,33 +58,15 @@ func FromPeerCertificate(cert *x509.Certificate) (AuthenticatedAgent, error) {
 	}
 
 	fingerprint := sha256.Sum256(cert.Raw)
-	deterministicID := uuidFromFingerprint(fingerprint)
+	deterministicID, err := sharedidentity.AgentIDFromCertificate(cert)
+	if err != nil {
+		return AuthenticatedAgent{}, fmt.Errorf("derive agent ID: %w", err)
+	}
 
 	return AuthenticatedAgent{
-		ID:                      deterministicID.String(),
+		ID:                      deterministicID,
 		FingerprintSHA256:       hex.EncodeToString(fingerprint[:]),
 		CertificateSerialNumber: cert.SerialNumber.String(),
 		SubjectCommonName:       strings.TrimSpace(cert.Subject.CommonName),
 	}, nil
-}
-
-// uuidFromFingerprint produces a UUID from the first 16 bytes of the
-// certificate fingerprint with RFC 4122 variant and version markers.
-//
-// The resulting UUID is deterministic for the same input and is not
-// universally unique in the strict sense — it is unique within the scope of
-// certificates trusted by this gateway's CA.
-func uuidFromFingerprint(fingerprint [32]byte) uuid.UUID {
-	const (
-		versionMask    byte = 0x0f
-		versionMarker  byte = 0x50
-		variantMask    byte = 0x3f
-		variantMarker  byte = 0x80
-		fingerprintLen      = 16
-	)
-	var id uuid.UUID
-	copy(id[:], fingerprint[:fingerprintLen])
-	id[6] = (id[6] & versionMask) | versionMarker
-	id[8] = (id[8] & variantMask) | variantMarker
-	return id
 }

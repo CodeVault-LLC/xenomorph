@@ -13,7 +13,8 @@ export const Route = createFileRoute("/")({
 })
 
 function ClientsRoute() {
-  const { clients, loading, error, updatedAt, refresh } = useClients()
+  const { clients, error, isFetching, isPending, updatedAt, refresh } =
+    useClients()
 
   const onlineCount = clients.filter((client) => client.is_online).length
   const offlineCount = clients.length - onlineCount
@@ -26,16 +27,16 @@ function ClientsRoute() {
         actions={
           <RefreshControl
             updatedAt={updatedAt}
-            loading={loading}
+            loading={isFetching}
             onRefresh={refresh}
             format={formatDate}
           />
         }
       />
 
-      <ErrorBanner message={error} />
+      <ErrorBanner message={error} onRetry={refresh} />
 
-      <ClientTable clients={clients} loading={loading} />
+      <ClientTable clients={clients} loading={isPending} />
     </PageShell>
   )
 }

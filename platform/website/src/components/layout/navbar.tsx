@@ -1,7 +1,6 @@
 import { Link, useMatchRoute } from "@tanstack/react-router"
 import { MonitorCheck, Moon, Sun } from "lucide-react"
 
-import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -9,6 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useTheme } from "@/stores/theme-store"
 
 export const Navbar = () => {
   const navItems = [

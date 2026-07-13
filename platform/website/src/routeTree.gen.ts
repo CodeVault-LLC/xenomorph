@@ -12,6 +12,12 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
+import { Route as AgentsAgentIdIndexRouteImport } from './routes/agents.$agentId/index'
+import { Route as AgentsAgentIdTerminalRouteImport } from './routes/agents.$agentId/terminal'
+import { Route as AgentsAgentIdSystemRouteImport } from './routes/agents.$agentId/system'
+import { Route as AgentsAgentIdScreenRouteImport } from './routes/agents.$agentId/screen'
+import { Route as AgentsAgentIdLogsRouteImport } from './routes/agents.$agentId/logs'
+import { Route as AgentsAgentIdFilesRouteImport } from './routes/agents.$agentId/files'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -28,35 +34,109 @@ const AgentsAgentIdRoute = AgentsAgentIdRouteImport.update({
   path: '/agents/$agentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AgentsAgentIdIndexRoute = AgentsAgentIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AgentsAgentIdRoute,
+} as any)
+const AgentsAgentIdTerminalRoute = AgentsAgentIdTerminalRouteImport.update({
+  id: '/terminal',
+  path: '/terminal',
+  getParentRoute: () => AgentsAgentIdRoute,
+} as any)
+const AgentsAgentIdSystemRoute = AgentsAgentIdSystemRouteImport.update({
+  id: '/system',
+  path: '/system',
+  getParentRoute: () => AgentsAgentIdRoute,
+} as any)
+const AgentsAgentIdScreenRoute = AgentsAgentIdScreenRouteImport.update({
+  id: '/screen',
+  path: '/screen',
+  getParentRoute: () => AgentsAgentIdRoute,
+} as any)
+const AgentsAgentIdLogsRoute = AgentsAgentIdLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => AgentsAgentIdRoute,
+} as any)
+const AgentsAgentIdFilesRoute = AgentsAgentIdFilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => AgentsAgentIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/terms': typeof TermsRoute
-  '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/agents/$agentId': typeof AgentsAgentIdRouteWithChildren
+  '/agents/$agentId/files': typeof AgentsAgentIdFilesRoute
+  '/agents/$agentId/logs': typeof AgentsAgentIdLogsRoute
+  '/agents/$agentId/screen': typeof AgentsAgentIdScreenRoute
+  '/agents/$agentId/system': typeof AgentsAgentIdSystemRoute
+  '/agents/$agentId/terminal': typeof AgentsAgentIdTerminalRoute
+  '/agents/$agentId/': typeof AgentsAgentIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/terms': typeof TermsRoute
-  '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/agents/$agentId/files': typeof AgentsAgentIdFilesRoute
+  '/agents/$agentId/logs': typeof AgentsAgentIdLogsRoute
+  '/agents/$agentId/screen': typeof AgentsAgentIdScreenRoute
+  '/agents/$agentId/system': typeof AgentsAgentIdSystemRoute
+  '/agents/$agentId/terminal': typeof AgentsAgentIdTerminalRoute
+  '/agents/$agentId': typeof AgentsAgentIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/terms': typeof TermsRoute
-  '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/agents/$agentId': typeof AgentsAgentIdRouteWithChildren
+  '/agents/$agentId/files': typeof AgentsAgentIdFilesRoute
+  '/agents/$agentId/logs': typeof AgentsAgentIdLogsRoute
+  '/agents/$agentId/screen': typeof AgentsAgentIdScreenRoute
+  '/agents/$agentId/system': typeof AgentsAgentIdSystemRoute
+  '/agents/$agentId/terminal': typeof AgentsAgentIdTerminalRoute
+  '/agents/$agentId/': typeof AgentsAgentIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/terms' | '/agents/$agentId'
+  fullPaths:
+    | '/'
+    | '/terms'
+    | '/agents/$agentId'
+    | '/agents/$agentId/files'
+    | '/agents/$agentId/logs'
+    | '/agents/$agentId/screen'
+    | '/agents/$agentId/system'
+    | '/agents/$agentId/terminal'
+    | '/agents/$agentId/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/terms' | '/agents/$agentId'
-  id: '__root__' | '/' | '/terms' | '/agents/$agentId'
+  to:
+    | '/'
+    | '/terms'
+    | '/agents/$agentId/files'
+    | '/agents/$agentId/logs'
+    | '/agents/$agentId/screen'
+    | '/agents/$agentId/system'
+    | '/agents/$agentId/terminal'
+    | '/agents/$agentId'
+  id:
+    | '__root__'
+    | '/'
+    | '/terms'
+    | '/agents/$agentId'
+    | '/agents/$agentId/files'
+    | '/agents/$agentId/logs'
+    | '/agents/$agentId/screen'
+    | '/agents/$agentId/system'
+    | '/agents/$agentId/terminal'
+    | '/agents/$agentId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TermsRoute: typeof TermsRoute
-  AgentsAgentIdRoute: typeof AgentsAgentIdRoute
+  AgentsAgentIdRoute: typeof AgentsAgentIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -82,13 +162,77 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsAgentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/agents/$agentId/': {
+      id: '/agents/$agentId/'
+      path: '/'
+      fullPath: '/agents/$agentId/'
+      preLoaderRoute: typeof AgentsAgentIdIndexRouteImport
+      parentRoute: typeof AgentsAgentIdRoute
+    }
+    '/agents/$agentId/terminal': {
+      id: '/agents/$agentId/terminal'
+      path: '/terminal'
+      fullPath: '/agents/$agentId/terminal'
+      preLoaderRoute: typeof AgentsAgentIdTerminalRouteImport
+      parentRoute: typeof AgentsAgentIdRoute
+    }
+    '/agents/$agentId/system': {
+      id: '/agents/$agentId/system'
+      path: '/system'
+      fullPath: '/agents/$agentId/system'
+      preLoaderRoute: typeof AgentsAgentIdSystemRouteImport
+      parentRoute: typeof AgentsAgentIdRoute
+    }
+    '/agents/$agentId/screen': {
+      id: '/agents/$agentId/screen'
+      path: '/screen'
+      fullPath: '/agents/$agentId/screen'
+      preLoaderRoute: typeof AgentsAgentIdScreenRouteImport
+      parentRoute: typeof AgentsAgentIdRoute
+    }
+    '/agents/$agentId/logs': {
+      id: '/agents/$agentId/logs'
+      path: '/logs'
+      fullPath: '/agents/$agentId/logs'
+      preLoaderRoute: typeof AgentsAgentIdLogsRouteImport
+      parentRoute: typeof AgentsAgentIdRoute
+    }
+    '/agents/$agentId/files': {
+      id: '/agents/$agentId/files'
+      path: '/files'
+      fullPath: '/agents/$agentId/files'
+      preLoaderRoute: typeof AgentsAgentIdFilesRouteImport
+      parentRoute: typeof AgentsAgentIdRoute
+    }
   }
 }
+
+interface AgentsAgentIdRouteChildren {
+  AgentsAgentIdFilesRoute: typeof AgentsAgentIdFilesRoute
+  AgentsAgentIdLogsRoute: typeof AgentsAgentIdLogsRoute
+  AgentsAgentIdScreenRoute: typeof AgentsAgentIdScreenRoute
+  AgentsAgentIdSystemRoute: typeof AgentsAgentIdSystemRoute
+  AgentsAgentIdTerminalRoute: typeof AgentsAgentIdTerminalRoute
+  AgentsAgentIdIndexRoute: typeof AgentsAgentIdIndexRoute
+}
+
+const AgentsAgentIdRouteChildren: AgentsAgentIdRouteChildren = {
+  AgentsAgentIdFilesRoute: AgentsAgentIdFilesRoute,
+  AgentsAgentIdLogsRoute: AgentsAgentIdLogsRoute,
+  AgentsAgentIdScreenRoute: AgentsAgentIdScreenRoute,
+  AgentsAgentIdSystemRoute: AgentsAgentIdSystemRoute,
+  AgentsAgentIdTerminalRoute: AgentsAgentIdTerminalRoute,
+  AgentsAgentIdIndexRoute: AgentsAgentIdIndexRoute,
+}
+
+const AgentsAgentIdRouteWithChildren = AgentsAgentIdRoute._addFileChildren(
+  AgentsAgentIdRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TermsRoute: TermsRoute,
-  AgentsAgentIdRoute: AgentsAgentIdRoute,
+  AgentsAgentIdRoute: AgentsAgentIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

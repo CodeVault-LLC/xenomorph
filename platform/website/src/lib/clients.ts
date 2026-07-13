@@ -98,8 +98,7 @@ export async function fetchAgentLogs(agentId: string) {
 }
 
 export function subscribeClients(
-  onSnapshot: (clients: ClientSnapshot[]) => void,
-  onError: (message: string) => void
+  onSnapshot: (clients: ClientSnapshot[]) => void
 ) {
   const events = new EventSource("/api/clients/stream")
 
@@ -108,13 +107,9 @@ export function subscribeClients(
       const payload = JSON.parse(event.data) as ClientsResponse
       onSnapshot(Array.isArray(payload.clients) ? payload.clients : [])
     } catch {
-      onError("Client stream returned invalid data")
+      return
     }
   })
-
-  events.onerror = () => {
-    onError("Client stream disconnected")
-  }
 
   return () => events.close()
 }

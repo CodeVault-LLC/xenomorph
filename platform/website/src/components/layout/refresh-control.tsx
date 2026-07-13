@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react"
+import { LoaderCircle, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 type RefreshControlProps = {
   updatedAt: Date | null
   loading: boolean
-  onRefresh: () => void
+  onRefresh: () => void | Promise<unknown>
   format: (value: Date) => string
   className?: string
 }
@@ -20,12 +20,15 @@ export function RefreshControl({
 }: RefreshControlProps) {
   return (
     <div className={cn("flex items-center gap-3", className)}>
-      <span>{updatedAt ? `Updated ${format(updatedAt)}` : "Not updated"}</span>
+      <span className="text-sm text-muted-foreground">
+        {updatedAt ? `Updated ${format(updatedAt)}` : "Waiting for data"}
+      </span>
       <Button variant="outline" onClick={onRefresh} disabled={loading}>
-        <RefreshCw
-          className={loading ? "animate-spin" : ""}
-          data-icon="inline-start"
-        />
+        {loading ? (
+          <LoaderCircle className="animate-spin" data-icon="inline-start" />
+        ) : (
+          <RefreshCw data-icon="inline-start" />
+        )}
         Refresh
       </Button>
     </div>

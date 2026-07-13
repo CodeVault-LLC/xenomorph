@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react"
 
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,6 +30,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+  InputGroupText,
+} from "@/components/ui/input-group"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type ClientSnapshot, formatDate } from "@/lib/clients"
 import {
   createTerminalSession,
@@ -250,41 +269,43 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
         </div>
       </CardHeader>
       <CardContent className="grid h-[min(720px,calc(100vh-260px))] min-h-[520px] grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden p-0">
-        <div className="flex min-w-0 items-center gap-2 border-b bg-muted/30 px-3 py-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
-            {loading ? (
-              <span className="text-sm text-muted-foreground">Loading</span>
-            ) : null}
-            {!loading && sessions.length === 0 ? (
-              <span className="text-sm text-muted-foreground">No sessions</span>
-            ) : null}
-            {sessions.map((session, index) => (
-              <button
-                key={session.session_id}
-                type="button"
-                onClick={() => {
-                  setActiveSessionID(session.session_id)
-                  focusInput()
-                }}
-                className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors ${
-                  activeSessionID === session.session_id
-                    ? "border-primary bg-background shadow-sm"
-                    : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-background/80 hover:text-foreground"
-                }`}
-              >
-                <Shell className="size-4" />
-                {session.label || `Terminal ${index + 1}`}
-              </button>
-            ))}
-          </div>
+        <div className="flex min-w-0 items-center gap-2 bg-muted/30 px-3 py-2">
+          <Tabs
+            value={activeSessionID || undefined}
+            onValueChange={(value) => {
+              setActiveSessionID(value as string)
+              focusInput()
+            }}
+            className="min-w-0 flex-1"
+          >
+            <TabsList className="max-w-full justify-start overflow-x-auto bg-transparent p-0">
+              {loading ? <Skeleton className="h-8 w-28" /> : null}
+              {!loading && sessions.length === 0 ? (
+                <span className="text-sm text-muted-foreground">
+                  No sessions
+                </span>
+              ) : null}
+              {sessions.map((session, index) => (
+                <TabsTrigger
+                  key={session.session_id}
+                  value={session.session_id}
+                  className="shrink-0"
+                >
+                  <Shell data-icon="inline-start" />
+                  {session.label || `Terminal ${index + 1}`}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
           <NewTerminalMenu
             shells={shellChoices}
             selectedShell={selectedShell}
             onSelectShell={handleNewTerminal}
           />
         </div>
+        <Separator />
 
-        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
           <Badge variant={client.is_online ? "online" : "offline"}>
             {client.is_online ? "Online" : "Offline"}
           </Badge>
@@ -298,44 +319,44 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
             />
           ) : null}
         </div>
+        <Separator />
 
-        <div
+        <ScrollArea
           ref={outputRef}
           className="min-h-0 overflow-auto bg-zinc-950 p-3 font-mono text-[13px] leading-6 text-zinc-100"
           onClick={focusInput}
         >
           {error ? (
-            <div className="mb-3 rounded border border-red-400/40 bg-red-950/40 px-3 py-2 text-red-100">
-              {error}
-            </div>
+            <Alert variant="destructive" className="mb-3">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : null}
 
           {!activeSession && entries.length === 0 ? (
-            <div className="text-zinc-400">
-              Type a command to start a new terminal session.
-            </div>
+            <TerminalEmpty
+              title="No active session"
+              description="Type a command to start a new terminal session."
+            />
           ) : null}
 
           {activeSession && entries.length === 0 ? (
-            <div className="text-zinc-400">No commands have run here.</div>
+            <TerminalEmpty
+              title="No commands yet"
+              description="Commands submitted through this session will appear here."
+            />
           ) : null}
 
           {entries.map((entry) => (
             <TerminalEntryBlock key={entry.command_id} entry={entry} />
           ))}
-        </div>
+        </ScrollArea>
 
         <form onSubmit={handleSubmit} className="border-t bg-background p-3">
-          <div className="flex min-w-0 items-center gap-2 rounded-md border bg-muted/30 px-2">
-            <NewTerminalMenu
-              shells={shellChoices}
-              selectedShell={selectedShell}
-              onSelectShell={handleNewTerminal}
-            />
-            <span className="font-mono text-sm text-muted-foreground">
+          <InputGroup className="h-10 bg-muted/30">
+            <InputGroupText className="font-mono">
               {promptLabel(activeSession)}
-            </span>
-            <input
+            </InputGroupText>
+            <InputGroupInput
               ref={inputRef}
               value={command}
               onChange={(event) => setCommand(event.target.value)}
@@ -343,17 +364,19 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
               placeholder={
                 client.is_online ? "Run a shell command" : "Agent is offline"
               }
-              className="h-10 min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
+              className="font-mono"
             />
-            <Button
-              type="submit"
-              size="icon-sm"
-              disabled={!client.is_online || submitting || !command.trim()}
-              aria-label="Run command"
-            >
-              <Play />
-            </Button>
-          </div>
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                type="submit"
+                size="icon-sm"
+                disabled={!client.is_online || submitting || !command.trim()}
+                aria-label="Run command"
+              >
+                <Play data-icon="inline-start" />
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
         </form>
       </CardContent>
     </Card>
@@ -372,10 +395,10 @@ function NewTerminalMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-background text-foreground shadow-sm transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+        render={<Button variant="outline" size="icon" />}
         aria-label="New terminal session"
       >
-        <Plus className="size-4" />
+        <Plus data-icon="inline-start" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuGroup>
@@ -388,7 +411,7 @@ function NewTerminalMenu({
               className="justify-between"
             >
               <span className="inline-flex items-center gap-2">
-                <Shell className="size-4" />
+                <Shell />
                 {shell}
               </span>
               {selectedShell === shell ? (
@@ -416,31 +439,51 @@ function TerminalOptions({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="ml-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-background transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+        render={<Button variant="outline" size="icon" className="ml-auto" />}
         aria-label="Terminal session options"
       >
-        <MoreHorizontal className="size-4" />
+        <MoreHorizontal data-icon="inline-start" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Session</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onCopyHistory} disabled={!canCopyHistory}>
-            <Copy className="size-4" />
+            <Copy />
             Copy history
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onCopySessionID}>
-            <Copy className="size-4" />
+            <Copy />
             Copy session ID
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onDeleteSession} variant="destructive">
-            <Trash2 className="size-4" />
+            <Trash2 />
             Delete session
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function TerminalEmpty({
+  title,
+  description,
+}: {
+  title: string
+  description: string
+}) {
+  return (
+    <Empty className="min-h-52 border border-dashed border-zinc-800 bg-zinc-950 text-zinc-100">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Terminal />
+        </EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{description}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   )
 }
 

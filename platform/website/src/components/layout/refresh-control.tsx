@@ -22,7 +22,10 @@ export function RefreshControl({
     <div className={cn("flex items-center gap-3", className)}>
       <span>{updatedAt ? `Updated ${format(updatedAt)}` : "Not updated"}</span>
       <Button variant="outline" onClick={onRefresh} disabled={loading}>
-        <RefreshCw className={loading ? "animate-spin" : ""} />
+        <RefreshCw
+          className={loading ? "animate-spin" : ""}
+          data-icon="inline-start"
+        />
         Refresh
       </Button>
     </div>

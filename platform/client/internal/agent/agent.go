@@ -12,19 +12,26 @@ import (
 
 // HeartbeatPayload is sent to the gateway with each authentication request.
 type HeartbeatPayload struct {
-	Hostname         string   `json:"hostname"`
-	OsVersion        string   `json:"os_version"`
-	CPULoad          float64  `json:"cpu_load"`
-	RAMUsage         float64  `json:"ram_usage"`
-	UptimeSeconds    uint64   `json:"uptime_seconds"`
-	CPUModel         string   `json:"cpu_model"`
-	CPUCores         int32    `json:"cpu_cores"`
-	CPUThreads       int32    `json:"cpu_threads"`
-	TotalRAMBytes    uint64   `json:"total_ram_bytes"`
-	GPUDevices       []string `json:"gpu_devices"`
-	NetworkName      string   `json:"network_name"`
-	NetworkAddresses []string `json:"network_addresses"`
-	KernelVersion    string   `json:"kernel_version"`
+	Hostname              string   `json:"hostname"`
+	OsVersion             string   `json:"os_version"`
+	CPULoad               float64  `json:"cpu_load"`
+	RAMUsage              float64  `json:"ram_usage"`
+	UptimeSeconds         uint64   `json:"uptime_seconds"`
+	CPUModel              string   `json:"cpu_model"`
+	CPUCores              int32    `json:"cpu_cores"`
+	CPUThreads            int32    `json:"cpu_threads"`
+	TotalRAMBytes         uint64   `json:"total_ram_bytes"`
+	GPUDevices            []string `json:"gpu_devices"`
+	NetworkName           string   `json:"network_name"`
+	NetworkAddresses      []string `json:"network_addresses"`
+	KernelVersion         string   `json:"kernel_version"`
+	CPUFrequencyMHz       uint64   `json:"cpu_frequency_mhz"`
+	NetworkOnline         bool     `json:"network_online"`
+	NetworkLinkSpeedMbps  uint64   `json:"network_link_speed_mbps"`
+	NetworkType           string   `json:"network_type"`
+	TotalStorageBytes     uint64   `json:"total_storage_bytes"`
+	AvailableStorageBytes uint64   `json:"available_storage_bytes"`
+	NetworkSSID           string   `json:"network_ssid"`
 }
 
 // Stage1AuthResult contains the gateway response to the initial authentication.

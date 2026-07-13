@@ -22,6 +22,13 @@ export type ClientSnapshot = {
   network_name: string
   network_addresses: string[]
   kernel_version: string
+  cpu_frequency_mhz: number
+  network_online: boolean
+  network_link_speed_mbps: number
+  network_type: string
+  total_storage_bytes: number
+  available_storage_bytes: number
+  network_ssid: string
   first_seen: string
   last_seen: string
   last_online: string

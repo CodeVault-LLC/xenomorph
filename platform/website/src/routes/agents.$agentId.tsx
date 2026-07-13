@@ -3,17 +3,16 @@ import { createFileRoute } from "@tanstack/react-router"
 import { AgentWorkspace } from "@/components/dashboard/agent-workspace"
 import { useClients } from "@/components/data/use-clients"
 import { ErrorBanner } from "@/components/layout/error-banner"
-import { PageHeader } from "@/components/layout/page-header"
 import { PageShell } from "@/components/layout/page-shell"
-import { RefreshControl } from "@/components/layout/refresh-control"
+import { Card, CardContent } from "@/components/ui/card"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { formatDate } from "@/lib/clients"
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export const Route = createFileRoute("/agents/$agentId")({
   component: AgentRoute,
@@ -21,41 +20,38 @@ export const Route = createFileRoute("/agents/$agentId")({
 
 function AgentRoute() {
   const { agentId } = Route.useParams()
-  const { clients, loading, error, updatedAt, refresh } = useClients()
+  const { clients, loading, error } = useClients()
   const client = clients.find((item) => item.agent_id === agentId)
 
   return (
     <PageShell className="max-w-none">
       <section className="flex min-w-0 flex-col gap-5">
-        <PageHeader
-          title="Workspace"
-          description={<span className="font-mono text-xs">{agentId}</span>}
-          actions={
-            <RefreshControl
-              updatedAt={updatedAt}
-              loading={loading}
-              onRefresh={refresh}
-              format={formatDate}
-            />
-          }
-        />
-
         <ErrorBanner message={error} />
 
         {client ? (
           <AgentWorkspace client={client} />
         ) : (
           <Card>
-            <CardHeader>
-              <CardTitle>
-                {loading ? "Loading agent" : "Agent not found"}
-              </CardTitle>
-              <CardDescription>{agentId}</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              {loading
-                ? "Reading the gateway client directory."
-                : "This agent has not been observed during the current gateway process lifetime."}
+            <CardContent>
+              {loading ? (
+                <div className="flex flex-col gap-3">
+                  <Skeleton className="h-5 w-36" />
+                  <Skeleton className="h-4 w-full max-w-lg" />
+                </div>
+              ) : (
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <span className="font-mono text-xs">404</span>
+                    </EmptyMedia>
+                    <EmptyTitle>Agent not found</EmptyTitle>
+                    <EmptyDescription>
+                      {agentId} has not been observed during the current gateway
+                      process lifetime.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
             </CardContent>
           </Card>
         )}

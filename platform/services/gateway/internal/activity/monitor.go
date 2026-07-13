@@ -43,50 +43,64 @@ type presence struct {
 // ClientSnapshot is a read-only all-time view of an authenticated agent known
 // to the gateway during the current process lifetime.
 type ClientSnapshot struct {
-	AgentID          string    `json:"agent_id"`
-	Hostname         string    `json:"hostname"`
-	ClientIP         string    `json:"client_ip"`
-	OSVersion        string    `json:"os_version"`
-	CPULoad          float64   `json:"cpu_load"`
-	RAMUsage         float64   `json:"ram_usage"`
-	UptimeSeconds    uint64    `json:"uptime_seconds"`
-	CPUModel         string    `json:"cpu_model"`
-	CPUCores         int32     `json:"cpu_cores"`
-	CPUThreads       int32     `json:"cpu_threads"`
-	TotalRAMBytes    uint64    `json:"total_ram_bytes"`
-	GPUDevices       []string  `json:"gpu_devices"`
-	NetworkName      string    `json:"network_name"`
-	NetworkAddresses []string  `json:"network_addresses"`
-	KernelVersion    string    `json:"kernel_version"`
-	FirstSeen        time.Time `json:"first_seen"`
-	LastSeen         time.Time `json:"last_seen"`
-	LastOnline       time.Time `json:"last_online"`
-	IsOnline         bool      `json:"is_online"`
+	AgentID               string    `json:"agent_id"`
+	Hostname              string    `json:"hostname"`
+	ClientIP              string    `json:"client_ip"`
+	OSVersion             string    `json:"os_version"`
+	CPULoad               float64   `json:"cpu_load"`
+	RAMUsage              float64   `json:"ram_usage"`
+	UptimeSeconds         uint64    `json:"uptime_seconds"`
+	CPUModel              string    `json:"cpu_model"`
+	CPUCores              int32     `json:"cpu_cores"`
+	CPUThreads            int32     `json:"cpu_threads"`
+	TotalRAMBytes         uint64    `json:"total_ram_bytes"`
+	GPUDevices            []string  `json:"gpu_devices"`
+	NetworkName           string    `json:"network_name"`
+	NetworkAddresses      []string  `json:"network_addresses"`
+	KernelVersion         string    `json:"kernel_version"`
+	CPUFrequencyMHz       uint64    `json:"cpu_frequency_mhz"`
+	NetworkOnline         bool      `json:"network_online"`
+	NetworkLinkSpeedMbps  uint64    `json:"network_link_speed_mbps"`
+	NetworkType           string    `json:"network_type"`
+	TotalStorageBytes     uint64    `json:"total_storage_bytes"`
+	AvailableStorageBytes uint64    `json:"available_storage_bytes"`
+	NetworkSSID           string    `json:"network_ssid"`
+	FirstSeen             time.Time `json:"first_seen"`
+	LastSeen              time.Time `json:"last_seen"`
+	LastOnline            time.Time `json:"last_online"`
+	IsOnline              bool      `json:"is_online"`
 }
 
 // clientRecord stores the all-time presence metadata for a gateway-authenticated
 // agent. Identity and IP are gateway-authored. Hostname, OS, CPU, and RAM are
 // client-authored telemetry labels and are not used as identity evidence.
 type clientRecord struct {
-	agentID          string
-	hostname         string
-	clientIP         string
-	osVersion        string
-	cpuLoad          float64
-	ramUsage         float64
-	uptimeSeconds    uint64
-	cpuModel         string
-	cpuCores         int32
-	cpuThreads       int32
-	totalRAMBytes    uint64
-	gpuDevices       []string
-	networkName      string
-	networkAddresses []string
-	kernelVersion    string
-	firstSeen        time.Time
-	lastSeen         time.Time
-	lastOnline       time.Time
-	isOnline         bool
+	agentID               string
+	hostname              string
+	clientIP              string
+	osVersion             string
+	cpuLoad               float64
+	ramUsage              float64
+	uptimeSeconds         uint64
+	cpuModel              string
+	cpuCores              int32
+	cpuThreads            int32
+	totalRAMBytes         uint64
+	gpuDevices            []string
+	networkName           string
+	networkAddresses      []string
+	kernelVersion         string
+	cpuFrequencyMHz       uint64
+	networkOnline         bool
+	networkLinkSpeedMbps  uint64
+	networkType           string
+	totalStorageBytes     uint64
+	availableStorageBytes uint64
+	networkSSID           string
+	firstSeen             time.Time
+	lastSeen              time.Time
+	lastOnline            time.Time
+	isOnline              bool
 }
 
 // NewMonitor creates a Monitor that emits offline notifications when an
@@ -147,6 +161,13 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 	networkName := ""
 	var networkAddresses []string
 	kernelVersion := ""
+	cpuFrequencyMHz := uint64(0)
+	networkOnline := false
+	networkLinkSpeedMbps := uint64(0)
+	networkType := ""
+	totalStorageBytes := uint64(0)
+	availableStorageBytes := uint64(0)
+	networkSSID := ""
 	if hb != nil {
 		hostname = hb.Hostname
 		osVersion = hb.OsVersion
@@ -161,6 +182,13 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 		networkName = hb.GetNetworkName()
 		networkAddresses = append([]string(nil), hb.GetNetworkAddresses()...)
 		kernelVersion = hb.GetKernelVersion()
+		cpuFrequencyMHz = hb.GetCpuFrequencyMhz()
+		networkOnline = hb.GetNetworkOnline()
+		networkLinkSpeedMbps = hb.GetNetworkLinkSpeedMbps()
+		networkType = hb.GetNetworkType()
+		totalStorageBytes = hb.GetTotalStorageBytes()
+		availableStorageBytes = hb.GetAvailableStorageBytes()
+		networkSSID = hb.GetNetworkSsid()
 	}
 
 	eventTime := m.now()
@@ -197,6 +225,13 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 	record.networkName = networkName
 	record.networkAddresses = networkAddresses
 	record.kernelVersion = kernelVersion
+	record.cpuFrequencyMHz = cpuFrequencyMHz
+	record.networkOnline = networkOnline
+	record.networkLinkSpeedMbps = networkLinkSpeedMbps
+	record.networkType = networkType
+	record.totalStorageBytes = totalStorageBytes
+	record.availableStorageBytes = availableStorageBytes
+	record.networkSSID = networkSSID
 	record.lastSeen = eventTime
 	record.lastOnline = eventTime
 	record.isOnline = true
@@ -294,25 +329,32 @@ func (m *Monitor) ListClients() []ClientSnapshot {
 	snapshots := make([]ClientSnapshot, 0, len(m.all))
 	for _, record := range m.all {
 		snapshots = append(snapshots, ClientSnapshot{
-			AgentID:          record.agentID,
-			Hostname:         record.hostname,
-			ClientIP:         record.clientIP,
-			OSVersion:        record.osVersion,
-			CPULoad:          record.cpuLoad,
-			RAMUsage:         record.ramUsage,
-			UptimeSeconds:    record.uptimeSeconds,
-			CPUModel:         record.cpuModel,
-			CPUCores:         record.cpuCores,
-			CPUThreads:       record.cpuThreads,
-			TotalRAMBytes:    record.totalRAMBytes,
-			GPUDevices:       append([]string(nil), record.gpuDevices...),
-			NetworkName:      record.networkName,
-			NetworkAddresses: append([]string(nil), record.networkAddresses...),
-			KernelVersion:    record.kernelVersion,
-			FirstSeen:        record.firstSeen,
-			LastSeen:         record.lastSeen,
-			LastOnline:       record.lastOnline,
-			IsOnline:         record.isOnline,
+			AgentID:               record.agentID,
+			Hostname:              record.hostname,
+			ClientIP:              record.clientIP,
+			OSVersion:             record.osVersion,
+			CPULoad:               record.cpuLoad,
+			RAMUsage:              record.ramUsage,
+			UptimeSeconds:         record.uptimeSeconds,
+			CPUModel:              record.cpuModel,
+			CPUCores:              record.cpuCores,
+			CPUThreads:            record.cpuThreads,
+			TotalRAMBytes:         record.totalRAMBytes,
+			GPUDevices:            append([]string(nil), record.gpuDevices...),
+			NetworkName:           record.networkName,
+			NetworkAddresses:      append([]string(nil), record.networkAddresses...),
+			KernelVersion:         record.kernelVersion,
+			CPUFrequencyMHz:       record.cpuFrequencyMHz,
+			NetworkOnline:         record.networkOnline,
+			NetworkLinkSpeedMbps:  record.networkLinkSpeedMbps,
+			NetworkType:           record.networkType,
+			TotalStorageBytes:     record.totalStorageBytes,
+			AvailableStorageBytes: record.availableStorageBytes,
+			NetworkSSID:           record.networkSSID,
+			FirstSeen:             record.firstSeen,
+			LastSeen:              record.lastSeen,
+			LastOnline:            record.lastOnline,
+			IsOnline:              record.isOnline,
 		})
 	}
 

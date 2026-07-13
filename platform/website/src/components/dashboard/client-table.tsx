@@ -1,9 +1,24 @@
 import { Link } from "@tanstack/react-router"
-import { ChevronRight } from "lucide-react"
+import { MonitorCheck, ChevronRight } from "lucide-react"
 
 import { OSLabel } from "@/components/dashboard/os-badge"
 import { StatusBadge } from "@/components/dashboard/status-badge"
-import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -19,7 +34,6 @@ import {
   formatPercent,
   formatRelative,
 } from "@/lib/clients"
-import { cn } from "@/lib/utils"
 
 const columns = [
   "Status",
@@ -42,37 +56,65 @@ export function ClientTable({
 }) {
   return (
     <Card className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <Table className="min-w-[1080px]">
-          <TableHeader>
-            <TableRow>
-              {columns.map((column) => (
-                <TableHead key={column}>{column}</TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {clients.length > 0 ? (
-              clients.map((client) => (
-                <ClientRow key={client.agent_id} client={client} />
-              ))
-            ) : (
+      <CardHeader>
+        <CardTitle>Connected Clients</CardTitle>
+        <CardDescription>
+          Gateway-observed client sessions for this process lifetime.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <Table className="min-w-[1080px]">
+            <TableHeader>
               <TableRow>
-                <TableCell
-                  className="py-10 text-center text-muted-foreground"
-                  colSpan={columns.length}
-                >
-                  {loading
-                    ? "Loading clients..."
-                    : "No clients have connected during this gateway process lifetime."}
-                </TableCell>
+                {columns.map((column) => (
+                  <TableHead key={column}>{column}</TableHead>
+                ))}
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {clients.length > 0 ? (
+                clients.map((client) => (
+                  <ClientRow key={client.agent_id} client={client} />
+                ))
+              ) : loading ? (
+                <ClientTableSkeleton />
+              ) : (
+                <TableRow>
+                  <TableCell className="py-10" colSpan={columns.length}>
+                    <Empty>
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <MonitorCheck />
+                        </EmptyMedia>
+                        <EmptyTitle>No clients connected</EmptyTitle>
+                        <EmptyDescription>
+                          No clients have connected during this gateway process
+                          lifetime.
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
     </Card>
   )
+}
+
+function ClientTableSkeleton() {
+  return Array.from({ length: 5 }).map((_, index) => (
+    <TableRow key={index}>
+      {columns.map((column) => (
+        <TableCell key={column || "action"}>
+          <Skeleton className="h-5 w-full max-w-28" />
+        </TableCell>
+      ))}
+    </TableRow>
+  ))
 }
 
 function ClientRow({ client }: { client: ClientSnapshot }) {
@@ -82,13 +124,16 @@ function ClientRow({ client }: { client: ClientSnapshot }) {
         <StatusBadge online={client.is_online} />
       </TableCell>
       <TableCell className="font-medium">
-        <Link
-          to="/agents/$agentId"
-          params={{ agentId: client.agent_id }}
-          className="outline-none hover:underline focus-visible:underline"
+        <Button
+          render={
+            <Link to="/agents/$agentId" params={{ agentId: client.agent_id }} />
+          }
+          nativeButton={false}
+          variant="link"
+          className="h-auto p-0 font-medium"
         >
           {display(client.hostname)}
-        </Link>
+        </Button>
       </TableCell>
       <TableCell className="font-mono text-xs text-muted-foreground">
         {display(client.agent_id)}
@@ -108,15 +153,17 @@ function ClientRow({ client }: { client: ClientSnapshot }) {
         </div>
       </TableCell>
       <TableCell className="text-right">
-        <Link
-          to="/agents/$agentId"
-          params={{ agentId: client.agent_id }}
-          className={cn(
-            "inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-sm font-medium transition-all outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
-          )}
+        <Button
+          render={
+            <Link to="/agents/$agentId" params={{ agentId: client.agent_id }} />
+          }
+          nativeButton={false}
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Open ${display(client.hostname)}`}
         >
-          <ChevronRight />
-        </Link>
+          <ChevronRight data-icon="inline-start" />
+        </Button>
       </TableCell>
     </TableRow>
   )

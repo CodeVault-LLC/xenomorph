@@ -4,31 +4,43 @@ package agent
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 func collectSystemTelemetry() SystemTelemetry {
 	ramUsage, totalRAMBytes := linuxRAMUsage()
-	networkName, networkAddresses := linuxNetwork()
+	network := linuxNetwork()
+	totalStorageBytes, availableStorageBytes := linuxStorage()
 	return SystemTelemetry{
-		OSVersion:        linuxOSVersion(),
-		CPULoad:          linuxLoadAverage(),
-		RAMUsage:         ramUsage,
-		UptimeSeconds:    linuxUptimeSeconds(),
-		CPUModel:         linuxCPUModel(),
-		CPUCores:         int32(linuxCPUCores()),
-		CPUThreads:       int32(runtime.NumCPU()),
-		TotalRAMBytes:    totalRAMBytes,
-		GPUDevices:       linuxGPUDevices(),
-		NetworkName:      networkName,
-		NetworkAddresses: networkAddresses,
-		KernelVersion:    linuxKernelVersion(),
+		OSVersion:             linuxOSVersion(),
+		CPULoad:               linuxLoadAverage(),
+		RAMUsage:              ramUsage,
+		UptimeSeconds:         linuxUptimeSeconds(),
+		CPUModel:              linuxCPUModel(),
+		CPUCores:              int32(linuxCPUCores()),
+		CPUThreads:            int32(runtime.NumCPU()),
+		TotalRAMBytes:         totalRAMBytes,
+		GPUDevices:            linuxGPUDevices(),
+		NetworkName:           network.name,
+		NetworkAddresses:      network.addresses,
+		KernelVersion:         linuxKernelVersion(),
+		CPUFrequencyMHz:       linuxCPUFrequencyMHz(),
+		NetworkOnline:         network.online,
+		NetworkLinkSpeedMbps:  network.linkSpeedMbps,
+		NetworkType:           network.networkType,
+		TotalStorageBytes:     totalStorageBytes,
+		AvailableStorageBytes: availableStorageBytes,
+		NetworkSSID:           network.ssid,
 	}
 }
 
@@ -168,6 +180,50 @@ func linuxCPUModel() string {
 	return ""
 }
 
+func linuxCPUFrequencyMHz() uint64 {
+	paths, err := filepath.Glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq")
+	if err == nil && len(paths) > 0 {
+		var total uint64
+		var count uint64
+		for _, path := range paths {
+			value, err := strconv.ParseUint(readTrimmed(path), 10, 64)
+			if err != nil || value == 0 {
+				continue
+			}
+			total += value / 1000
+			count++
+		}
+		if count > 0 {
+			return total / count
+		}
+	}
+
+	file, err := os.Open("/proc/cpuinfo")
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = file.Close() }()
+
+	var total float64
+	var count uint64
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		key, value, ok := strings.Cut(scanner.Text(), ":")
+		if !ok || strings.TrimSpace(key) != "cpu MHz" {
+			continue
+		}
+		mhz, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		if err == nil && mhz > 0 {
+			total += mhz
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	return uint64(total / float64(count))
+}
+
 func linuxCPUCores() int {
 	file, err := os.Open("/proc/cpuinfo")
 	if err != nil {
@@ -224,7 +280,10 @@ func linuxGPUDevices() []string {
 			continue
 		}
 
-		label := strings.TrimSpace(strings.Join([]string{vendor, device}, " "))
+		label := linuxPCIDeviceName(vendor, device)
+		if label == "" {
+			label = strings.TrimSpace(strings.Join([]string{vendor, device}, " "))
+		}
 		if label == "" {
 			continue
 		}
@@ -238,20 +297,41 @@ func linuxGPUDevices() []string {
 	return devices
 }
 
-func linuxNetwork() (string, []string) {
+type linuxNetworkTelemetry struct {
+	name          string
+	addresses     []string
+	online        bool
+	linkSpeedMbps uint64
+	networkType   string
+	ssid          string
+}
+
+func linuxNetwork() linuxNetworkTelemetry {
 	ifaceName := linuxDefaultInterface()
 	if ifaceName == "" {
-		return "", nil
+		return linuxNetworkTelemetry{}
+	}
+
+	telemetry := linuxNetworkTelemetry{
+		name:          ifaceName,
+		online:        readTrimmed(filepath.Join("/sys/class/net", ifaceName, "carrier")) == "1",
+		linkSpeedMbps: linuxLinkSpeedMbps(ifaceName),
+		networkType:   "ethernet",
+	}
+	if _, err := os.Stat(filepath.Join("/sys/class/net", ifaceName, "wireless")); err == nil {
+		telemetry.networkType = "wireless"
+		telemetry.name += " (wireless)"
+		telemetry.ssid, telemetry.linkSpeedMbps = linuxWirelessLink(ifaceName)
 	}
 
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
-		return ifaceName, nil
+		return telemetry
 	}
 
 	addrs, err := iface.Addrs()
 	if err != nil {
-		return ifaceName, nil
+		return telemetry
 	}
 
 	addresses := make([]string, 0, len(addrs))
@@ -262,11 +342,124 @@ func linuxNetwork() (string, []string) {
 		}
 	}
 
-	if _, err := os.Stat(filepath.Join("/sys/class/net", ifaceName, "wireless")); err == nil {
-		ifaceName += " (wireless)"
+	telemetry.addresses = addresses
+	return telemetry
+}
+
+func linuxWirelessLink(ifaceName string) (string, uint64) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	output, err := exec.CommandContext(ctx, "iw", "dev", ifaceName, "link").Output()
+	if err != nil {
+		return "", 0
 	}
 
-	return ifaceName, addresses
+	ssid := ""
+	var speedMbps uint64
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if value, ok := strings.CutPrefix(line, "SSID: "); ok {
+			ssid = strings.TrimSpace(value)
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "tx bitrate: "); ok {
+			speedMbps = parseLinkSpeedMbps(value)
+		}
+	}
+
+	return ssid, speedMbps
+}
+
+func parseLinkSpeedMbps(value string) uint64 {
+	fields := strings.Fields(value)
+	if len(fields) < 2 {
+		return 0
+	}
+	speed, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil || speed <= 0 {
+		return 0
+	}
+	switch strings.ToLower(fields[1]) {
+	case "mbit/s", "mbps":
+		return uint64(speed)
+	case "gbit/s", "gbps":
+		return uint64(speed * 1000)
+	default:
+		return 0
+	}
+}
+
+func linuxPCIDeviceName(vendorID, deviceID string) string {
+	vendorID = strings.TrimPrefix(strings.ToLower(vendorID), "0x")
+	deviceID = strings.TrimPrefix(strings.ToLower(deviceID), "0x")
+	if vendorID == "" || deviceID == "" {
+		return ""
+	}
+
+	for _, path := range []string{"/usr/share/hwdata/pci.ids", "/usr/share/misc/pci.ids", "/usr/share/pci.ids"} {
+		name := pciDeviceName(path, vendorID, deviceID)
+		if name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func pciDeviceName(path, vendorID, deviceID string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = file.Close() }()
+
+	vendorName := ""
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "\t\t") {
+			continue
+		}
+		if strings.HasPrefix(line, "\t") {
+			if vendorName == "" || len(line) < 5 || strings.ToLower(line[1:5]) != deviceID {
+				continue
+			}
+			if name := strings.TrimSpace(line[5:]); name != "" {
+				return vendorName + " " + name
+			}
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 || strings.ToLower(fields[0]) != vendorID {
+			vendorName = ""
+			continue
+		}
+		vendorName = strings.TrimSpace(line[4:])
+	}
+	return ""
+}
+
+func linuxLinkSpeedMbps(ifaceName string) uint64 {
+	speed, err := strconv.ParseUint(readTrimmed(filepath.Join("/sys/class/net", ifaceName, "speed")), 10, 64)
+	if err != nil || speed == 0 || speed > 1_000_000 {
+		return 0
+	}
+	return speed
+}
+
+func linuxStorage() (uint64, uint64) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs("/", &stat); err != nil || stat.Bsize <= 0 {
+		return 0, 0
+	}
+	blockSize := uint64(stat.Bsize)
+	return stat.Blocks * blockSize, stat.Bavail * blockSize
 }
 
 func linuxDefaultInterface() string {

@@ -46,6 +46,13 @@ message Heartbeat {
   string network_name = 11;
   repeated string network_addresses = 12;
   string kernel_version = 13;
+  uint64 cpu_frequency_mhz = 14;       // Current reported average CPU frequency
+  bool network_online = 15;            // Default interface carrier/link state
+  uint64 network_link_speed_mbps = 16; // Default interface reported link speed
+  string network_type = 17;            // Default interface medium, e.g. ethernet or wireless
+  uint64 total_storage_bytes = 18;     // Root filesystem capacity reported by client
+  uint64 available_storage_bytes = 19; // Root filesystem available capacity reported by client
+  string network_ssid = 20;            // Associated wireless network name; never a credential
 }
 
 message FileChunk {

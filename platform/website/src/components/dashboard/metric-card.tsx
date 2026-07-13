@@ -4,7 +4,13 @@ import {
   type MetricTone,
   metricToneClass,
 } from "@/components/dashboard/metric-tone"
-import { Card } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 type MetricCardProps = {
@@ -23,14 +29,18 @@ export function MetricCard({
   className,
 }: MetricCardProps) {
   return (
-    <Card className={cn("p-4", className)}>
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="size-4" />
-        {label}
-      </div>
-      <div className={cn("mt-3 text-2xl font-semibold", metricToneClass[tone])}>
-        {value}
-      </div>
+    <Card className={cn(className)}>
+      <CardHeader className="pb-2">
+        <CardDescription className="flex items-center gap-2">
+          <Icon />
+          {label}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <CardTitle className={cn("text-2xl", metricToneClass[tone])}>
+          {value}
+        </CardTitle>
+      </CardContent>
     </Card>
   )
 }

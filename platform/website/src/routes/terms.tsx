@@ -4,9 +4,14 @@ import * as React from "react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { PageShell } from "@/components/layout/page-shell"
-import { Card } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { type GlossaryTerm, glossary } from "@/lib/glossary"
-import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/terms")({
   component: GlossaryRoute,
@@ -92,10 +97,14 @@ function GlossaryRoute() {
 
 function TermCard({ term }: { term: GlossaryTerm }) {
   return (
-    <Card id={term.slug} className={cn("flex scroll-mt-24 flex-col gap-2 p-4")}>
-      <div className="text-sm font-semibold">{term.term}</div>
-      <p className="text-sm">{term.summary}</p>
-      <p className="text-xs text-muted-foreground">{term.detail}</p>
+    <Card id={term.slug} className="scroll-mt-24">
+      <CardHeader>
+        <CardTitle>{term.term}</CardTitle>
+        <CardDescription>{term.summary}</CardDescription>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">
+        {term.detail}
+      </CardContent>
     </Card>
   )
 }

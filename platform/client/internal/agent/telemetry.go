@@ -11,18 +11,25 @@ type HostnameProvider func() (string, error)
 // SystemTelemetry contains client-authored host facts included in heartbeat
 // payloads. These fields are operational labels, not identity evidence.
 type SystemTelemetry struct {
-	OSVersion        string
-	CPULoad          float64
-	RAMUsage         float64
-	UptimeSeconds    uint64
-	CPUModel         string
-	CPUCores         int32
-	CPUThreads       int32
-	TotalRAMBytes    uint64
-	GPUDevices       []string
-	NetworkName      string
-	NetworkAddresses []string
-	KernelVersion    string
+	OSVersion             string
+	CPULoad               float64
+	RAMUsage              float64
+	UptimeSeconds         uint64
+	CPUModel              string
+	CPUCores              int32
+	CPUThreads            int32
+	TotalRAMBytes         uint64
+	GPUDevices            []string
+	NetworkName           string
+	NetworkAddresses      []string
+	KernelVersion         string
+	CPUFrequencyMHz       uint64
+	NetworkOnline         bool
+	NetworkLinkSpeedMbps  uint64
+	NetworkType           string
+	TotalStorageBytes     uint64
+	AvailableStorageBytes uint64
+	NetworkSSID           string
 }
 
 // BuildHeartbeatPayload constructs the heartbeat payload from system telemetry.
@@ -35,19 +42,26 @@ func BuildHeartbeatPayload(provider HostnameProvider) HeartbeatPayload {
 	telemetry := collectSystemTelemetry()
 
 	return HeartbeatPayload{
-		Hostname:         hostname,
-		OsVersion:        telemetry.OSVersion,
-		CPULoad:          telemetry.CPULoad,
-		RAMUsage:         telemetry.RAMUsage,
-		UptimeSeconds:    telemetry.UptimeSeconds,
-		CPUModel:         telemetry.CPUModel,
-		CPUCores:         telemetry.CPUCores,
-		CPUThreads:       telemetry.CPUThreads,
-		TotalRAMBytes:    telemetry.TotalRAMBytes,
-		GPUDevices:       telemetry.GPUDevices,
-		NetworkName:      telemetry.NetworkName,
-		NetworkAddresses: telemetry.NetworkAddresses,
-		KernelVersion:    telemetry.KernelVersion,
+		Hostname:              hostname,
+		OsVersion:             telemetry.OSVersion,
+		CPULoad:               telemetry.CPULoad,
+		RAMUsage:              telemetry.RAMUsage,
+		UptimeSeconds:         telemetry.UptimeSeconds,
+		CPUModel:              telemetry.CPUModel,
+		CPUCores:              telemetry.CPUCores,
+		CPUThreads:            telemetry.CPUThreads,
+		TotalRAMBytes:         telemetry.TotalRAMBytes,
+		GPUDevices:            telemetry.GPUDevices,
+		NetworkName:           telemetry.NetworkName,
+		NetworkAddresses:      telemetry.NetworkAddresses,
+		KernelVersion:         telemetry.KernelVersion,
+		CPUFrequencyMHz:       telemetry.CPUFrequencyMHz,
+		NetworkOnline:         telemetry.NetworkOnline,
+		NetworkLinkSpeedMbps:  telemetry.NetworkLinkSpeedMbps,
+		NetworkType:           telemetry.NetworkType,
+		TotalStorageBytes:     telemetry.TotalStorageBytes,
+		AvailableStorageBytes: telemetry.AvailableStorageBytes,
+		NetworkSSID:           telemetry.NetworkSSID,
 	}
 }
 

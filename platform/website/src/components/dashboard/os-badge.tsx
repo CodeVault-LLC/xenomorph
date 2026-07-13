@@ -13,11 +13,7 @@ export function OSBadge({
 
   return (
     <Badge variant="outline">
-      {os.variant === "arch" ? (
-        <ArchMark className="mr-1 size-3" />
-      ) : (
-        <Icon className="mr-1 size-3" />
-      )}
+      {os.variant === "arch" ? <ArchMark /> : <Icon />}
       {detailed ? os.label : os.family}
     </Badge>
   )
@@ -31,7 +27,7 @@ export function OSLabel({ value }: { value: string }) {
     <div className="flex items-center gap-2">
       <span className="flex size-7 items-center justify-center rounded-md border border-border bg-background">
         {os.variant === "arch" ? (
-          <ArchMark className="size-4 text-sky-600" />
+          <ArchMark className="size-4 text-primary" />
         ) : (
           <Icon className="size-4 text-muted-foreground" />
         )}

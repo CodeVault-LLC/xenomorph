@@ -138,6 +138,13 @@ func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
 	envelope.GetHeartbeat().NetworkName = "eth0"
 	envelope.GetHeartbeat().NetworkAddresses = []string{"192.0.2.20/24"}
 	envelope.GetHeartbeat().KernelVersion = "6.9.0-test"
+	envelope.GetHeartbeat().CpuFrequencyMhz = 3200
+	envelope.GetHeartbeat().NetworkOnline = true
+	envelope.GetHeartbeat().NetworkLinkSpeedMbps = 1000
+	envelope.GetHeartbeat().NetworkType = "ethernet"
+	envelope.GetHeartbeat().TotalStorageBytes = 512 * 1024 * 1024 * 1024
+	envelope.GetHeartbeat().AvailableStorageBytes = 128 * 1024 * 1024 * 1024
+	envelope.GetHeartbeat().NetworkSsid = "office-wifi"
 
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("heartbeat failed: %v", err)
@@ -173,6 +180,18 @@ func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
 	}
 	if clients[0].KernelVersion != "6.9.0-test" {
 		t.Fatalf("expected kernel version to be recorded, got %q", clients[0].KernelVersion)
+	}
+	if clients[0].CPUFrequencyMHz != 3200 {
+		t.Fatalf("expected CPU frequency to be recorded, got %d", clients[0].CPUFrequencyMHz)
+	}
+	if !clients[0].NetworkOnline || clients[0].NetworkLinkSpeedMbps != 1000 || clients[0].NetworkType != "ethernet" {
+		t.Fatalf("expected network link details to be recorded, got online=%t speed=%d type=%q", clients[0].NetworkOnline, clients[0].NetworkLinkSpeedMbps, clients[0].NetworkType)
+	}
+	if clients[0].TotalStorageBytes != 512*1024*1024*1024 || clients[0].AvailableStorageBytes != 128*1024*1024*1024 {
+		t.Fatalf("expected storage details to be recorded, got total=%d available=%d", clients[0].TotalStorageBytes, clients[0].AvailableStorageBytes)
+	}
+	if clients[0].NetworkSSID != "office-wifi" {
+		t.Fatalf("expected wireless network name to be recorded, got %q", clients[0].NetworkSSID)
 	}
 
 	setNow(now, envelope, monitor, 3*time.Second)

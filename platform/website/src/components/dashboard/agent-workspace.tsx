@@ -26,7 +26,9 @@ import { OSBadge } from "@/components/dashboard/os-badge"
 import { ResourceMeter } from "@/components/dashboard/resource-meter"
 import { StatusBadge } from "@/components/dashboard/status-badge"
 import { TermLink } from "@/components/glossary/term-link"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -35,15 +37,24 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Separator } from "@/components/ui/separator"
+import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   type ClientSnapshot,
   display,
@@ -71,46 +82,57 @@ export function AgentWorkspace({ client }: { client: ClientSnapshot }) {
   const logState = useAgentLogs(client.agent_id)
 
   return (
-    <div className="grid overflow-hidden rounded-lg border border-border bg-card md:min-h-[calc(100vh-190px)] md:grid-cols-[256px_minmax(0,1fr)]">
-      <WorkspaceSidebar
-        client={client}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-      />
+    <Tabs
+      value={activeTab}
+      onValueChange={(value) => setActiveTab(value as TabID)}
+      orientation="vertical"
+      className="grid overflow-hidden rounded-lg border border-border bg-card md:min-h-[calc(100vh-190px)] md:grid-cols-[256px_minmax(0,1fr)]"
+    >
+      <WorkspaceSidebar client={client} activeTab={activeTab} />
 
       <div className="min-w-0 bg-background p-4 sm:p-5 lg:p-6">
-        {activeTab === "general" ? <GeneralTab client={client} /> : null}
-        {activeTab === "system" ? <SystemTab client={client} /> : null}
-        {activeTab === "files" ? <FilesTab client={client} /> : null}
-        {activeTab === "terminal" ? <AgentTerminal client={client} /> : null}
-        {activeTab === "screen" ? <LiveScreen client={client} /> : null}
-        {activeTab === "logs" ? (
+        <TabsContent value="general">
+          <GeneralTab client={client} />
+        </TabsContent>
+        <TabsContent value="system">
+          <SystemTab client={client} />
+        </TabsContent>
+        <TabsContent value="files">
+          <FilesTab client={client} />
+        </TabsContent>
+        <TabsContent value="terminal">
+          <AgentTerminal client={client} />
+        </TabsContent>
+        <TabsContent value="screen">
+          <LiveScreen client={client} />
+        </TabsContent>
+        <TabsContent value="logs">
           <LogsTab client={client} logState={logState} />
-        ) : null}
+        </TabsContent>
       </div>
-    </div>
+    </Tabs>
   )
 }
 
 function WorkspaceSidebar({
   client,
   activeTab,
-  onTabChange,
 }: {
   client: ClientSnapshot
   activeTab: TabID
-  onTabChange: (tab: TabID) => void
 }) {
   return (
     <Sidebar>
       <SidebarHeader>
-        <Link
-          to="/"
-          className="mb-4 inline-flex h-8 w-fit items-center gap-1.5 rounded-md border border-sidebar-border bg-background px-2.5 text-sm font-medium transition-colors hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-sidebar-ring/50"
+        <Button
+          render={<Link to="/" />}
+          nativeButton={false}
+          variant="outline"
+          className="mb-4 w-fit"
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft data-icon="inline-start" />
           Clients
-        </Link>
+        </Button>
         <div className="flex flex-wrap gap-2">
           <StatusBadge online={client.is_online} />
           <OSBadge value={client.os_version} detailed />
@@ -128,26 +150,29 @@ function WorkspaceSidebar({
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-          <SidebarMenu>
-            {tabs.map((tab) => {
-              const Icon = tab.icon
-              return (
-                <SidebarMenuItem key={tab.id}>
-                  <SidebarMenuButton
-                    type="button"
-                    active={activeTab === tab.id}
-                    onClick={() => onTabChange(tab.id)}
-                  >
-                    <Icon />
-                    {tab.label}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )
-            })}
-          </SidebarMenu>
+          <TabsList variant="line" className="h-auto w-full items-stretch p-0">
+            <SidebarMenu>
+              {tabs.map((tab) => {
+                const Icon = tab.icon
+                return (
+                  <SidebarMenuItem key={tab.id}>
+                    <TabsTrigger
+                      value={tab.id}
+                      className="h-9 w-full justify-start px-2.5"
+                      data-active={activeTab === tab.id}
+                    >
+                      <Icon data-icon="inline-start" />
+                      {tab.label}
+                    </TabsTrigger>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          </TabsList>
         </SidebarGroup>
 
-        <SidebarGroup className="mt-auto border-t border-sidebar-border pt-4">
+        <SidebarGroup className="mt-auto pt-4">
+          <Separator />
           <SidebarGroupLabel>Gateway View</SidebarGroupLabel>
           <div className="grid gap-3 px-2 text-xs">
             <SidebarStat label="Client IP" value={display(client.client_ip)} />
@@ -385,12 +410,9 @@ function GeneralTab({ client }: { client: ClientSnapshot }) {
           {addresses.length ? (
             <div className="flex flex-wrap gap-2 md:col-span-3">
               {addresses.map((address) => (
-                <code
-                  key={address}
-                  className="rounded-md border bg-muted px-2 py-1 text-xs break-all"
-                >
+                <Badge key={address} variant="secondary" className="break-all">
                   {address}
-                </code>
+                </Badge>
               ))}
             </div>
           ) : null}
@@ -405,6 +427,12 @@ function SystemTab({ client }: { client: ClientSnapshot }) {
   const addresses = Array.isArray(client.network_addresses)
     ? client.network_addresses
     : []
+  const networkReported = client.network_name.trim() !== ""
+  const networkStatus = !networkReported
+    ? "Not reported"
+    : client.network_online
+      ? "Online"
+      : "No carrier reported"
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
@@ -428,10 +456,26 @@ function SystemTab({ client }: { client: ClientSnapshot }) {
           />
           <Fact label="CPU Model" value={display(client.cpu_model)} />
           <Fact
+            label="Current CPU Frequency"
+            value={
+              client.cpu_frequency_mhz > 0
+                ? `${client.cpu_frequency_mhz.toLocaleString()} MHz`
+                : "n/a"
+            }
+          />
+          <Fact
             label="CPU Topology"
             value={`${client.cpu_cores || 0} cores / ${client.cpu_threads || 0} threads`}
           />
           <Fact label="Total RAM" value={formatBytes(client.total_ram_bytes)} />
+          <Fact
+            label="Root Storage"
+            value={formatBytes(client.total_storage_bytes)}
+          />
+          <Fact
+            label="Root Storage Available"
+            value={formatBytes(client.available_storage_bytes)}
+          />
           <Fact label="Uptime" value={formatDuration(client.uptime_seconds)} />
           <Fact label="OS" value={display(client.os_version)} />
           <Fact label="Kernel" value={display(client.kernel_version)} />
@@ -466,18 +510,47 @@ function SystemTab({ client }: { client: ClientSnapshot }) {
           <div className="grid gap-3">
             <Fact
               icon={Network}
-              label="Connected Network"
+              label="Default Interface"
               value={display(client.network_name)}
             />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Fact label="Medium" value={display(client.network_type)} />
+              <Fact
+                label="Wireless Network (SSID)"
+                value={
+                  client.network_type === "wireless"
+                    ? display(client.network_ssid)
+                    : "Not a wireless interface"
+                }
+              />
+              <Fact label="Link State" value={networkStatus} />
+              <Fact
+                label="Reported Link Speed"
+                value={
+                  client.network_link_speed_mbps > 0
+                    ? `${client.network_link_speed_mbps.toLocaleString()} Mbps`
+                    : "n/a"
+                }
+              />
+              <Fact
+                label="IP Addresses"
+                value={
+                  addresses.length
+                    ? `${addresses.length} reported`
+                    : "None reported"
+                }
+              />
+            </div>
             {addresses.length ? (
               <div className="grid gap-2">
                 {addresses.map((address) => (
-                  <code
+                  <Badge
                     key={address}
-                    className="rounded-md border bg-muted px-2 py-1 text-xs break-all"
+                    variant="secondary"
+                    className="w-fit break-all"
                   >
                     {address}
-                  </code>
+                  </Badge>
                 ))}
               </div>
             ) : (
@@ -485,6 +558,9 @@ function SystemTab({ client }: { client: ClientSnapshot }) {
                 No interface addresses reported.
               </p>
             )}
+            <p className="text-sm text-muted-foreground">
+              Wireless credentials are intentionally not collected or displayed.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -534,20 +610,16 @@ function LogsTab({
               Recent client diagnostics and gateway command audit entries.
             </CardDescription>
           </div>
-          <button
-            type="button"
-            className="h-9 rounded-md border px-3 text-sm font-medium hover:bg-accent"
-            onClick={logState.refresh}
-          >
+          <Button type="button" variant="outline" onClick={logState.refresh}>
             Refresh
-          </button>
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {logState.error ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {logState.error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{logState.error}</AlertDescription>
+          </Alert>
         ) : null}
 
         {logState.loading ? (
@@ -555,29 +627,49 @@ function LogsTab({
         ) : null}
 
         {!logState.loading && logState.logs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No logs are recorded for {client.agent_id} in the current gateway
-            process lifetime.
-          </p>
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ScrollText />
+              </EmptyMedia>
+              <EmptyTitle>No logs recorded</EmptyTitle>
+              <EmptyDescription>
+                No logs are recorded for {client.agent_id} in the current
+                gateway process lifetime.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : null}
 
-        {logState.logs.map((entry) => (
-          <div key={entry.event_id} className="rounded-md border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={logVariant(entry.level)}>{entry.level}</Badge>
-              <span className="font-mono text-xs text-muted-foreground">
-                {display(entry.component)}
-              </span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {formatDate(entry.observed_at)}
-              </span>
-            </div>
-            <p className="mt-2 text-sm break-words">{entry.message || "n/a"}</p>
-            <div className="mt-2 font-mono text-xs break-all text-muted-foreground">
-              {entry.event_id}
-            </div>
+        <ScrollArea className="max-h-[560px]">
+          <div className="flex flex-col gap-3">
+            {logState.logs.map((entry) => (
+              <Card key={entry.event_id}>
+                <CardHeader>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={logVariant(entry.level)}>
+                      {entry.level}
+                    </Badge>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {display(entry.component)}
+                    </span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {formatDate(entry.observed_at)}
+                    </span>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm break-words">
+                    {entry.message || "n/a"}
+                  </p>
+                  <div className="mt-2 font-mono text-xs break-all text-muted-foreground">
+                    {entry.event_id}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
-        ))}
+        </ScrollArea>
       </CardContent>
     </Card>
   )

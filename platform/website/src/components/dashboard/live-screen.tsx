@@ -1,6 +1,7 @@
 import { Radio, ScreenShare, Video, WifiOff } from "lucide-react"
 import * as React from "react"
 
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -9,6 +10,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { type ClientSnapshot, formatRelative } from "@/lib/clients"
 import { type ScreenFrameStatus, screenLiveURL } from "@/lib/screen"
 import { cn } from "@/lib/utils"
@@ -145,25 +153,27 @@ export function LiveScreen({ client }: { client: ClientSnapshot }) {
             )}
           />
           {!hasFrame ? (
-            <div className="flex max-w-lg flex-col items-center">
-              {client.is_online ? (
-                <ScreenShare className="mb-4 size-10 text-muted-foreground" />
-              ) : (
-                <WifiOff className="mb-4 size-10 text-muted-foreground" />
-              )}
-              <div className="text-base font-semibold">
-                {client.is_online ? "Opening live stream" : "No active session"}
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {client.is_online
-                  ? "The video player starts as soon as the next authenticated frame reaches the gateway."
-                  : "Live video is disabled until the agent returns online."}
-              </p>
-            </div>
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  {client.is_online ? <ScreenShare /> : <WifiOff />}
+                </EmptyMedia>
+                <EmptyTitle>
+                  {client.is_online
+                    ? "Opening live stream"
+                    : "No active session"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {client.is_online
+                    ? "The video player starts as soon as the next authenticated frame reaches the gateway."
+                    : "Live video is disabled until the agent returns online."}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : null}
           {hasFrame ? (
             <div className="pointer-events-none absolute top-3 left-3 inline-flex items-center gap-2 rounded-md border border-white/15 bg-black/60 px-2.5 py-1 text-xs font-medium text-white">
-              <Video className="size-3.5" />
+              <Video />
               Live
             </div>
           ) : null}
@@ -174,7 +184,7 @@ export function LiveScreen({ client }: { client: ClientSnapshot }) {
             <Radio
               className={cn(
                 "size-4",
-                client.is_online && connected && "text-emerald-600"
+                client.is_online && connected && "text-primary"
               )}
             />
             {frame?.has_frame && frame.captured_at
@@ -184,7 +194,9 @@ export function LiveScreen({ client }: { client: ClientSnapshot }) {
                 : "No frame captured yet"}
           </span>
           {client.is_online && error ? (
-            <span className="text-destructive">{error}</span>
+            <Alert variant="destructive" className="w-auto">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : null}
         </div>
       </CardContent>

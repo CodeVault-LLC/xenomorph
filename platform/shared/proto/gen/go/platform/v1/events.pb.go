@@ -240,22 +240,29 @@ func (x *SecurityContext) GetIsAuthenticated() bool {
 }
 
 type Heartbeat struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Hostname         string                 `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"` // Reported by client (Untrusted meta)
-	OsVersion        string                 `protobuf:"bytes,2,opt,name=os_version,json=osVersion,proto3" json:"os_version,omitempty"`
-	CpuLoad          float64                `protobuf:"fixed64,3,opt,name=cpu_load,json=cpuLoad,proto3" json:"cpu_load,omitempty"`
-	RamUsage         float64                `protobuf:"fixed64,4,opt,name=ram_usage,json=ramUsage,proto3" json:"ram_usage,omitempty"`
-	UptimeSeconds    uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
-	CpuModel         string                 `protobuf:"bytes,6,opt,name=cpu_model,json=cpuModel,proto3" json:"cpu_model,omitempty"`
-	CpuCores         int32                  `protobuf:"varint,7,opt,name=cpu_cores,json=cpuCores,proto3" json:"cpu_cores,omitempty"`
-	CpuThreads       int32                  `protobuf:"varint,8,opt,name=cpu_threads,json=cpuThreads,proto3" json:"cpu_threads,omitempty"`
-	TotalRamBytes    uint64                 `protobuf:"varint,9,opt,name=total_ram_bytes,json=totalRamBytes,proto3" json:"total_ram_bytes,omitempty"`
-	GpuDevices       []string               `protobuf:"bytes,10,rep,name=gpu_devices,json=gpuDevices,proto3" json:"gpu_devices,omitempty"`
-	NetworkName      string                 `protobuf:"bytes,11,opt,name=network_name,json=networkName,proto3" json:"network_name,omitempty"`
-	NetworkAddresses []string               `protobuf:"bytes,12,rep,name=network_addresses,json=networkAddresses,proto3" json:"network_addresses,omitempty"`
-	KernelVersion    string                 `protobuf:"bytes,13,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Hostname              string                 `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"` // Reported by client (Untrusted meta)
+	OsVersion             string                 `protobuf:"bytes,2,opt,name=os_version,json=osVersion,proto3" json:"os_version,omitempty"`
+	CpuLoad               float64                `protobuf:"fixed64,3,opt,name=cpu_load,json=cpuLoad,proto3" json:"cpu_load,omitempty"`
+	RamUsage              float64                `protobuf:"fixed64,4,opt,name=ram_usage,json=ramUsage,proto3" json:"ram_usage,omitempty"`
+	UptimeSeconds         uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
+	CpuModel              string                 `protobuf:"bytes,6,opt,name=cpu_model,json=cpuModel,proto3" json:"cpu_model,omitempty"`
+	CpuCores              int32                  `protobuf:"varint,7,opt,name=cpu_cores,json=cpuCores,proto3" json:"cpu_cores,omitempty"`
+	CpuThreads            int32                  `protobuf:"varint,8,opt,name=cpu_threads,json=cpuThreads,proto3" json:"cpu_threads,omitempty"`
+	TotalRamBytes         uint64                 `protobuf:"varint,9,opt,name=total_ram_bytes,json=totalRamBytes,proto3" json:"total_ram_bytes,omitempty"`
+	GpuDevices            []string               `protobuf:"bytes,10,rep,name=gpu_devices,json=gpuDevices,proto3" json:"gpu_devices,omitempty"`
+	NetworkName           string                 `protobuf:"bytes,11,opt,name=network_name,json=networkName,proto3" json:"network_name,omitempty"`
+	NetworkAddresses      []string               `protobuf:"bytes,12,rep,name=network_addresses,json=networkAddresses,proto3" json:"network_addresses,omitempty"`
+	KernelVersion         string                 `protobuf:"bytes,13,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"`
+	CpuFrequencyMhz       uint64                 `protobuf:"varint,14,opt,name=cpu_frequency_mhz,json=cpuFrequencyMhz,proto3" json:"cpu_frequency_mhz,omitempty"`                   // Current reported average CPU frequency
+	NetworkOnline         bool                   `protobuf:"varint,15,opt,name=network_online,json=networkOnline,proto3" json:"network_online,omitempty"`                           // Default interface carrier/link state
+	NetworkLinkSpeedMbps  uint64                 `protobuf:"varint,16,opt,name=network_link_speed_mbps,json=networkLinkSpeedMbps,proto3" json:"network_link_speed_mbps,omitempty"`  // Default interface reported link speed
+	NetworkType           string                 `protobuf:"bytes,17,opt,name=network_type,json=networkType,proto3" json:"network_type,omitempty"`                                  // Default interface medium, e.g. ethernet or wireless
+	TotalStorageBytes     uint64                 `protobuf:"varint,18,opt,name=total_storage_bytes,json=totalStorageBytes,proto3" json:"total_storage_bytes,omitempty"`             // Root filesystem capacity reported by client
+	AvailableStorageBytes uint64                 `protobuf:"varint,19,opt,name=available_storage_bytes,json=availableStorageBytes,proto3" json:"available_storage_bytes,omitempty"` // Root filesystem available capacity reported by client
+	NetworkSsid           string                 `protobuf:"bytes,20,opt,name=network_ssid,json=networkSsid,proto3" json:"network_ssid,omitempty"`                                  // Associated wireless network name; never a credential
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Heartbeat) Reset() {
@@ -375,6 +382,55 @@ func (x *Heartbeat) GetNetworkAddresses() []string {
 func (x *Heartbeat) GetKernelVersion() string {
 	if x != nil {
 		return x.KernelVersion
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetCpuFrequencyMhz() uint64 {
+	if x != nil {
+		return x.CpuFrequencyMhz
+	}
+	return 0
+}
+
+func (x *Heartbeat) GetNetworkOnline() bool {
+	if x != nil {
+		return x.NetworkOnline
+	}
+	return false
+}
+
+func (x *Heartbeat) GetNetworkLinkSpeedMbps() uint64 {
+	if x != nil {
+		return x.NetworkLinkSpeedMbps
+	}
+	return 0
+}
+
+func (x *Heartbeat) GetNetworkType() string {
+	if x != nil {
+		return x.NetworkType
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetTotalStorageBytes() uint64 {
+	if x != nil {
+		return x.TotalStorageBytes
+	}
+	return 0
+}
+
+func (x *Heartbeat) GetAvailableStorageBytes() uint64 {
+	if x != nil {
+		return x.AvailableStorageBytes
+	}
+	return 0
+}
+
+func (x *Heartbeat) GetNetworkSsid() string {
+	if x != nil {
+		return x.NetworkSsid
 	}
 	return ""
 }
@@ -597,7 +653,7 @@ const file_events_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1b\n" +
 	"\tclient_ip\x18\x03 \x01(\tR\bclientIp\x12)\n" +
-	"\x10is_authenticated\x18\x04 \x01(\bR\x0fisAuthenticated\"\xc0\x03\n" +
+	"\x10is_authenticated\x18\x04 \x01(\bR\x0fisAuthenticated\"\xf8\x05\n" +
 	"\tHeartbeat\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x1d\n" +
 	"\n" +
@@ -615,7 +671,14 @@ const file_events_proto_rawDesc = "" +
 	"gpuDevices\x12!\n" +
 	"\fnetwork_name\x18\v \x01(\tR\vnetworkName\x12+\n" +
 	"\x11network_addresses\x18\f \x03(\tR\x10networkAddresses\x12%\n" +
-	"\x0ekernel_version\x18\r \x01(\tR\rkernelVersion\"\x92\x01\n" +
+	"\x0ekernel_version\x18\r \x01(\tR\rkernelVersion\x12*\n" +
+	"\x11cpu_frequency_mhz\x18\x0e \x01(\x04R\x0fcpuFrequencyMhz\x12%\n" +
+	"\x0enetwork_online\x18\x0f \x01(\bR\rnetworkOnline\x125\n" +
+	"\x17network_link_speed_mbps\x18\x10 \x01(\x04R\x14networkLinkSpeedMbps\x12!\n" +
+	"\fnetwork_type\x18\x11 \x01(\tR\vnetworkType\x12.\n" +
+	"\x13total_storage_bytes\x18\x12 \x01(\x04R\x11totalStorageBytes\x126\n" +
+	"\x17available_storage_bytes\x18\x13 \x01(\x04R\x15availableStorageBytes\x12!\n" +
+	"\fnetwork_ssid\x18\x14 \x01(\tR\vnetworkSsid\"\x92\x01\n" +
 	"\tFileChunk\x12\x1b\n" +
 	"\tupload_id\x18\x01 \x01(\tR\buploadId\x12\x1f\n" +
 	"\vchunk_index\x18\x02 \x01(\x05R\n" +

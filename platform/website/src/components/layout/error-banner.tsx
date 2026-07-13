@@ -1,3 +1,4 @@
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
 
 export function ErrorBanner({
@@ -12,14 +13,9 @@ export function ErrorBanner({
   }
 
   return (
-    <div
-      role="alert"
-      className={cn(
-        "rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive",
-        className
-      )}
-    >
-      {message}
-    </div>
+    <Alert variant="destructive" className={cn(className)}>
+      <AlertTitle>Gateway request failed</AlertTitle>
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
   )
 }

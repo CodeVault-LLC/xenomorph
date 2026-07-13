@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -156,7 +157,9 @@ func stage2Entry(ac *appContext, isNewAgent bool) error {
 }
 
 func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
-	decision, err := agent.HandleCommand(*cmd, ac.validator)
+	ctx, cancel := context.WithDeadline(context.Background(), cmd.ExpiresAt)
+	defer cancel()
+	decision, err := agent.HandleCommandWithTransferPlane(ctx, *cmd, ac.validator, ac.ag)
 	if err != nil {
 		return fmt.Errorf("command handling failed: %w", err)
 	}

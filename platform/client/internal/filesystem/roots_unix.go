@@ -2,8 +2,23 @@
 
 package filesystem
 
-const unixFilesystemRootID = "filesystem"
+import (
+	"os"
+	"path/filepath"
+)
+
+const (
+	homeFilesystemRootID = "home"
+	unixFilesystemRootID = "filesystem"
+)
 
 func filesystemRoots() ([]rootDefinition, error) {
-	return []rootDefinition{{ID: unixFilesystemRootID, Path: "/", DisplayLabel: "Filesystem"}}, nil
+	roots := []rootDefinition{{ID: unixFilesystemRootID, Path: "/", DisplayLabel: "Filesystem"}}
+	homeDir, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(homeDir) {
+		return roots, nil
+	}
+	return append([]rootDefinition{{
+		ID: homeFilesystemRootID, Path: filepath.Clean(homeDir), DisplayLabel: "Home",
+	}}, roots...), nil
 }

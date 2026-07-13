@@ -3,10 +3,13 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -42,6 +45,77 @@ type HeartbeatPayload struct {
 	StorageReadOnly       bool                   `json:"storage_read_only"`
 	ApplicationTypes      []ApplicationTypeUsage `json:"application_types"`
 	NetworkSSID           string                 `json:"network_ssid"`
+}
+
+// PutChunk uploads one checksum-bound chunk through the mTLS gateway plane.
+func (a *Agent) PutChunk(ctx context.Context, transferID, token string, index int, data []byte) error {
+	endpoint := a.transferChunkURL(transferID, index)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("build transfer chunk upload: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/octet-stream")
+	response, err := a.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("upload transfer chunk: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("upload transfer chunk rejected: status %d", response.StatusCode)
+	}
+	return nil
+}
+
+// GetChunk downloads one checksum-bound chunk through the mTLS gateway plane.
+func (a *Agent) GetChunk(ctx context.Context, transferID, token string, index int, expectedSize int64) ([]byte, error) {
+	if expectedSize <= 0 || expectedSize > 4<<20 {
+		return nil, fmt.Errorf("transfer chunk size is outside limit")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.transferChunkURL(transferID, index), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build transfer chunk download: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := a.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("download transfer chunk: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download transfer chunk rejected: status %d", response.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, expectedSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read transfer chunk: %w", err)
+	}
+	if int64(len(data)) != expectedSize {
+		return nil, fmt.Errorf("transfer chunk size mismatch")
+	}
+	return data, nil
+}
+
+// Finalize asks the gateway to verify the complete staged transfer object.
+func (a *Agent) Finalize(ctx context.Context, transferID, token string) error {
+	endpoint := a.gatewayURL + "/files/transfers/" + url.PathEscape(transferID) + "/finalize"
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("build transfer finalization: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := a.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("finalize transfer: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("transfer finalization rejected: status %d", response.StatusCode)
+	}
+	return nil
+}
+
+func (a *Agent) transferChunkURL(transferID string, index int) string {
+	return a.gatewayURL + "/files/transfers/" + url.PathEscape(transferID) + "/chunks/" + strconv.Itoa(index)
 }
 
 // Stage1AuthResult contains the gateway response to the initial authentication.

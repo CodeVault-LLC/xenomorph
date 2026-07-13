@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/rsa"
 	"encoding/json"
 	"fmt"
@@ -9,19 +10,24 @@ import (
 	"sync"
 	"time"
 
+	clientfs "github.com/codevault-llc/xenomorph/platform/client/internal/filesystem"
 	"github.com/codevault-llc/xenomorph/platform/shared/commandauth"
 )
 
 var allowedCommandTypes = map[CommandType]struct{}{
-	CommandTypeNotice:             {},
-	CommandTypeRequestScreenshot:  {},
-	CommandTypeStartScreenStream:  {},
-	CommandTypeStopScreenStream:   {},
-	CommandTypeTerminalRun:        {},
-	CommandTypeFilesRootsList:     {},
-	CommandTypeFilesDirectoryList: {},
-	CommandTypeFilesMetadataGet:   {},
-	CommandTypeFilesPreviewRead:   {},
+	CommandTypeNotice:                {},
+	CommandTypeRequestScreenshot:     {},
+	CommandTypeStartScreenStream:     {},
+	CommandTypeStopScreenStream:      {},
+	CommandTypeTerminalRun:           {},
+	CommandTypeFilesRootsList:        {},
+	CommandTypeFilesDirectoryList:    {},
+	CommandTypeFilesMetadataGet:      {},
+	CommandTypeFilesPreviewRead:      {},
+	CommandTypeFilesOperationExecute: {},
+	CommandTypeFilesTransferPrepare:  {},
+	CommandTypeFilesTransferResume:   {},
+	CommandTypeFilesTransferAbort:    {},
 }
 
 // CommandDecision contains the result of processing a command.
@@ -76,6 +82,16 @@ func NewCommandValidator(publicKey *rsa.PublicKey, keyID, audience string, seenN
 
 // HandleCommand validates and executes a command.
 func HandleCommand(cmd CommandEnvelope, validator *CommandValidator) (CommandDecision, error) {
+	return handleCommand(context.Background(), cmd, validator, nil)
+}
+
+// HandleCommandWithTransferPlane validates and executes a command with the
+// authenticated gateway data plane available to transfer commands.
+func HandleCommandWithTransferPlane(ctx context.Context, cmd CommandEnvelope, validator *CommandValidator, plane clientfs.TransferPlane) (CommandDecision, error) {
+	return handleCommand(ctx, cmd, validator, plane)
+}
+
+func handleCommand(ctx context.Context, cmd CommandEnvelope, validator *CommandValidator, plane clientfs.TransferPlane) (CommandDecision, error) {
 	hostname, _ := osHostname()
 	decision := CommandDecision{
 		Result: CommandResultPayload{
@@ -95,7 +111,7 @@ func HandleCommand(cmd CommandEnvelope, validator *CommandValidator) (CommandDec
 		return decision, nil
 	}
 
-	outcome := executeAllowedCommand(cmd)
+	outcome := executeAllowedCommand(ctx, cmd, plane)
 	decision.Result.Status = CommandStatusExecuted
 	decision.Result.Reason = outcome.reason
 	decision.Result.OutputData = outcome.outputData
@@ -199,7 +215,7 @@ func toAuthEnvelope(cmd CommandEnvelope) commandauth.Envelope {
 	}
 }
 
-func executeAllowedCommand(cmd CommandEnvelope) commandOutcome {
+func executeAllowedCommand(ctx context.Context, cmd CommandEnvelope, plane clientfs.TransferPlane) commandOutcome {
 	switch cmd.Type {
 	case CommandTypeNotice:
 		return commandOutcome{reason: "support notice acknowledged"}
@@ -215,8 +231,10 @@ func executeAllowedCommand(cmd CommandEnvelope) commandOutcome {
 		return commandOutcome{reason: "screen stream stop acknowledged"}
 	case CommandTypeTerminalRun:
 		return executeTerminalCommand(cmd.Payload)
-	case CommandTypeFilesRootsList, CommandTypeFilesDirectoryList, CommandTypeFilesMetadataGet, CommandTypeFilesPreviewRead:
-		return executeFileCommand(cmd.Type, cmd.Payload)
+	case CommandTypeFilesRootsList, CommandTypeFilesDirectoryList, CommandTypeFilesMetadataGet,
+		CommandTypeFilesPreviewRead, CommandTypeFilesOperationExecute,
+		CommandTypeFilesTransferPrepare, CommandTypeFilesTransferResume, CommandTypeFilesTransferAbort:
+		return executeFileCommand(ctx, cmd.Type, cmd.Payload, plane)
 	default:
 		return commandOutcome{reason: "no-op"}
 	}

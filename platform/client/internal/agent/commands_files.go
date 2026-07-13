@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +13,8 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
 )
 
-func executeFileCommand(commandType CommandType, payload json.RawMessage) commandOutcome {
-	result, err := runFileCommand(commandType, payload)
+func executeFileCommand(ctx context.Context, commandType CommandType, payload json.RawMessage, plane clientfs.TransferPlane) commandOutcome {
+	result, err := runFileCommand(ctx, commandType, payload, plane)
 	if err != nil {
 		return fileCommandError(err)
 	}
@@ -28,35 +29,88 @@ func executeFileCommand(commandType CommandType, payload json.RawMessage) comman
 	return commandOutcome{reason: "file operation completed", resultData: wrapped}
 }
 
-func runFileCommand(commandType CommandType, payload json.RawMessage) (any, error) {
+func runFileCommand(ctx context.Context, commandType CommandType, payload json.RawMessage, plane clientfs.TransferPlane) (any, error) {
 	switch commandType {
 	case CommandTypeFilesRootsList:
-		var request fileprotocol.RootsListRequest
-		if err := decodeFileRequest(payload, &request); err != nil {
-			return nil, err
-		}
-		return clientfs.ListRoots(request)
+		return runRootsList(payload)
 	case CommandTypeFilesDirectoryList:
-		var request fileprotocol.DirectoryListRequest
-		if err := decodeFileRequest(payload, &request); err != nil {
-			return nil, err
-		}
-		return clientfs.ListDirectory(request)
+		return runDirectoryList(payload)
 	case CommandTypeFilesMetadataGet:
-		var request fileprotocol.MetadataGetRequest
-		if err := decodeFileRequest(payload, &request); err != nil {
-			return nil, err
-		}
-		return clientfs.GetMetadata(request)
+		return runMetadataGet(payload)
 	case CommandTypeFilesPreviewRead:
-		var request fileprotocol.PreviewReadRequest
-		if err := decodeFileRequest(payload, &request); err != nil {
-			return nil, err
-		}
-		return clientfs.ReadPreview(request)
+		return runPreviewRead(payload)
+	case CommandTypeFilesOperationExecute:
+		return runMutation(payload)
+	case CommandTypeFilesTransferPrepare, CommandTypeFilesTransferResume:
+		return runTransfer(ctx, commandType, payload, plane)
+	case CommandTypeFilesTransferAbort:
+		return runTransferAbort(payload)
 	default:
 		return nil, fmt.Errorf("unsupported file command")
 	}
+}
+
+func runRootsList(payload json.RawMessage) (any, error) {
+	var request fileprotocol.RootsListRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return clientfs.ListRoots(request)
+}
+func runDirectoryList(payload json.RawMessage) (any, error) {
+	var request fileprotocol.DirectoryListRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return clientfs.ListDirectory(request)
+}
+func runMetadataGet(payload json.RawMessage) (any, error) {
+	var request fileprotocol.MetadataGetRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return clientfs.GetMetadata(request)
+}
+func runPreviewRead(payload json.RawMessage) (any, error) {
+	var request fileprotocol.PreviewReadRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return clientfs.ReadPreview(request)
+}
+func runMutation(payload json.RawMessage) (any, error) {
+	var request fileprotocol.MutationRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return clientfs.ExecuteMutation(request)
+}
+
+func runTransfer(ctx context.Context, commandType CommandType, payload json.RawMessage, plane clientfs.TransferPlane) (any, error) {
+	var request fileprotocol.TransferRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	if commandType == CommandTypeFilesTransferPrepare && request.Manifest.Direction == fileprotocol.TransferDownload && len(request.Manifest.Chunks) == 0 {
+		result, err := clientfs.PrepareDownload(request)
+		if err != nil {
+			return clientfs.TransferFailureResult(request, err), nil
+		}
+		return result, nil
+	}
+	result, err := clientfs.ExecuteTransfer(ctx, request, plane)
+	if err != nil {
+		return clientfs.TransferFailureResult(request, err), nil
+	}
+	return result, nil
+}
+
+func runTransferAbort(payload json.RawMessage) (any, error) {
+	var request fileprotocol.TransferRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return fileprotocol.TransferResult{ProtocolVersion: fileprotocol.Version, TransferID: request.Manifest.TransferID, State: "cancelled", Scanning: "not_scanned"}, nil
 }
 
 func decodeFileRequest(payload json.RawMessage, destination any) error {

@@ -2,7 +2,7 @@
 
 ## Implementation Scope
 
-This document specifies the implemented Phase 0 trust controls and Phase 1 read-only explorer. File mutation, content transfer, trash, metadata writes, archive handling, and permanent deletion are not enabled. The agent command allowlist contains only root observation, directory listing, metadata read, and bounded preview operations.
+This document specifies the implemented Phase 0 trust controls, Phase 1 explorer, Phase 2 individual transfers, and Phase 3 safe mutations with explicit permanent deletion. The product decision is to provide no managed trash or restore facility. Metadata writes and archive operations remain unavailable; the versioned capability contract is prepared to report those Phase 4 features without falsely advertising support.
 
 The gateway owns operation and command identifiers, command signing, durable operation state, and audit records. It does not own local filesystem facts or configure per-agent filesystem grants. The agent owns automatic filesystem-root discovery, no-follow local reads, and capability discovery. It does not own agent identity. The website collects internal-user intent and displays gateway state. It does not authenticate or authorize browser users, communicate with an agent, or treat a client-authored path, entry, capability, or result as trusted. Deployment-level network access restrictions are the only access boundary for the website and dashboard API.
 
@@ -15,13 +15,14 @@ The gateway owns operation and command identifiers, command signing, durable ope
 | Root ID, label, supported verbs | Client-authored | Agent enumeration of the local operating-system roots. A root ID is presentation and routing data, not identity or authorization evidence. |
 | Operation ID, command ID, nonce, timestamps | Server-authored | Gateway generation. These fields drive state transition and replay decisions. |
 | Selected root ID, relative path, page choice, preview range | Website-authored | Bounded and normalized by the gateway and agent only after the complete request is covered by a valid gateway signature. These fields are not identity or authorization evidence. |
-| Entries, metadata, capabilities, preview bytes, errors | Client-authored | Presentation and operation outcome only. The gateway does not use these fields to authorize a later request. |
+| Entries, metadata, capabilities, preview bytes, manifests, checksums, mutation results, errors | Client-authored | Presentation, integrity comparison, and operation outcome only. The gateway does not use these fields as identity or authorization evidence. |
+| Transfer, operation, command, and lease identifiers | Server-authored | Gateway generation. These fields scope durable state and data-plane access. |
 
 ## Runtime Contract
 
 The shared command contract is `commandauth.Envelope` protocol version 1. The gateway signs a canonical JSON representation of every field except `signature` with RSA-PSS and SHA-256 using the configured TLS server private key. The agent pins the corresponding server certificate, verifies the key fingerprint, verifies the signature, requires its certificate-derived agent ID as the audience, enforces a maximum two-minute validity window, and persists the nonce before execution. The persisted replay history is bounded to 256 nonces. A command signed for a different agent, changed after signing, expired, issued too far in the future, replayed, or signed by another key is rejected.
 
-The read-only file protocol is `fileprotocol` version 2. Version 2 replaces gateway-supplied root policies with automatic agent root discovery. Enabled command types are:
+The file protocol is `fileprotocol` version 4. Version 4 retains automatic root discovery, immutable transfer manifests, scoped leases, mutation preconditions, conflict strategies, per-item results, and explicit Phase 4 capability fields. It replaces managed trash and restore with the allowlisted `delete` mutation.
 
 | Command | Required verb | Result |
 | --- | --- | --- |
@@ -29,8 +30,16 @@ The read-only file protocol is `fileprotocol` version 2. Version 2 replaces gate
 | `files.directory.list` | Read-only | At most 500 entries. The dashboard requests 100 entries. |
 | `files.metadata.get` | `metadata` | Common no-follow metadata plus explicit states for optional fields. |
 | `files.preview.read` | `preview` | One regular-file range capped at one MiB. The dashboard requests 64 KiB. |
+| `files.transfer.prepare` | `transfer` | Creates or freezes one single-file manifest before byte movement. |
+| `files.transfer.resume` | `transfer` | Resumes from gateway-persisted chunk acknowledgements under a rotated lease. |
+| `files.transfer.abort` | `transfer` | Idempotently cancels one transfer. |
+| `files.operation.execute` | `mutate` | Plans or executes at most 100 allowlisted, preconditioned mutation items. |
 
 The gateway accepts file results only on the authenticated mTLS channel and only when command ID and authenticated agent ID match one queued durable operation. Duplicate terminal states are idempotent. Unknown and cross-agent results are rejected.
+
+Transfer bytes use a separate gateway data plane. Browser uploads pass through the dashboard API and receive no object-storage credential. Agents use a 256-bit random bearer capability delivered only inside a signed, expiring command and bound to one authenticated agent and transfer. Chunks are capped at four MiB, a file at one GiB, and a manifest at 256 chunks. The gateway verifies every SHA-256 chunk digest, persists acknowledgements, encrypts each staged chunk with AES-256-GCM, and verifies size and the complete SHA-256 digest before publication. The `not_scanned` result is an explicit classification, not a malware verdict.
+
+The website computes upload manifests incrementally without retaining the complete file in memory, retries transient chunk-stage failures with bounded exponential delay, and displays hashing, staging, publication, and durable agent progress separately. Mutation dialogs submit an agent-validated dry run before enabling execution. Directory row actions expose single-item organization, content, and permanent-delete mutations; selection enables bounded bulk permanent deletion with per-item results. The destructive confirmation identifies deletion as irreversible.
 
 ## State Models
 
@@ -85,21 +94,26 @@ Capabilities are client-authored presentation hints. Fixed protocol bounds and r
 | Bounded regular-file preview | Available | Available | Available with pre/post identity comparison |
 | POSIX mode observation | Available | Available | Unavailable |
 | Owner, ACL, extended attributes | Unavailable | Unavailable | Unavailable |
-| Mutations, managed trash, archives | Unavailable | Unavailable | Unavailable |
+| Atomic no-replace rename | Available | Available | Unavailable in the current fallback |
+| Bounded permanent deletion of files and directory trees | Available subject to operating-system permissions | Available subject to operating-system permissions | Available subject to operating-system permissions and the documented containment fallback |
+| Staged individual transfer | Available | Available | Available with the Windows containment fallback |
+| Metadata writes and archives | Unavailable | Unavailable | Unavailable |
 
 Unavailable capabilities are represented explicitly and are not emulated.
 
 ## Durable Storage, Retention, and Audit
 
-The initial read-only implementation selects a gateway-local state directory configured by `GATEWAY_STATE_PATH`. Operation state is stored in `file-operations.json` with directory mode `0700`, file mode `0600`, temporary-file synchronization, and atomic rename. State is bounded to 10,000 operations. Completed or failed operations become eligible for pressure eviction after their operation expiry. Queued operations are not silently evicted.
+The file workspace selects a gateway-local state directory configured by `GATEWAY_STATE_PATH`. Operation state is stored in `file-operations.json` with directory mode `0700`, file mode `0600`, temporary-file synchronization, and atomic rename. State is bounded to 10,000 operations. Completed or failed operations become eligible for pressure eviction after their operation expiry. Queued operations are not silently evicted.
 
 Audit records are appended to `file-audit.jsonl` with mode `0600` and synchronized before a validated request is dispatched. Each record contains a monotonic sequence, previous-record hash, and SHA-256 hash of the complete record. Startup verifies the full chain and refuses to enable the workspace if sequence or hash validation fails. Records contain the configured request-source label, authenticated agent ID, operation and command IDs, root ID, operation type, trace ID, timestamp, and result classification. They exclude local paths, relative paths, file content, and metadata values. Automated audit deletion is not implemented; retention and archival are an operator-owned deployment policy.
 
-Transfer staging storage has not been selected because the transfer phase is not enabled. Enabling `files.transfer.*` requires a separately reviewed encrypted storage adapter with durable multipart acknowledgements, scoped leases, lifecycle enforcement, quotas, and recovery tests. The existing protobuf `FileChunk` is not used or extended.
+Transfer state is stored in `file-transfers.json`; encrypted chunks are stored below `file-spool/`. `file-spool.key` is a gateway-local 256-bit key protected with mode `0600`. Transfer snapshots and chunk acknowledgements are synchronized before success is returned. Transfer records are bounded to 2,000, files to one GiB, chunks to 256, and retention to 24 hours. Expired records remove their spool directory. An operator may remove one terminal transfer or all terminal transfers for an agent; removal deletes only the gateway record and encrypted staging bytes, is audited before execution, and cannot remove an active transfer. It does not delete the source file or a browser-saved copy. The existing protobuf `FileChunk` is not used or extended.
+
+Permanent deletion has no recovery mapping, retention payload, staging copy, or restore route. One requested directory tree is limited to 10,000 entries and 64 nested directory levels. The dry run enumerates the complete bounded tree without mutation; execution independently rebuilds the plan and removes entries in post-order. On Unix, enumeration and removal use root-bound, handle-relative, no-follow operations. The plan records the device, inode, and entry type and verifies that identity immediately before each removal. It rejects a directory mounted from a different device and any descendant that crosses a device boundary. Windows uses bounded `WalkDir` enumeration, does not follow symbolic links, verifies file identity before `os.Remove`, and retains the documented path-based containment race. A permission failure, concurrent change, or newly created child can produce a partial recursive deletion because filesystem removal is not transactional. The website warns that nested content is included but does not list every nested entry in its top-level operation review. Gateway operation state and the tamper-evident audit classification remain because destructive actions cannot bypass the gateway trust boundary. Legacy `file-trash.json` files and `.xenomorph-trash` directories created by earlier builds are not loaded, modified, or automatically purged; an operator must inspect and remove those historical artifacts explicitly.
 
 ## Website Access and Transport
 
-The website and file API do not implement browser authentication, browser authorization, roles, or browser credentials. File workspace pages load immediately, discover roots automatically, and issue read requests directly to the dashboard API. `FILE_OPERATOR_ID` defaults to `internal-website` and supplies only a server-authored audit source label; it does not identify an individual user and is not authorization evidence. The dashboard listener uses TLS 1.3 with the configured gateway server certificate. The deployment must restrict the dashboard listener and website to the intended internal network population. Browser authentication remains outside this implementation scope.
+The website and file API do not implement browser authentication, browser authorization, roles, or browser credentials. File workspace pages load immediately, discover roots automatically, and issue read, transfer, and mutation requests directly to the dashboard API. The gateway applies the same normalized root-relative path bounds to operator-authored transfer and mutation operands before dispatch; the agent independently validates the signed operands again before local execution. `FILE_OPERATOR_ID` defaults to `internal-website` and supplies only a server-authored audit source label; it does not identify an individual user and is not authorization evidence. The dashboard listener uses TLS 1.3 with the configured gateway server certificate. The deployment must restrict the dashboard listener and website to the intended internal network population. Browser authentication remains outside this implementation scope.
 
 Administrative WebSocket upgrades require an exact `DASHBOARD_ALLOWED_ORIGIN` match; the secure default is `https://localhost:5173`. Agent media upgrades reject requests carrying a browser `Origin` header.
 
@@ -111,7 +125,10 @@ Administrative WebSocket upgrades require an exact `DASHBOARD_ALLOWED_ORIGIN` ma
 | Replay or delayed command | Nonce persistence before execution, audience binding, two-minute expiry | Replay history is bounded; a replay older than 256 verified commands is also constrained by expiry. |
 | Cross-agent confused deputy | Certificate-derived audience in signature; authenticated result match | None within the command channel. |
 | Traversal and link escape | Normalized component allowlist; root handle; no-follow component walk | Windows reports the absence of a safe handle-relative primitive. |
-| Unbounded directory or preview | Hard caps on path, depth, page, cursor, request body, and preview | Native-order cursor resumption performs bounded-memory rescanning proportional to cursor offset. |
+| Unbounded directory, preview, transfer, or mutation | Hard caps on path, depth, page, cursor, request body, preview, file bytes, chunks, transfer records, and mutation items | Native-order cursor resumption performs bounded-memory rescanning proportional to cursor offset. |
+| Transfer corruption or confused deputy | Per-chunk and full-object SHA-256, AES-GCM staging, authenticated agent match, scoped expiring capability, durable acknowledgements | Gateway-local key protection relies on host filesystem controls. |
+| Mutation race or traversal | Preconditions, normalized operands, root-bound no-follow handles, handle-relative Unix mutation, atomic no-replace publish | Windows reports safe handle-relative I/O and atomic replace as unavailable; its adapter retains the documented platform race limitation. |
+| Irrecoverable recursive deletion | Explicit destructive folder warning, two-step website dry-run review, source preconditions, no-follow traversal, fixed depth and entry limits, filesystem-boundary rejection on Unix, identity checks before removal, and tamper-evident audit classification | Successful deletion is intentionally irreversible; nested entries are not individually represented in the gateway result, execution can be partial after a concurrent change or local failure, the protocol accepts signed execution requests without a server-issued dry-run proof, and storage recovery is outside this feature. |
 | Active content in preview | Agent returns opaque bytes; website renders decoded text only in escaped React text; binary is not rendered | Text classification is conservative, not a safety verdict. |
 | Client claims used as identity | Agent identity comes only from mTLS; root observations never establish identity | Root and capability observations may become stale and local operations may still fail. |
 | Audit alteration | Synchronized append-only file and verified hash chain | Host administrators can replace both state and the entire audit file; external immutable retention is required for stronger guarantees. |
@@ -121,4 +138,4 @@ These controls map to OWASP ASVS V1 architecture boundaries, V4 access control, 
 
 ## Acceptance Evidence
 
-Unit and integration tests cover signature verification, signed-field tampering, expiry, replay, cross-agent commands and results, automatic root discovery, operation persistence before dispatch, audit-chain tampering, path traversal, unknown-root rejection, no-follow symlink listing, bounded pagination, and bounded preview. Windows and macOS test binaries are compiled in addition to Linux execution. Repository release gates remain mandatory.
+Unit and integration tests cover signature verification, signed-field tampering, expiry, replay, cross-agent commands and results, automatic root discovery, operation persistence before dispatch, audit-chain tampering, path traversal, unknown-root rejection, no-follow symlink listing, bounded pagination, bounded preview, encrypted transfer staging, checksum rejection, cross-agent lease rejection, atomic collision handling, stale mutation preconditions, symlink-parent rejection, dry-run non-mutation, permanent file deletion, empty-directory deletion, bounded recursive deletion, and preservation of targets referenced by nested symbolic links. Windows and macOS test binaries are compiled in addition to Linux execution. Repository release gates remain mandatory.

@@ -1,60 +1,48 @@
-import { type MutableRefObject, useEffect, useRef, useState } from "react"
-import {
-  ChevronLeft,
-  ChevronRight,
-  File,
-  FileQuestion,
-  Folder,
-  FolderOpen,
-  HardDrive,
-} from "lucide-react"
+import { type RefObject, useEffect, useRef, useState } from "react"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { DetailsInspector } from "@/components/dashboard/file-explorer/details-inspector"
+import { FileBrowserCard } from "@/components/dashboard/file-explorer/file-browser-card"
+import { FileViewer } from "@/components/dashboard/file-explorer/file-viewer"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  MutationDialog,
+  type MutationIntent,
+} from "@/components/dashboard/file-explorer/mutation-dialog"
 import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
-import { Skeleton } from "@/components/ui/skeleton"
+  errorMessage,
+  isAbortError,
+  isTerminalTransfer,
+  joinPath,
+} from "@/components/dashboard/file-explorer/shared"
+import { TransferDrawer } from "@/components/dashboard/file-explorer/transfer-drawer"
+import { UploadDialog } from "@/components/dashboard/file-explorer/upload-dialog"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  decodePreviewText,
+  createDownloadTransfer,
   getFileMetadata,
   listDirectory,
+  listTransfers,
   probeFileRoots,
   readFilePreview,
   type DirectoryPage,
   type FileEntry,
   type FileRoot,
+  type FileTransfer,
   type MetadataResult,
+  type MutationResult,
+  type MutationVerb,
   type PreviewResult,
-  type RootObservation,
 } from "@/lib/files"
+
+const activeTransferPollMilliseconds = 1_000
+const idleTransferPollMilliseconds = 5_000
+
+type RootSelection = {
+  agentID: string
+  root: FileRoot
+}
 
 export function FileExplorer({ agentID }: { agentID: string }) {
   const [roots, setRoots] = useState<FileRoot[]>([])
-  const [rootObservations, setRootObservations] = useState<RootObservation[]>(
-    []
-  )
-  const [root, setRoot] = useState<FileRoot>()
-  const [rootAgentID, setRootAgentID] = useState("")
+  const [rootSelection, setRootSelection] = useState<RootSelection>()
   const [relativePath, setRelativePath] = useState("")
   const [page, setPage] = useState<DirectoryPage>()
   const [cursorHistory, setCursorHistory] = useState<string[]>([""])
@@ -62,68 +50,107 @@ export function FileExplorer({ agentID }: { agentID: string }) {
   const [metadata, setMetadata] = useState<MetadataResult>()
   const [preview, setPreview] = useState<PreviewResult>()
   const [selectedPath, setSelectedPath] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-  const requestRef = useRef<AbortController | undefined>(undefined)
+  const [probeLoading, setProbeLoading] = useState(true)
+  const [directoryLoading, setDirectoryLoading] = useState(false)
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [downloadPending, setDownloadPending] = useState(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [mutationIntent, setMutationIntent] = useState<MutationIntent>()
+  const [selectedEntryIDs, setSelectedEntryIDs] = useState<Set<string>>(
+    new Set()
+  )
+  const [directoryRevision, setDirectoryRevision] = useState(0)
+  const [workspaceError, setWorkspaceError] = useState("")
+  const [detailsError, setDetailsError] = useState("")
+  const [transfers, setTransfers] = useState<FileTransfer[]>([])
+  const [transferError, setTransferError] = useState("")
+  const probeRequestRef = useRef<AbortController | undefined>(undefined)
+  const directoryRequestRef = useRef<AbortController | undefined>(undefined)
+  const detailsRequestRef = useRef<AbortController | undefined>(undefined)
+  const activeAgentRef = useRef(agentID)
 
-  useEffect(() => () => requestRef.current?.abort(), [])
+  const root =
+    rootSelection?.agentID === agentID ? rootSelection.root : undefined
 
   useEffect(() => {
-    const controller = beginRequest(requestRef)
+    activeAgentRef.current = agentID
+    const controller = replaceRequest(probeRequestRef)
+    directoryRequestRef.current?.abort()
+    detailsRequestRef.current?.abort()
     queueMicrotask(() => {
-      if (!controller.signal.aborted) {
-        setLoading(true)
-        setError("")
-        setRoots([])
-        setRoot(undefined)
-        setRootAgentID("")
-        setPage(undefined)
-      }
+      if (controller.signal.aborted) return
+      setProbeLoading(true)
+      setDirectoryLoading(false)
+      setDetailsLoading(false)
+      setDownloadPending(false)
+      setUploadOpen(false)
+      setMutationIntent(undefined)
+      setSelectedEntryIDs(new Set())
+      setWorkspaceError("")
+      setDetailsError("")
+      setRoots([])
+      setRootSelection(undefined)
+      setRelativePath("")
+      setPage(undefined)
+      setCursorHistory([""])
+      setCursorIndex(0)
+      setMetadata(undefined)
+      setPreview(undefined)
+      setSelectedPath("")
+      setTransfers([])
+      setTransferError("")
     })
+
     probeFileRoots(agentID, controller.signal)
       .then((probe) => {
+        if (controller.signal.aborted) return
         const nextRoots = probe.roots
           .filter((item) => item.available)
-          .map((item) => ({
-            root_id: item.root_id,
-            display_label: item.display_label,
-            allowed_verbs: item.allowed_verbs,
+          .map(({ root_id, display_label, allowed_verbs, capabilities }) => ({
+            root_id,
+            display_label,
+            allowed_verbs,
+            capabilities,
           }))
         setRoots(nextRoots)
-        setRootObservations(probe.roots)
-        setRootAgentID(agentID)
-        setRoot(
-          (current) =>
+        setRootSelection((current) => {
+          const currentRootID =
+            current?.agentID === agentID ? current.root.root_id : ""
+          const nextRoot =
             nextRoots.find(
-              (candidate) =>
-                candidate.root_id === current?.root_id &&
-                probe.roots.find((item) => item.root_id === candidate.root_id)
-                  ?.available !== false
+              (candidate) => candidate.root_id === currentRootID
             ) ??
-            nextRoots.find(
-              (candidate) =>
-                probe.roots.find((item) => item.root_id === candidate.root_id)
-                  ?.available !== false
-            )
-        )
+            nextRoots.find((candidate) => candidate.root_id === "home") ??
+            nextRoots[0]
+          return nextRoot ? { agentID, root: nextRoot } : undefined
+        })
       })
-      .catch((cause: unknown) => handleRequestError(cause, setError))
-      .finally(() => setLoading(false))
+      .catch((cause: unknown) => {
+        if (!isAbortError(cause)) setWorkspaceError(errorMessage(cause))
+      })
+      .finally(() => {
+        if (
+          !controller.signal.aborted &&
+          probeRequestRef.current === controller
+        ) {
+          setProbeLoading(false)
+        }
+      })
+
     return () => controller.abort()
   }, [agentID])
 
   useEffect(() => {
-    if (!root || rootAgentID !== agentID) return
-    const controller = beginRequest(requestRef)
-    queueMicrotask(() => {
-      if (!controller.signal.aborted) {
-        setLoading(true)
-        setError("")
-        setMetadata(undefined)
-        setPreview(undefined)
-      }
-    })
+    if (!root) return
+    const controller = replaceRequest(directoryRequestRef)
     const cursor = cursorHistory[cursorIndex] ?? ""
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return
+      setDirectoryLoading(true)
+      setWorkspaceError("")
+      setPage(undefined)
+    })
+
     listDirectory(
       agentID,
       root.root_id,
@@ -131,410 +158,380 @@ export function FileExplorer({ agentID }: { agentID: string }) {
       cursor,
       controller.signal
     )
-      .then(setPage)
-      .catch((cause: unknown) => handleRequestError(cause, setError))
-      .finally(() => setLoading(false))
+      .then((nextPage) => {
+        if (directoryRequestRef.current === controller) setPage(nextPage)
+      })
+      .catch((cause: unknown) => {
+        if (
+          !isAbortError(cause) &&
+          directoryRequestRef.current === controller
+        ) {
+          setWorkspaceError(errorMessage(cause))
+        }
+      })
+      .finally(() => {
+        if (
+          !controller.signal.aborted &&
+          directoryRequestRef.current === controller
+        ) {
+          setDirectoryLoading(false)
+        }
+      })
+
     return () => controller.abort()
-  }, [agentID, cursorHistory, cursorIndex, relativePath, root, rootAgentID])
+  }, [
+    agentID,
+    cursorHistory,
+    cursorIndex,
+    directoryRevision,
+    relativePath,
+    root,
+  ])
+
+  useEffect(() => {
+    let active = true
+    let timer = 0
+
+    const refresh = async () => {
+      let delay = idleTransferPollMilliseconds
+      try {
+        const items = await listTransfers(agentID)
+        if (!active) return
+        setTransfers(items)
+        setTransferError("")
+        if (items.some((item) => !isTerminalTransfer(item))) {
+          delay = activeTransferPollMilliseconds
+        }
+      } catch (cause) {
+        if (active) setTransferError(errorMessage(cause))
+      } finally {
+        if (active) {
+          timer = window.setTimeout(() => void refresh(), delay)
+        }
+      }
+    }
+
+    void refresh()
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [agentID])
+
+  useEffect(
+    () => () => {
+      probeRequestRef.current?.abort()
+      directoryRequestRef.current?.abort()
+      detailsRequestRef.current?.abort()
+    },
+    []
+  )
+
+  const clearSelectedFile = () => {
+    detailsRequestRef.current?.abort()
+    setMetadata(undefined)
+    setPreview(undefined)
+    setSelectedPath("")
+    setDetailsError("")
+    setDetailsLoading(false)
+  }
+
+  const resetPagination = () => {
+    setCursorHistory([""])
+    setCursorIndex(0)
+  }
+
+  const selectRoot = (nextRoot: FileRoot) => {
+    setRootSelection({ agentID, root: nextRoot })
+    setRelativePath("")
+    setPage(undefined)
+    resetPagination()
+    clearSelectedFile()
+    setSelectedEntryIDs(new Set())
+  }
+
+  const navigate = (path: string) => {
+    setRelativePath(path)
+    setPage(undefined)
+    resetPagination()
+    clearSelectedFile()
+    setSelectedEntryIDs(new Set())
+  }
+
+  const openEntry = (entry: FileEntry) => {
+    if (!root || !entry.operation_name) return
+    const path = relativePath
+      ? `${relativePath}/${entry.operation_name}`
+      : entry.operation_name
+    if (entry.kind === "directory") {
+      navigate(path)
+      return
+    }
+
+    const controller = replaceRequest(detailsRequestRef)
+    setSelectedPath(path)
+    setMetadata(undefined)
+    setPreview(undefined)
+    setDetailsLoading(true)
+    setDetailsError("")
+    Promise.all([
+      getFileMetadata(agentID, root.root_id, path, controller.signal),
+      entry.kind === "file" && root.allowed_verbs.includes("preview")
+        ? readFilePreview(agentID, root.root_id, path, controller.signal)
+        : Promise.resolve(undefined),
+    ])
+      .then(([nextMetadata, nextPreview]) => {
+        if (detailsRequestRef.current !== controller) return
+        setMetadata(nextMetadata)
+        setPreview(nextPreview)
+      })
+      .catch((cause: unknown) => {
+        if (!isAbortError(cause) && detailsRequestRef.current === controller) {
+          setDetailsError(errorMessage(cause))
+        }
+      })
+      .finally(() => {
+        if (
+          !controller.signal.aborted &&
+          detailsRequestRef.current === controller
+        ) {
+          setDetailsLoading(false)
+        }
+      })
+  }
+
+  const downloadSelectedFile = async () => {
+    if (
+      !root ||
+      metadata?.kind !== "file" ||
+      !selectedPath ||
+      downloadPending
+    ) {
+      return
+    }
+    const requestAgentID = agentID
+    setDownloadPending(true)
+    setTransferError("")
+    try {
+      const transfer = await createDownloadTransfer(
+        requestAgentID,
+        root.root_id,
+        selectedPath
+      )
+      if (activeAgentRef.current === requestAgentID) {
+        setTransfers((current) => [transfer, ...current])
+      }
+    } catch (cause) {
+      if (activeAgentRef.current === requestAgentID) {
+        setTransferError(errorMessage(cause))
+      }
+    } finally {
+      if (activeAgentRef.current === requestAgentID) setDownloadPending(false)
+    }
+  }
+
+  const nextPage = () => {
+    const nextCursor = page?.next_cursor
+    if (!nextCursor) return
+    setPage(undefined)
+    setCursorHistory((current) => [
+      ...current.slice(0, cursorIndex + 1),
+      nextCursor,
+    ])
+    setCursorIndex((current) => current + 1)
+    setSelectedEntryIDs(new Set())
+  }
+
+  const previousPage = () => {
+    setPage(undefined)
+    setCursorIndex((current) => Math.max(0, current - 1))
+    setSelectedEntryIDs(new Set())
+  }
+
+  const refreshDirectory = () => {
+    setPage(undefined)
+    setDirectoryRevision((current) => current + 1)
+  }
+
+  const selectEntry = (entry: FileEntry, selected: boolean) => {
+    setSelectedEntryIDs((current) => {
+      const next = new Set(current)
+      if (selected) next.add(entry.entry_id)
+      else next.delete(entry.entry_id)
+      return next
+    })
+  }
+
+  const locatedEntry = (entry: FileEntry) => ({
+    entry,
+    path: joinPath(relativePath, entry.operation_name ?? ""),
+  })
+
+  const requestMutation = (verb: MutationVerb, entry: FileEntry) => {
+    if (!entry.operation_name) return
+    setMutationIntent({
+      verb,
+      entries: [locatedEntry(entry)],
+      directory: relativePath,
+    })
+  }
+
+  const requestCreate = (verb: "create_file" | "create_directory") => {
+    setMutationIntent({ verb, entries: [], directory: relativePath })
+  }
+
+  const requestBulkDelete = () => {
+    const entries = (page?.entries ?? [])
+      .filter(
+        (entry) => selectedEntryIDs.has(entry.entry_id) && entry.operation_name
+      )
+      .map(locatedEntry)
+    if (entries.length > 0) {
+      setMutationIntent({ verb: "delete", entries, directory: relativePath })
+    }
+  }
+
+  const mutationCompleted = (result: MutationResult) => {
+    if (result.items.some((item) => item.state === "completed")) {
+      setSelectedEntryIDs(new Set())
+      clearSelectedFile()
+      refreshDirectory()
+    }
+  }
+
+  const upsertTransfer = (transfer: FileTransfer) => {
+    setTransfers((current) => {
+      const exists = current.some(
+        (item) => item.transfer_id === transfer.transfer_id
+      )
+      return exists
+        ? current.map((item) =>
+            item.transfer_id === transfer.transfer_id ? transfer : item
+          )
+        : [transfer, ...current]
+    })
+  }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <Card className="min-w-0">
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <CardTitle>Files</CardTitle>
-              <CardDescription>
-                Read-only filesystem observations from this agent.
-              </CardDescription>
-            </div>
-            <Badge variant="outline">No-follow browsing</Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-wrap gap-2" aria-label="Filesystem roots">
-            {roots.map((candidate) => {
-              const observation = rootObservations.find(
-                (item) => item.root_id === candidate.root_id
-              )
-              return (
-                <Button
-                  key={candidate.root_id}
-                  variant={
-                    candidate.root_id === root?.root_id
-                      ? "secondary"
-                      : "outline"
-                  }
-                  size="sm"
-                  disabled={observation?.available === false}
-                  onClick={() => {
-                    setRoot(candidate)
-                    setRelativePath("")
-                    resetPagination(setCursorHistory, setCursorIndex)
-                  }}
-                >
-                  <HardDrive data-icon="inline-start" />
-                  {candidate.display_label}
-                </Button>
-              )
-            })}
-          </div>
-
-          <PathNavigation
+    <>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        {selectedPath ? (
+          <FileViewer
+            preview={preview}
+            selectedPath={selectedPath}
+            loading={detailsLoading}
+            error={detailsError}
+            canDownload={
+              root?.allowed_verbs.includes("transfer") === true &&
+              metadata?.kind === "file"
+            }
+            downloadPending={downloadPending}
+            onBack={clearSelectedFile}
+            onDownload={() => void downloadSelectedFile()}
+          />
+        ) : (
+          <FileBrowserCard
+            roots={roots}
+            root={root}
             relativePath={relativePath}
-            onNavigate={(path) => {
-              setRelativePath(path)
-              resetPagination(setCursorHistory, setCursorIndex)
+            page={page}
+            loading={
+              probeLoading ||
+              directoryLoading ||
+              (root !== undefined &&
+                page === undefined &&
+                workspaceError === "")
+            }
+            error={workspaceError}
+            canTransfer={root?.allowed_verbs.includes("transfer") === true}
+            canMutate={root?.allowed_verbs.includes("mutate") === true}
+            canDelete={
+              root?.allowed_verbs.includes("mutate") === true &&
+              root.capabilities.permanent_delete === "available"
+            }
+            selectedEntryIDs={selectedEntryIDs}
+            cursorIndex={cursorIndex}
+            onUpload={() => setUploadOpen(true)}
+            onCreate={requestCreate}
+            onBulkDelete={requestBulkDelete}
+            onRootChange={selectRoot}
+            onNavigate={navigate}
+            onOpen={openEntry}
+            onSelectionChange={selectEntry}
+            onAction={requestMutation}
+            onPreviousPage={previousPage}
+            onNextPage={nextPage}
+          />
+        )}
+        <div className="flex flex-col gap-4">
+          <DetailsInspector
+            metadata={metadata}
+            selectedPath={selectedPath}
+            loading={detailsLoading}
+            error={detailsError}
+          />
+          <TransferDrawer
+            key={agentID}
+            agentID={agentID}
+            transfers={transfers}
+            error={transferError}
+            onChange={(transfer) => {
+              if (activeAgentRef.current === agentID) {
+                setTransfers((current) =>
+                  current.map((item) =>
+                    item.transfer_id === transfer.transfer_id ? transfer : item
+                  )
+                )
+              }
+            }}
+            onRemove={(transferID) => {
+              if (activeAgentRef.current === agentID) {
+                setTransfers((current) =>
+                  current.filter((item) => item.transfer_id !== transferID)
+                )
+              }
+            }}
+            onRemoveFinished={() => {
+              if (activeAgentRef.current === agentID) {
+                setTransfers((current) =>
+                  current.filter((item) => !isTerminalTransfer(item))
+                )
+              }
             }}
           />
-
-          {error ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <FileQuestion />
-                </EmptyMedia>
-                <EmptyTitle>Workspace request failed</EmptyTitle>
-                <EmptyDescription>{error}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : loading && !page ? (
-            <div className="flex flex-col gap-2" aria-label="Loading directory">
-              {Array.from({ length: 6 }, (_, index) => (
-                <Skeleton key={index} className="h-10 w-full" />
-              ))}
-            </div>
-          ) : !root ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <HardDrive />
-                </EmptyMedia>
-                <EmptyTitle>No filesystem roots available</EmptyTitle>
-                <EmptyDescription>
-                  The agent did not report a readable filesystem root.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : page?.entries.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <FolderOpen />
-                </EmptyMedia>
-                <EmptyTitle>Directory is empty</EmptyTitle>
-                <EmptyDescription>
-                  No entries were observed in this snapshot.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <DirectoryTable
-              entries={page?.entries ?? []}
-              onOpen={(entry) =>
-                openEntry(entry, {
-                  agentID,
-                  root,
-                  relativePath,
-                  setRelativePath,
-                  setMetadata,
-                  setPreview,
-                  setSelectedPath,
-                  setError,
-                  requestRef,
-                  setLoading,
-                  setCursorHistory,
-                  setCursorIndex,
-                })
-              }
-            />
-          )}
-
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-muted-foreground">
-              {page
-                ? `${page.entries.length} visible entries · ${page.ordering}`
-                : "No snapshot"}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={cursorIndex === 0 || loading}
-                onClick={() =>
-                  setCursorIndex((current) => Math.max(0, current - 1))
-                }
-              >
-                <ChevronLeft data-icon="inline-start" /> Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!page?.has_more || !page.next_cursor || loading}
-                onClick={() => {
-                  if (!page?.next_cursor) return
-                  setCursorHistory((current) => [
-                    ...current.slice(0, cursorIndex + 1),
-                    page.next_cursor!,
-                  ])
-                  setCursorIndex((current) => current + 1)
-                }}
-              >
-                Next <ChevronRight data-icon="inline-end" />
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <DetailsInspector
-        metadata={metadata}
-        preview={preview}
-        selectedPath={selectedPath}
-        loading={loading}
-      />
-    </div>
-  )
-}
-
-function PathNavigation({
-  relativePath,
-  onNavigate,
-}: {
-  relativePath: string
-  onNavigate: (path: string) => void
-}) {
-  const parts = relativePath ? relativePath.split("/") : []
-  return (
-    <nav
-      className="flex flex-wrap items-center gap-1"
-      aria-label="Current filesystem path"
-    >
-      <Button variant="ghost" size="sm" onClick={() => onNavigate("")}>
-        <HardDrive data-icon="inline-start" /> Root
-      </Button>
-      {parts.map((part, index) => (
-        <div key={`${part}-${index}`} className="flex items-center gap-1">
-          <ChevronRight aria-hidden="true" />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onNavigate(parts.slice(0, index + 1).join("/"))}
-          >
-            {part}
-          </Button>
         </div>
-      ))}
-    </nav>
+      </div>
+      {root ? (
+        <>
+          <UploadDialog
+            open={uploadOpen}
+            agentID={agentID}
+            rootID={root.root_id}
+            directory={relativePath}
+            allowReplace={root.capabilities.atomic_rename === "available"}
+            onOpenChange={setUploadOpen}
+            onTransfer={upsertTransfer}
+            onComplete={refreshDirectory}
+          />
+          <MutationDialog
+            intent={mutationIntent}
+            agentID={agentID}
+            rootID={root.root_id}
+            allowReplace={root.capabilities.atomic_rename === "available"}
+            onOpenChange={(open) => {
+              if (!open) setMutationIntent(undefined)
+            }}
+            onComplete={mutationCompleted}
+          />
+        </>
+      ) : null}
+    </>
   )
 }
 
-function DirectoryTable({
-  entries,
-  onOpen,
-}: {
-  entries: FileEntry[]
-  onOpen: (entry: FileEntry) => void
-}) {
-  return (
-    <div className="max-h-[520px] overflow-auto rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Kind</TableHead>
-            <TableHead>Size</TableHead>
-            <TableHead>Modified</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {entries.map((entry) => {
-            const EntryIcon = entry.kind === "directory" ? Folder : File
-            return (
-              <TableRow key={entry.entry_id}>
-                <TableCell>
-                  <Button
-                    variant="link"
-                    className="max-w-[420px] justify-start px-0"
-                    disabled={!entry.operation_name}
-                    title={
-                      entry.operation_name
-                        ? undefined
-                        : "This native name cannot be addressed safely through the normalized path protocol"
-                    }
-                    onClick={() => onOpen(entry)}
-                  >
-                    <EntryIcon data-icon="inline-start" />
-                    <span className="truncate">{entry.display_name}</span>
-                  </Button>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">{entry.kind}</Badge>
-                </TableCell>
-                <TableCell>
-                  {entry.kind === "file" ? formatBytes(entry.size) : "—"}
-                </TableCell>
-                <TableCell>
-                  {new Intl.DateTimeFormat(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  }).format(new Date(entry.modified_at))}
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
-  )
-}
-
-function DetailsInspector({
-  metadata,
-  preview,
-  selectedPath,
-  loading,
-}: {
-  metadata?: MetadataResult
-  preview?: PreviewResult
-  selectedPath: string
-  loading: boolean
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Details</CardTitle>
-        <CardDescription>
-          {selectedPath ||
-            "Select an entry to inspect client-authored metadata."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {loading && selectedPath ? (
-          <Skeleton className="h-28 w-full" />
-        ) : metadata ? (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">Kind</dt>
-            <dd>{metadata.kind}</dd>
-            <dt className="text-muted-foreground">Size</dt>
-            <dd>{formatBytes(metadata.size)}</dd>
-            <dt className="text-muted-foreground">Modified</dt>
-            <dd>{new Date(metadata.modified_at).toLocaleString()}</dd>
-            <dt className="text-muted-foreground">Mode</dt>
-            <dd className="font-mono">{metadata.mode.toString(8)}</dd>
-          </dl>
-        ) : (
-          <p className="text-sm text-muted-foreground">No entry selected.</p>
-        )}
-        {preview && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium">Bounded preview</span>
-              <Badge variant="outline">{preview.classification}</Badge>
-            </div>
-            {preview.classification === "text" ? (
-              <pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs whitespace-pre-wrap">
-                {decodePreviewText(preview)}
-              </pre>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Binary content is not rendered.
-              </p>
-            )}
-            {preview.truncated && (
-              <span className="text-xs text-muted-foreground">
-                Preview truncated by policy.
-              </span>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-type OpenEntryContext = {
-  agentID: string
-  root: FileRoot
-  relativePath: string
-  setRelativePath: (value: string) => void
-  setMetadata: (value?: MetadataResult) => void
-  setPreview: (value?: PreviewResult) => void
-  setSelectedPath: (value: string) => void
-  setError: (value: string) => void
-  requestRef: MutableRefObject<AbortController | undefined>
-  setLoading: (value: boolean) => void
-  setCursorHistory: (value: string[]) => void
-  setCursorIndex: (value: number) => void
-}
-
-function openEntry(entry: FileEntry, context: OpenEntryContext) {
-  if (!entry.operation_name) return
-  const path = context.relativePath
-    ? `${context.relativePath}/${entry.operation_name}`
-    : entry.operation_name
-  if (entry.kind === "directory") {
-    context.setRelativePath(path)
-    resetPagination(context.setCursorHistory, context.setCursorIndex)
-    return
-  }
-  const controller = beginRequest(context.requestRef)
-  context.setSelectedPath(path)
-  context.setMetadata(undefined)
-  context.setPreview(undefined)
-  context.setLoading(true)
-  context.setError("")
-  Promise.all([
-    getFileMetadata(
-      context.agentID,
-      context.root.root_id,
-      path,
-      controller.signal
-    ),
-    entry.kind === "file" && context.root.allowed_verbs.includes("preview")
-      ? readFilePreview(
-          context.agentID,
-          context.root.root_id,
-          path,
-          controller.signal
-        )
-      : Promise.resolve(undefined),
-  ])
-    .then(([nextMetadata, nextPreview]) => {
-      context.setMetadata(nextMetadata)
-      context.setPreview(nextPreview)
-    })
-    .catch((cause: unknown) => handleRequestError(cause, context.setError))
-    .finally(() => context.setLoading(false))
-}
-
-function beginRequest(ref: MutableRefObject<AbortController | undefined>) {
+function replaceRequest(ref: RefObject<AbortController | undefined>) {
   ref.current?.abort()
   const controller = new AbortController()
   ref.current = controller
   return controller
-}
-
-function handleRequestError(cause: unknown, setError: (value: string) => void) {
-  if (cause instanceof DOMException && cause.name === "AbortError") return
-  setError(
-    cause instanceof Error ? cause.message : "File workspace request failed"
-  )
-}
-
-function resetPagination(
-  setHistory: (value: string[]) => void,
-  setIndex: (value: number) => void
-) {
-  setHistory([""])
-  setIndex(0)
-}
-
-function formatBytes(value: number) {
-  return new Intl.NumberFormat(undefined, {
-    style: "unit",
-    unit: "byte",
-    notation: "compact",
-    unitDisplay: "narrow",
-  }).format(value)
 }

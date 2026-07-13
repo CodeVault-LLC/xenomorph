@@ -138,6 +138,9 @@ func (s *Server) routes() {
 	s.engine.GET("/commands/next", s.handleNextCommand)
 	s.engine.POST("/commands/result", s.handleCommandResult)
 	s.engine.GET("/screen/media", s.handleScreenMedia)
+	s.engine.PUT("/files/transfers/:transferID/chunks/:chunkIndex", s.handleAgentTransferChunkPut)
+	s.engine.GET("/files/transfers/:transferID/chunks/:chunkIndex", s.handleAgentTransferChunkGet)
+	s.engine.POST("/files/transfers/:transferID/finalize", s.handleAgentTransferFinalize)
 }
 
 // handleLogEntry processes an authenticated client diagnostic log entry.

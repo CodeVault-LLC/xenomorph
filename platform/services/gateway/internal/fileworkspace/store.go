@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
 	"github.com/google/uuid"
 )
 
@@ -40,19 +41,21 @@ const (
 // Operation is a gateway-owned durable command record. Result is
 // client-authored data received on the authenticated agent channel.
 type Operation struct {
-	OperationID  string          `json:"operation_id"`
-	CommandID    string          `json:"command_id"`
-	AgentID      string          `json:"agent_id"`
-	OperatorID   string          `json:"operator_id"`
-	RootID       string          `json:"root_id"`
-	Type         string          `json:"type"`
-	State        OperationState  `json:"state"`
-	Result       json.RawMessage `json:"result,omitempty"`
-	ErrorClass   string          `json:"error_class,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	ExpiresAt    time.Time       `json:"expires_at"`
-	AuditTraceID string          `json:"audit_trace_id"`
+	OperationID  string                        `json:"operation_id"`
+	TransferID   string                        `json:"transfer_id,omitempty"`
+	CommandID    string                        `json:"command_id"`
+	AgentID      string                        `json:"agent_id"`
+	OperatorID   string                        `json:"operator_id"`
+	RootID       string                        `json:"root_id"`
+	Type         string                        `json:"type"`
+	State        OperationState                `json:"state"`
+	Result       json.RawMessage               `json:"result,omitempty"`
+	ErrorClass   string                        `json:"error_class,omitempty"`
+	CreatedAt    time.Time                     `json:"created_at"`
+	UpdatedAt    time.Time                     `json:"updated_at"`
+	ExpiresAt    time.Time                     `json:"expires_at"`
+	AuditTraceID string                        `json:"audit_trace_id"`
+	Mutation     *fileprotocol.MutationRequest `json:"mutation,omitempty"`
 }
 
 // AuditRecord is a server-authored append-only file workspace audit event.
@@ -62,6 +65,7 @@ type AuditRecord struct {
 	Sequence       uint64    `json:"sequence"`
 	EventType      string    `json:"event_type"`
 	OperationID    string    `json:"operation_id"`
+	TransferID     string    `json:"transfer_id,omitempty"`
 	CommandID      string    `json:"command_id"`
 	AgentID        string    `json:"agent_id"`
 	OperatorID     string    `json:"operator_id"`
@@ -207,7 +211,7 @@ func (store *Store) Complete(agentID, commandID, status string, result json.RawM
 	if err := store.persistLocked(); err != nil {
 		return Operation{}, err
 	}
-	classification := "completed"
+	classification := string(StateCompleted)
 	if operation.State == StateFailed {
 		classification = operation.ErrorClass
 	}
@@ -226,6 +230,11 @@ func (store *Store) Get(agentID, operationID string) (Operation, bool) {
 		return Operation{}, false
 	}
 	operation.Result = append(json.RawMessage(nil), operation.Result...)
+	if operation.Mutation != nil {
+		mutation := *operation.Mutation
+		mutation.Items = append([]fileprotocol.MutationItem(nil), operation.Mutation.Items...)
+		operation.Mutation = &mutation
+	}
 	return operation, true
 }
 
@@ -345,7 +354,7 @@ func (store *Store) loadAudit() error {
 func (store *Store) appendAuditLocked(operation Operation, eventType, classification string) error {
 	record := AuditRecord{
 		Sequence: store.auditSequence + 1, EventType: eventType,
-		OperationID: operation.OperationID, CommandID: operation.CommandID,
+		OperationID: operation.OperationID, CommandID: operation.CommandID, TransferID: operation.TransferID,
 		AgentID: operation.AgentID, OperatorID: operation.OperatorID, RootID: operation.RootID,
 		OperationType: operation.Type, Classification: classification,
 		TraceID: operation.AuditTraceID, OccurredAt: time.Now().UTC(), PreviousHash: store.auditHash,
@@ -380,6 +389,20 @@ func (store *Store) appendAuditLocked(operation Operation, eventType, classifica
 	store.auditSequence = record.Sequence
 	store.auditHash = record.Hash
 	return nil
+}
+
+func (store *Store) appendTransferRemovalAudit(agentID, operatorID, traceID, transferID, rootID, eventType string) error {
+	if agentID == "" || operatorID == "" {
+		return fmt.Errorf("transfer removal identity and operator are required")
+	}
+	operation := Operation{
+		OperationID: uuid.New().String(), TransferID: transferID,
+		AgentID: agentID, OperatorID: operatorID, RootID: rootID,
+		Type: eventType, AuditTraceID: traceID,
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.appendAuditLocked(operation, eventType, "accepted")
 }
 
 func auditHash(record AuditRecord) (string, error) {

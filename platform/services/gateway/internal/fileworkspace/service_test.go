@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -149,5 +150,100 @@ func TestProbeRootsDoesNotRequireConfiguredGrants(t *testing.T) {
 	}
 	if request.ProtocolVersion != fileprotocol.Version {
 		t.Fatalf("protocol version = %d, want %d", request.ProtocolVersion, fileprotocol.Version)
+	}
+}
+
+func TestDownloadPreparationFreezesManifestThenDispatchesResume(t *testing.T) {
+	t.Parallel()
+	service, queue := newTestService(t)
+	transfer, err := service.CreateTransfer("agent-1", "operator-1", "trace-1", fileprotocol.TransferManifest{
+		Direction: fileprotocol.TransferDownload, RootID: "root-1", RelativePath: "report.bin",
+		ChunkSize: defaultChunkSize, Conflict: fileprotocol.ConflictFail,
+	})
+	if err != nil {
+		t.Fatalf("CreateTransfer() error = %v", err)
+	}
+	prepare := queue.Dequeue("agent-1")
+	if prepare == nil || prepare.Type != fileprotocol.CommandTransferPrepare {
+		t.Fatalf("prepare command = %+v", prepare)
+	}
+	data := []byte("report")
+	manifest := testManifest(fileprotocol.TransferDownload, data)
+	manifest.TransferID, manifest.RootID, manifest.RelativePath = transfer.TransferID, "root-1", "report.bin"
+	resultData, err := json.Marshal(fileprotocol.TransferResult{ProtocolVersion: fileprotocol.Version, TransferID: transfer.TransferID, State: "prepared", Manifest: &manifest, Scanning: "not_scanned"})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	envelope, err := json.Marshal(fileprotocol.CommandResult{ProtocolVersion: fileprotocol.Version, Data: resultData})
+	if err != nil {
+		t.Fatalf("Marshal() envelope error = %v", err)
+	}
+	if err := service.Complete("agent-1", prepare.CommandID, "executed", envelope); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	resume := queue.Dequeue("agent-1")
+	if resume == nil || resume.Type != fileprotocol.CommandTransferResume {
+		t.Fatalf("resume command = %+v", resume)
+	}
+	stored, ok := service.Transfer("agent-1", transfer.TransferID)
+	assertStoredManifest(t, stored, ok, manifest.SHA256)
+}
+
+func TestRemoveTransferWritesAuditBeforeCleanup(t *testing.T) {
+	t.Parallel()
+	service, _ := newTestService(t)
+	data := []byte("audited cleanup")
+	transfer := createCompletedDownloadTransfer(t, service.transfers, "agent-1", data)
+	if err := service.RemoveTransfer("agent-1", "operator-2", "trace-remove", transfer.TransferID); err != nil {
+		t.Fatalf("RemoveTransfer() error = %v", err)
+	}
+	audit, err := os.ReadFile(service.store.auditPath) // #nosec G304 -- the path is an isolated service fixture.
+	if err != nil {
+		t.Fatalf("os.ReadFile() audit error = %v", err)
+	}
+	if !strings.Contains(string(audit), "transfer_removal_requested") || !strings.Contains(string(audit), "trace-remove") {
+		t.Fatalf("audit = %q, want transfer removal event and trace", audit)
+	}
+}
+
+func TestValidateOperatorRelativePathRejectsTraversalAndInvalidEncoding(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "absolute", value: "/etc/passwd"},
+		{name: "parent traversal", value: "documents/../secret"},
+		{name: "current directory", value: "documents/./report"},
+		{name: "windows separator", value: `documents\report`},
+		{name: "empty component", value: "documents//report"},
+		{name: "line break", value: "documents/report\nname"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if err := validateOperatorRelativePath(test.value); err == nil {
+				t.Fatalf("validateOperatorRelativePath(%q) error = nil, want rejection", test.value)
+			}
+		})
+	}
+}
+
+func TestCreateTransferRejectsOperatorPathTraversal(t *testing.T) {
+	t.Parallel()
+	service, _ := newTestService(t)
+	_, err := service.CreateTransfer("agent-1", "operator-1", "trace-1", fileprotocol.TransferManifest{
+		Direction: fileprotocol.TransferDownload, RootID: "root-1", RelativePath: "../secret",
+		ChunkSize: defaultChunkSize, Conflict: fileprotocol.ConflictFail,
+	})
+	if err == nil {
+		t.Fatal("CreateTransfer() error = nil, want path traversal rejection")
+	}
+}
+
+func assertStoredManifest(t *testing.T, transfer Transfer, ok bool, expectedDigest string) {
+	t.Helper()
+	if !ok || transfer.Manifest.SHA256 != expectedDigest {
+		t.Fatalf("stored transfer = %+v", transfer)
 	}
 }

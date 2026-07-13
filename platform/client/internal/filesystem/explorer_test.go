@@ -109,9 +109,28 @@ func TestListRootsDiscoversFilesystem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRoots() error = %v", err)
 	}
-	if len(result.Roots) == 0 || !result.Roots[0].Available || len(result.Roots[0].AllowedVerbs) != len(readOnlyVerbs) {
-		t.Fatalf("ListRoots() = %+v, want an available read-only root", result)
+	for _, root := range result.Roots {
+		if root.Available && len(root.AllowedVerbs) == len(supportedVerbs) {
+			return
+		}
 	}
+	t.Fatalf("ListRoots() = %+v, want an available root", result)
+}
+
+func TestListRootsIncludesCurrentUserHome(t *testing.T) {
+	if _, err := os.UserHomeDir(); err != nil {
+		t.Skipf("current user home is unavailable: %v", err)
+	}
+	result, err := ListRoots(fileprotocol.RootsListRequest{ProtocolVersion: fileprotocol.Version})
+	if err != nil {
+		t.Fatalf("ListRoots() error = %v", err)
+	}
+	for _, root := range result.Roots {
+		if root.RootID == homeFilesystemRootID {
+			return
+		}
+	}
+	t.Fatalf("ListRoots() = %+v, want current user home root", result)
 }
 
 func testRootID(t *testing.T) string {

@@ -2,7 +2,7 @@
 
 ## Purpose and Scope
 
-This plan defines a gateway-mediated remote file workspace for internal support operations. The implemented workspace provides a responsive, read-only explorer. Transfers, mutations, metadata writes, archive operations, and managed trash are future phases and are not enabled by the current implementation.
+This plan defines a gateway-mediated remote file workspace for internal support operations. The implemented workspace provides a responsive explorer, durable individual transfers, preconditioned mutations, and explicit permanent deletion. The product does not provide managed trash or restore. Metadata writes and archive operations are not enabled by the current implementation.
 
 The feature is not a direct browser-to-agent file channel, a client trust mechanism, a malware-scanning service, or a means to bypass the gateway. The website and file API have no browser authentication, browser authorization, role check, credential, root grant, or per-agent root policy. The gateway remains the sole agent-identity, command-authenticity, audit, durable-operation, and command-dispatch boundary. The agent performs operations locally only after receiving a gateway-authored, integrity-protected, expiring command over the mutually authenticated channel. Every filesystem fact returned by the agent, including roots, paths, names, metadata, content hashes, capabilities, and operation outcomes, is client-authored evidence and must not be used as identity or authorization evidence.
 
@@ -10,7 +10,7 @@ The first implementation must target Windows, macOS, and Linux. It must provide 
 
 ## Current Implementation Status
 
-Phase 0 command-authenticity controls and the read-only subset of Phase 1 are implemented. The website discovers roots automatically, lists directories with cursor pagination, reads metadata, and renders bounded previews. Linux and macOS agents report `/`; Windows agents report currently available logical drives. The current explorer does not implement search, DOM virtualization, transfers, mutations, metadata writes, archives, or trash. Those items remain planned work and must preserve the access model in this document.
+Phase 0 command-authenticity controls, the read-only subset of Phase 1, Phase 2 individual transfers, and Phase 3 safe mutations are implemented. The website discovers roots automatically, lists directories with cursor pagination, reads metadata, renders bounded previews, uploads and downloads individual files, and reconciles durable progress in a transfer drawer. It exposes create, move/rename, copy, duplicate, touch, truncate, append, single and bulk permanent deletion, dry-run review, and per-item results. The gateway provides encrypted staged upload/download chunks, scoped leases, durable acknowledgements, resume/abort control, gateway-normalized operator paths, and preconditioned mutation dispatch. Deletion creates no gateway recovery record or agent-side staging copy. Search, DOM virtualization, metadata writes, and archives remain planned. Phase 4 is prepared through explicit unavailable metadata-write and archive capability fields and an archive-format allowlist field; no Phase 4 command is enabled.
 
 ## Existing-System Fit
 
@@ -25,7 +25,7 @@ Component ownership is fixed as follows:
 | Agent | Automatic local root discovery, local enumeration, byte streaming, filesystem mutation, platform capability discovery, transfer checkpointing | Identity assertion, browser authorization decision, direct external publication | Gateway-authored and integrity-protected command received on mTLS channel |
 | Object storage / transfer spool | Encrypted temporary and retained transfer bytes, manifests, lifecycle enforcement | Browser authentication, browser authorization, or filesystem interpretation | Gateway-issued short-lived, scoped credentials only |
 
-The gateway must persist operation and transfer state before dispatching work. In-memory dashboard state, which is acceptable for the present terminal implementation, is not acceptable for transfers, trash recovery, audit records, resumptions, or idempotency keys.
+The gateway must persist operation and transfer state before dispatching work. In-memory dashboard state, which is acceptable for the present terminal implementation, is not acceptable for transfers, audit records, resumptions, or idempotency keys.
 
 ## Product Surface
 
@@ -48,9 +48,8 @@ Define these gateway-managed resources and protocol records:
 - `file_entry`: opaque entry ID, display name, kind, size, timestamps, attributes, link state, content identity when available, and per-entry capabilities. All fields are client-authored observations.
 - `operation`: gateway-generated ID, configured request-source label, agent ID, requested intent, idempotency key, state machine status, bounded result summary, timestamps, and audit correlation ID.
 - `transfer`: transfer ID, direction, manifest version, source and destination binding, file set, conflict strategy, per-item state, byte/checksum checkpoints, retry budget, expiry, and retention deadline.
-- `trash_item`: gateway-owned logical record mapping a recoverable item to its original root/path, deletion operation, available restore target, retention deadline, and integrity metadata.
 
-The implemented gateway API exposes automatic root discovery, cursor-paged directory listing, on-demand metadata, bounded content preview, and operation creation/status. Future phases may add search, cancellation, transfer creation/status/control, conflict resolution, trash listing/restore/purge, and a WebSocket or Server-Sent Events stream for gateway-generated state changes. API responses must distinguish `not_supported`, `not_found`, `stale_snapshot`, `conflict`, `offline`, `quota_exceeded`, `retryable_failure`, and `permanent_failure` without exposing sensitive local paths or credentials. `forbidden` is reserved for an operating-system or agent-side result, not browser access control.
+The implemented gateway API exposes automatic root discovery, cursor-paged directory listing, on-demand metadata, bounded content preview, transfer creation/status/control, and operation creation/status. Future phases may add search, cancellation, expanded conflict resolution, and a WebSocket or Server-Sent Events stream for gateway-generated state changes. API responses must distinguish `not_supported`, `not_found`, `stale_snapshot`, `conflict`, `offline`, `quota_exceeded`, `retryable_failure`, and `permanent_failure` without exposing sensitive local paths or credentials. `forbidden` is reserved for an operating-system or agent-side result, not browser access control.
 
 The command protocol needs typed commands such as `files.roots.list`, `files.directory.list`, `files.metadata.get`, `files.preview.read`, `files.operation.execute`, `files.transfer.prepare`, `files.transfer.resume`, and `files.transfer.abort`. Each command includes a gateway-generated command ID, operation/transfer ID, expiry, nonce, requested root-relative operands, expected preconditions, and a cryptographic signature. The agent validates the signature, command type, expiry, replay nonce, byte limits, and all operands before execution. The file protocol version must change when its wire shape changes; version 2 replaces gateway-supplied root policies with automatic agent root discovery.
 
@@ -77,7 +76,7 @@ Support the following operation families in phased delivery:
 | Creation | empty file, directory, duplicate, touch, symbolic link | safe name validation; explicit link target semantics; no link traversal |
 | Content | upload, download, overwrite, append, truncate, bounded preview | atomic staging where possible; expected-version checks; byte quotas; content integrity verification |
 | Organization | rename, move, copy, bulk move/copy | same-root atomic rename when supported; collision strategy; recursion/cycle detection; cross-device fallback |
-| Deletion and recovery | move to managed trash, restore, permanent purge | no silent permanent deletion; restore conflict strategy; retention and secure cleanup rules |
+| Deletion | permanent deletion of files and bounded directory trees | explicit irreversible folder warning; two-step website dry-run review; source preconditions; no-follow traversal; depth and entry limits; filesystem-boundary control; top-level per-item result |
 | Metadata | view/edit timestamps, POSIX mode, owner/group, ACL/attributes | capability-gated; least privilege; separate owner and ACL semantics; audit old/new values |
 | Archive | create archive, list archive, extract archive | safe formats; archive-bomb limits; zip-slip prevention; no implicit execution or preview extraction |
 
@@ -97,7 +96,7 @@ Transfers must be bounded by configurable per-file, aggregate, directory-depth, 
 
 Bulk transfer planning expands a selection into a manifest on the agent with maximum depth/count/bytes enforced during walk. It produces a preview with excluded, inaccessible, special, changed, and conflicting entries. The UI shows aggregate and per-item progress but does not wait for an exact pre-scan where a streaming plan is safer; it labels totals as estimated until final. Bulk operations have explicit all-or-nothing semantics only when the platform and destination staging support them. Otherwise results are per-item, resumable, and report partial completion clearly.
 
-File bytes and sensitive metadata are encrypted in transit with TLS 1.3 and encrypted at rest in staging. Storage object keys are unguessable and scoped; lifecycle rules delete unfinished staging data, completed exports, and trash payloads at configured retention deadlines. Gateway storage credentials are never surfaced to browsers or agents. Malware scanning is explicitly out of scope: upload/download responses may carry a `not_scanned` classification and an extension hook for a future external scanning verdict, but must never claim clean or safe content without an integrated authoritative scanner.
+File bytes and sensitive metadata are encrypted in transit with TLS 1.3 and encrypted at rest in transfer staging. Storage object keys are unguessable and scoped; lifecycle rules delete unfinished staging data and completed exports at configured retention deadlines. Gateway storage credentials are never surfaced to browsers or agents. Malware scanning is explicitly out of scope: upload/download responses may carry a `not_scanned` classification and an extension hook for a future external scanning verdict, but must never claim clean or safe content without an integrated authoritative scanner.
 
 ## Failure, Conflict, and Recovery Semantics
 
@@ -118,7 +117,7 @@ All errors are structured, stable, and safe for internal users. The UI displays 
 | Gateway restart | Recover durable operations/transfers and replay no command unless its idempotency/precondition state permits it |
 | Duplicate or delayed result | Deduplicate by operation/command/transfer IDs; accept only valid state transitions |
 
-Trash is a managed feature, not an assumption that the operating system recycle bin is available. Default deletion moves an eligible entry into a configured, root-bound managed trash namespace by atomic rename where possible. The gateway stores original location and retention metadata. If a root cannot support managed trash safely, deletion is unavailable unless a separately approved permanent-purge mode exists. Restore always checks destination preconditions and uses the same explicit collision strategy. Purge is delayed, auditable, retention-governed, and prevents recovery only after successful deletion confirmation.
+Deletion is an explicit permanent operation, not an operating-system recycle-bin integration. The website labels the action as irreversible, warns when selected folders include nested content, performs an agent-validated dry run, and requires a second destructive confirmation before execution. The agent revalidates source preconditions and builds a no-follow recursive plan limited to 10,000 entries and 64 directory levels. Unix rejects cross-device traversal and verifies device, inode, and entry type before each handle-relative removal. Windows uses its bounded path-based containment fallback and verifies file identity before removal. Links are removed without traversing their targets. Nested entries are not separate gateway mutation items, and a local failure or concurrent change can leave a partially removed tree because filesystem deletion is not transactional. No deleted content, hidden recovery path, retention payload, or restore mapping is created. Gateway operation and audit records remain mandatory and exclude relative paths and file content.
 
 ## Archive and Preview Safety
 
@@ -128,7 +127,7 @@ Preview is a bounded read service, not an arbitrary file viewer. It reads at mos
 
 ## Cross-Platform Capability Matrix
 
-The workspace must implement an agent capability probe and report a versioned capability document. It includes operating system, filesystem type, automatically discovered roots, case sensitivity where detectable, max path behavior, atomic rename support, managed trash support, symlink/reparse support, ACL/owner/mode/timestamp fields, extended attributes, archive formats, sparse-file awareness, and available safe handle-relative primitives. This report is client-authored and informs presentation only; fixed protocol limits and the signed command boundary remain authoritative.
+The workspace must implement an agent capability probe and report a versioned capability document. It includes operating system, filesystem type, automatically discovered roots, case sensitivity where detectable, max path behavior, atomic rename support, permanent-delete support, symlink/reparse support, ACL/owner/mode/timestamp fields, extended attributes, archive formats, sparse-file awareness, and available safe handle-relative primitives. This report is client-authored and informs presentation only; fixed protocol limits and the signed command boundary remain authoritative.
 
 Platform adapters must isolate OS-specific code behind a narrow internal interface. Common code owns the normalized model, validation, operation state machine, transfer protocol, and tests. Platform code owns native file handles, metadata translation, error classification, root handles, and capability discovery. Tests must cover Windows and Unix compilation paths; integration tests run on Windows, macOS, and Linux filesystems, including case-sensitive and case-insensitive volumes where available.
 
@@ -166,9 +165,9 @@ Implement staged upload/download manifests, scoped data-plane leases, checksums,
 
 Gate: network interruption, browser restart, agent restart, checksum mismatch, source mutation, quota exhaustion, and duplicate-result tests produce the documented state/result without data corruption.
 
-### Phase 3: Safe mutations and trash
+### Phase 3: Safe mutations and permanent deletion
 
-Implement create, rename, move, copy, duplicate, touch, truncate, append, managed trash, restore, and permitted purge only after a separate product decision defines the intended destructive-operation controls. Add dry-run plans, preconditions, and bulk per-item result reporting. The read-only explorer does not imply permission to mutate.
+Implement create, rename, move, copy, duplicate, touch, truncate, append, and explicit permanent deletion. The destructive-operation product decision requires clear irreversible wording, a folder-content warning, a two-step website flow with an agent-validated dry run, source preconditions, bounded no-follow recursive deletion, and bulk top-level per-item result reporting. Managed trash and restore are not part of the product. The read-only explorer does not imply permission to mutate.
 
 Gate: malicious path, symlink/reparse race, cross-volume move, collision, permission-denied, stale-snapshot, and cancellation tests pass on each supported OS.
 
@@ -192,4 +191,4 @@ Set measurable service-level objectives before implementation. Suggested initial
 
 ## Explicit Non-Goals
 
-The feature provides unrestricted read-only exploration of roots that the agent process can access. It does not bypass operating-system permissions, provide arbitrary shell execution, provide direct peer-to-peer transfer, provide automatic malware verdicts, act as a consumer cloud-drive synchronization client, index every file in the background, silently overwrite data, or promise metadata equivalence across filesystems. Any future extension that introduces destructive mutation, remote filesystem mounts, external-share connectors, deduplication across agents, content scanning, or persistent content indexing requires a separate threat model and plan.
+The feature explores roots that the agent process can access and performs only explicitly signed, allowlisted, bounded operations. It does not bypass operating-system permissions, provide arbitrary shell execution, provide direct peer-to-peer transfer, provide automatic malware verdicts, act as a consumer cloud-drive synchronization client, index every file in the background, silently overwrite data, promise metadata equivalence across filesystems, provide managed trash or restore, or provide unbounded or transactional recursive deletion. Remote filesystem mounts, external-share connectors, deduplication across agents, content scanning, and persistent content indexing require a separate product decision and threat-model update.

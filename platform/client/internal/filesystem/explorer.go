@@ -42,10 +42,12 @@ type rootDefinition struct {
 	DisplayLabel string
 }
 
-var readOnlyVerbs = []fileprotocol.Verb{
+var supportedVerbs = []fileprotocol.Verb{
 	fileprotocol.VerbList,
 	fileprotocol.VerbMetadata,
 	fileprotocol.VerbPreview,
+	fileprotocol.VerbTransfer,
+	fileprotocol.VerbMutate,
 }
 
 // ListRoots enumerates and probes the agent's local filesystem roots.
@@ -61,8 +63,8 @@ func ListRoots(request fileprotocol.RootsListRequest) (fileprotocol.RootsListRes
 	for _, definition := range roots {
 		observation := fileprotocol.RootObservation{
 			RootID: definition.ID, DisplayLabel: definition.DisplayLabel,
-			AllowedVerbs: append([]fileprotocol.Verb(nil), readOnlyVerbs...),
-			Capabilities: platformCapabilities(), ReadOnly: true,
+			AllowedVerbs: append([]fileprotocol.Verb(nil), supportedVerbs...),
+			Capabilities: platformCapabilities(), ReadOnly: false,
 		}
 		root, err := openRoot(definition.Path)
 		if err != nil {
@@ -415,10 +417,13 @@ func platformCapabilities() fileprotocol.RootCapabilities {
 	capabilities := fileprotocol.RootCapabilities{
 		ProtocolVersion: fileprotocol.Version, OperatingSystem: runtime.GOOS,
 		CaseSensitive: unavailable, NoFollowResolution: available,
-		AtomicRename: unavailable, ManagedTrash: unavailable, Symlinks: available,
+		AtomicRename: available, PermanentDelete: available, Symlinks: available,
 		POSIXMode: unavailable, Owner: unavailable, ACL: unavailable,
 		ExtendedAttributes: unavailable, SparseFiles: unavailable,
 		SafeHandleRelativeIO: available,
+		MetadataWrite:        unavailable, ArchiveCreate: unavailable,
+		ArchiveList: unavailable, ArchiveExtract: unavailable,
+		ArchiveFormats: []string{},
 	}
 	if runtime.GOOS != windowsOS {
 		capabilities.CaseSensitive = available
@@ -426,6 +431,7 @@ func platformCapabilities() fileprotocol.RootCapabilities {
 	}
 	if runtime.GOOS == windowsOS {
 		capabilities.SafeHandleRelativeIO = unavailable
+		capabilities.AtomicRename = unavailable
 	}
 	return capabilities
 }

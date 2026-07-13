@@ -1,5 +1,5 @@
-// Package fileprotocol defines the versioned read-only filesystem command and
-// result contract shared by the gateway and agent. Command identifiers are
+// Package fileprotocol defines the versioned filesystem command and result
+// contract shared by the gateway and agent. Command identifiers are
 // server-authored. Every filesystem observation in a result is client-authored
 // evidence and must not be used for identity or authorization.
 package fileprotocol
@@ -10,7 +10,7 @@ import (
 )
 
 // Version is the current file workspace protocol version.
-const Version = 2
+const Version = 4
 
 const (
 	// CommandRootsList requests filesystem root and capability observations.
@@ -21,9 +21,17 @@ const (
 	CommandMetadataGet = "files.metadata.get"
 	// CommandPreviewRead requests a bounded regular-file byte range.
 	CommandPreviewRead = "files.preview.read"
+	// CommandOperationExecute requests a bounded, preconditioned mutation.
+	CommandOperationExecute = "files.operation.execute"
+	// CommandTransferPrepare requests one staged file transfer.
+	CommandTransferPrepare = "files.transfer.prepare"
+	// CommandTransferResume resumes one staged file transfer from acknowledged chunks.
+	CommandTransferResume = "files.transfer.resume"
+	// CommandTransferAbort cancels one staged file transfer.
+	CommandTransferAbort = "files.transfer.abort"
 )
 
-// Verb identifies a supported read-only filesystem action.
+// Verb identifies a supported filesystem action family.
 type Verb string
 
 const (
@@ -33,6 +41,10 @@ const (
 	VerbMetadata Verb = "metadata"
 	// VerbPreview permits bounded regular-file reads.
 	VerbPreview Verb = "preview"
+	// VerbTransfer permits staged regular-file upload and download.
+	VerbTransfer Verb = "transfer"
+	// VerbMutate permits explicitly requested, preconditioned mutations.
+	VerbMutate Verb = "mutate"
 )
 
 // CapabilityState reports whether an optional filesystem behavior is usable.
@@ -69,7 +81,7 @@ type RootCapabilities struct {
 	CaseSensitive        CapabilityState `json:"case_sensitive"`
 	NoFollowResolution   CapabilityState `json:"no_follow_resolution"`
 	AtomicRename         CapabilityState `json:"atomic_rename"`
-	ManagedTrash         CapabilityState `json:"managed_trash"`
+	PermanentDelete      CapabilityState `json:"permanent_delete"`
 	Symlinks             CapabilityState `json:"symlinks"`
 	POSIXMode            CapabilityState `json:"posix_mode"`
 	Owner                CapabilityState `json:"owner"`
@@ -77,6 +89,11 @@ type RootCapabilities struct {
 	ExtendedAttributes   CapabilityState `json:"extended_attributes"`
 	SparseFiles          CapabilityState `json:"sparse_files"`
 	SafeHandleRelativeIO CapabilityState `json:"safe_handle_relative_io"`
+	MetadataWrite        CapabilityState `json:"metadata_write"`
+	ArchiveCreate        CapabilityState `json:"archive_create"`
+	ArchiveList          CapabilityState `json:"archive_list"`
+	ArchiveExtract       CapabilityState `json:"archive_extract"`
+	ArchiveFormats       []string        `json:"archive_formats"`
 }
 
 // RootObservation is the agent's client-authored observation of one local
@@ -179,6 +196,151 @@ type PreviewResult struct {
 	Data            []byte `json:"data"`
 	Classification  string `json:"classification"`
 	Truncated       bool   `json:"truncated"`
+}
+
+// ConflictStrategy defines the recorded behavior when a destination exists.
+type ConflictStrategy string
+
+const (
+	// ConflictFail rejects an existing destination.
+	ConflictFail ConflictStrategy = "fail"
+	// ConflictSkip reports an existing destination without changing it.
+	ConflictSkip ConflictStrategy = "skip"
+	// ConflictRenameNew publishes under a non-colliding generated name.
+	ConflictRenameNew ConflictStrategy = "rename_new"
+	// ConflictReplace atomically replaces an eligible destination.
+	ConflictReplace ConflictStrategy = "replace"
+)
+
+// MutationVerb identifies an allowlisted filesystem mutation.
+type MutationVerb string
+
+const (
+	// MutationCreateFile creates an empty regular file.
+	MutationCreateFile MutationVerb = "create_file"
+	// MutationCreateDirectory creates an empty directory.
+	MutationCreateDirectory MutationVerb = "create_directory"
+	// MutationRename renames an entry within one root.
+	MutationRename MutationVerb = "rename"
+	// MutationMove moves an entry within one root.
+	MutationMove MutationVerb = "move"
+	// MutationCopy copies one regular file.
+	MutationCopy MutationVerb = "copy"
+	// MutationDuplicate creates a copy at an explicit destination.
+	MutationDuplicate MutationVerb = "duplicate"
+	// MutationTouch updates a no-follow entry timestamp.
+	MutationTouch MutationVerb = "touch"
+	// MutationTruncate changes a regular file to an explicit size.
+	MutationTruncate MutationVerb = "truncate"
+	// MutationAppend appends bounded opaque bytes to a regular file.
+	MutationAppend MutationVerb = "append"
+	// MutationDelete permanently removes one entry or a bounded directory tree.
+	MutationDelete MutationVerb = "delete"
+)
+
+// Preconditions bind a mutation or transfer to a client-observed version.
+// The observations remain client-authored and are used only to detect change.
+type Preconditions struct {
+	MustExist       *bool     `json:"must_exist,omitempty"`
+	ExpectedKind    EntryKind `json:"expected_kind,omitempty"`
+	ExpectedSize    *int64    `json:"expected_size,omitempty"`
+	ExpectedModTime time.Time `json:"expected_modified_at,omitempty"`
+}
+
+// MutationItem describes one bounded root-relative mutation operand.
+type MutationItem struct {
+	ItemID          string        `json:"item_id"`
+	SourcePath      string        `json:"source_path,omitempty"`
+	DestinationPath string        `json:"destination_path,omitempty"`
+	AppendData      []byte        `json:"append_data,omitempty"`
+	TruncateSize    int64         `json:"truncate_size,omitempty"`
+	Preconditions   Preconditions `json:"preconditions"`
+}
+
+// MutationRequest asks the agent to plan or execute bounded mutation items.
+type MutationRequest struct {
+	ProtocolVersion int              `json:"protocol_version"`
+	OperationID     string           `json:"operation_id"`
+	RootID          string           `json:"root_id"`
+	Verb            MutationVerb     `json:"verb"`
+	DryRun          bool             `json:"dry_run"`
+	Conflict        ConflictStrategy `json:"conflict_strategy"`
+	Items           []MutationItem   `json:"items"`
+}
+
+// ItemResult is one client-authored mutation or transfer outcome.
+type ItemResult struct {
+	ItemID       string `json:"item_id"`
+	State        string `json:"state"`
+	ErrorClass   string `json:"error_class,omitempty"`
+	ResultPath   string `json:"result_path,omitempty"`
+	BytesApplied int64  `json:"bytes_applied,omitempty"`
+}
+
+// MutationResult contains bounded per-item results and never asserts identity.
+type MutationResult struct {
+	ProtocolVersion int          `json:"protocol_version"`
+	OperationID     string       `json:"operation_id"`
+	DryRun          bool         `json:"dry_run"`
+	Items           []ItemResult `json:"items"`
+}
+
+// TransferDirection identifies which side authors staged bytes.
+type TransferDirection string
+
+const (
+	// TransferUpload moves browser-staged bytes to an agent destination.
+	TransferUpload TransferDirection = "upload"
+	// TransferDownload moves agent-authored bytes to gateway staging.
+	TransferDownload TransferDirection = "download"
+)
+
+// ChunkManifest binds one durable chunk to its expected byte range and digest.
+type ChunkManifest struct {
+	Index  int    `json:"index"`
+	Offset int64  `json:"offset"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
+// TransferManifest is the immutable, checksummed single-file transfer plan.
+type TransferManifest struct {
+	ProtocolVersion int               `json:"protocol_version"`
+	TransferID      string            `json:"transfer_id"`
+	Direction       TransferDirection `json:"direction"`
+	RootID          string            `json:"root_id"`
+	RelativePath    string            `json:"relative_path"`
+	Size            int64             `json:"size"`
+	ChunkSize       int64             `json:"chunk_size"`
+	SHA256          string            `json:"sha256"`
+	Chunks          []ChunkManifest   `json:"chunks"`
+	Conflict        ConflictStrategy  `json:"conflict_strategy"`
+	Preconditions   Preconditions     `json:"preconditions"`
+}
+
+// DataPlaneLease is a gateway-authored, short-lived chunk capability.
+type DataPlaneLease struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// TransferRequest asks the agent to prepare or resume one immutable manifest.
+type TransferRequest struct {
+	ProtocolVersion int              `json:"protocol_version"`
+	Manifest        TransferManifest `json:"manifest"`
+	Lease           DataPlaneLease   `json:"lease"`
+}
+
+// TransferResult reports verified progress for one transfer.
+type TransferResult struct {
+	ProtocolVersion int               `json:"protocol_version"`
+	TransferID      string            `json:"transfer_id"`
+	State           string            `json:"state"`
+	Acknowledged    []int             `json:"acknowledged_chunks"`
+	BytesVerified   int64             `json:"bytes_verified"`
+	ErrorClass      string            `json:"error_class,omitempty"`
+	Scanning        string            `json:"scanning"`
+	Manifest        *TransferManifest `json:"manifest,omitempty"`
 }
 
 // Error is a stable, safe filesystem failure returned to the gateway.

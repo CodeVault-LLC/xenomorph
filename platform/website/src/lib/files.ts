@@ -1,9 +1,21 @@
-export type FileVerb = "list" | "metadata" | "preview"
+import { sha256 } from "@noble/hashes/sha2.js"
+import { bytesToHex } from "@noble/hashes/utils.js"
+
+export type FileVerb = "list" | "metadata" | "preview" | "transfer" | "mutate"
 
 export interface FileRoot {
   root_id: string
   display_label: string
   allowed_verbs: FileVerb[]
+  capabilities: RootCapabilities
+}
+
+export interface RootCapabilities {
+  operating_system: string
+  no_follow_resolution: "available" | "unavailable" | "denied"
+  safe_handle_relative_io: "available" | "unavailable" | "denied"
+  atomic_rename: "available" | "unavailable" | "denied"
+  permanent_delete: "available" | "unavailable" | "denied"
 }
 
 export interface RootObservation {
@@ -13,11 +25,7 @@ export interface RootObservation {
   available: boolean
   read_only: boolean
   error_class?: string
-  capabilities: {
-    operating_system: string
-    no_follow_resolution: "available" | "unavailable" | "denied"
-    safe_handle_relative_io: "available" | "unavailable" | "denied"
-  }
+  capabilities: RootCapabilities
 }
 
 interface RootsListResult {
@@ -154,15 +162,19 @@ const pollOperation = async <T>(
 
 const abortableDelay = (milliseconds: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(resolve, milliseconds)
-    signal?.addEventListener(
-      "abort",
-      () => {
-        window.clearTimeout(timer)
-        reject(new DOMException("Operation aborted", "AbortError"))
-      },
-      { once: true }
-    )
+    if (signal?.aborted) {
+      reject(new DOMException("Operation aborted", "AbortError"))
+      return
+    }
+    const onAbort = () => {
+      window.clearTimeout(timer)
+      reject(new DOMException("Operation aborted", "AbortError"))
+    }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, milliseconds)
+    signal?.addEventListener("abort", onAbort, { once: true })
   })
 
 export const listDirectory = (
@@ -211,3 +223,319 @@ export const decodePreviewText = (preview: PreviewResult) => {
   )
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes)
 }
+
+export type TransferState =
+  | "staging"
+  | "queued"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled"
+
+export interface FileTransfer {
+  transfer_id: string
+  state: TransferState
+  bytes_verified: number
+  acknowledged_chunks: number[]
+  error_class?: string
+  manifest: {
+    direction: "upload" | "download"
+    relative_path: string
+    size: number
+    chunks: TransferChunk[]
+  }
+}
+
+interface TransferChunk {
+  index: number
+  offset: number
+  size: number
+  sha256: string
+}
+
+export type ConflictStrategy = "fail" | "skip" | "rename_new" | "replace"
+
+export type MutationVerb =
+  | "create_file"
+  | "create_directory"
+  | "rename"
+  | "move"
+  | "copy"
+  | "duplicate"
+  | "touch"
+  | "truncate"
+  | "append"
+  | "delete"
+
+export interface FilePreconditions {
+  must_exist?: boolean
+  expected_kind?: FileEntryKind
+  expected_size?: number
+  expected_modified_at?: string
+}
+
+export interface MutationItem {
+  item_id: string
+  source_path?: string
+  destination_path?: string
+  append_data?: string
+  truncate_size?: number
+  preconditions: FilePreconditions
+}
+
+export interface MutationItemResult {
+  item_id: string
+  state: "planned" | "completed" | "skipped" | "failed"
+  error_class?: string
+  result_path?: string
+  bytes_applied?: number
+}
+
+export interface MutationResult {
+  protocol_version: number
+  operation_id: string
+  dry_run: boolean
+  items: MutationItemResult[]
+}
+
+export interface UploadProgress {
+  phase: "hashing" | "staging" | "committing"
+  bytesComplete: number
+  bytesTotal: number
+  transfer?: FileTransfer
+}
+
+const transferChunkSize = 4 * 1024 * 1024
+const maxUploadBytes = 1024 * 1024 * 1024
+
+export const createDownloadTransfer = async (
+  agentID: string,
+  rootID: string,
+  relativePath: string
+) => {
+  const response = await fetch(`/api/clients/${agentID}/files/transfers`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      manifest: {
+        direction: "download",
+        root_id: rootID,
+        relative_path: relativePath,
+        chunk_size: transferChunkSize,
+        conflict_strategy: "fail",
+        preconditions: {},
+      },
+    }),
+  })
+  return (await readJSON<{ transfer: FileTransfer }>(response)).transfer
+}
+
+export const uploadFile = async (
+  agentID: string,
+  rootID: string,
+  relativePath: string,
+  file: File,
+  conflict: ConflictStrategy,
+  onProgress: (progress: UploadProgress) => void,
+  signal?: AbortSignal
+) => {
+  if (file.size > maxUploadBytes) {
+    throw new Error("Uploads are limited to 1 GiB per file")
+  }
+
+  const chunks: TransferChunk[] = []
+  const objectHash = sha256.create()
+  for (let offset = 0, index = 0; offset < file.size; index += 1) {
+    signal?.throwIfAborted()
+    const end = Math.min(offset + transferChunkSize, file.size)
+    const bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer())
+    objectHash.update(bytes)
+    chunks.push({
+      index,
+      offset,
+      size: bytes.byteLength,
+      sha256: bytesToHex(sha256(bytes)),
+    })
+    offset = end
+    onProgress({
+      phase: "hashing",
+      bytesComplete: offset,
+      bytesTotal: file.size,
+    })
+  }
+
+  const created = await requestTransfer(
+    agentID,
+    {
+      direction: "upload",
+      root_id: rootID,
+      relative_path: relativePath,
+      size: file.size,
+      chunk_size: transferChunkSize,
+      sha256: bytesToHex(objectHash.digest()),
+      chunks,
+      conflict_strategy: conflict,
+      preconditions: {},
+    },
+    signal
+  )
+  onProgress({
+    phase: "staging",
+    bytesComplete: created.bytes_verified,
+    bytesTotal: file.size,
+    transfer: created,
+  })
+
+  let transfer = created
+  for (const chunk of chunks) {
+    signal?.throwIfAborted()
+    if ((transfer.acknowledged_chunks ?? []).includes(chunk.index)) continue
+    const body = file.slice(chunk.offset, chunk.offset + chunk.size)
+    transfer = await stageUploadChunk(
+      agentID,
+      transfer.transfer_id,
+      chunk.index,
+      body,
+      signal
+    )
+    onProgress({
+      phase: "staging",
+      bytesComplete: transfer.bytes_verified,
+      bytesTotal: file.size,
+      transfer,
+    })
+  }
+
+  onProgress({
+    phase: "committing",
+    bytesComplete: file.size,
+    bytesTotal: file.size,
+    transfer,
+  })
+  const committed = await commitUpload(agentID, transfer.transfer_id, signal)
+  onProgress({
+    phase: "committing",
+    bytesComplete: file.size,
+    bytesTotal: file.size,
+    transfer: committed,
+  })
+  return committed
+}
+
+const requestTransfer = async (
+  agentID: string,
+  manifest: Record<string, unknown>,
+  signal?: AbortSignal
+) => {
+  const response = await fetch(`/api/clients/${agentID}/files/transfers`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ manifest }),
+    signal,
+  })
+  return (await readJSON<{ transfer: FileTransfer }>(response)).transfer
+}
+
+const stageUploadChunk = async (
+  agentID: string,
+  transferID: string,
+  index: number,
+  body: Blob,
+  signal?: AbortSignal
+) => {
+  const endpoint = `/api/clients/${agentID}/files/transfers/${transferID}/chunks/${index}`
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, { method: "PUT", body, signal })
+      if (response.ok || response.status < 500 || attempt === 2) {
+        return (await readJSON<{ transfer: FileTransfer }>(response)).transfer
+      }
+      await response.body?.cancel()
+    } catch (cause) {
+      if (signal?.aborted || attempt === 2) throw cause
+    }
+    await abortableDelay(250 * 2 ** attempt, signal)
+  }
+  throw new Error("Upload chunk retry limit was exceeded")
+}
+
+const commitUpload = async (
+  agentID: string,
+  transferID: string,
+  signal?: AbortSignal
+) => {
+  const response = await fetch(
+    `/api/clients/${agentID}/files/transfers/${transferID}/commit`,
+    { method: "POST", signal }
+  )
+  return (await readJSON<{ transfer: FileTransfer }>(response)).transfer
+}
+
+export const mutateFiles = async (
+  agentID: string,
+  rootID: string,
+  verb: MutationVerb,
+  items: MutationItem[],
+  conflict: ConflictStrategy,
+  dryRun: boolean,
+  signal?: AbortSignal
+) => {
+  const response = await fetch(`/api/clients/${agentID}/files/mutations`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      root_id: rootID,
+      verb,
+      dry_run: dryRun,
+      conflict_strategy: conflict,
+      items,
+    }),
+    signal,
+  })
+  const created = await readJSON<{ operation: FileOperation<MutationResult> }>(
+    response
+  )
+  return pollOperation<MutationResult>(
+    agentID,
+    created.operation.operation_id,
+    signal
+  )
+}
+
+export const listTransfers = async (agentID: string) => {
+  const response = await fetch(`/api/clients/${agentID}/files/transfers`, {
+    cache: "no-store",
+  })
+  return (await readJSON<{ transfers: FileTransfer[] }>(response)).transfers
+}
+
+export const controlTransfer = async (
+  agentID: string,
+  transferID: string,
+  action: "resume" | "abort"
+) => {
+  const response = await fetch(
+    `/api/clients/${agentID}/files/transfers/${transferID}/${action}`,
+    { method: "POST" }
+  )
+  return (await readJSON<{ transfer: FileTransfer }>(response)).transfer
+}
+
+export const removeTransfer = async (agentID: string, transferID: string) => {
+  const response = await fetch(
+    `/api/clients/${agentID}/files/transfers/${transferID}`,
+    { method: "DELETE" }
+  )
+  return (await readJSON<{ removed: number }>(response)).removed
+}
+
+export const removeFinishedTransfers = async (agentID: string) => {
+  const response = await fetch(`/api/clients/${agentID}/files/transfers`, {
+    method: "DELETE",
+  })
+  return (await readJSON<{ removed: number }>(response)).removed
+}
+
+export const transferContentURL = (agentID: string, transferID: string) =>
+  `/api/clients/${agentID}/files/transfers/${transferID}/content`

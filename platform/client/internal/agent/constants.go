@@ -9,7 +9,7 @@ import (
 
 const (
 	heartbeatResponseSize int64         = 4096
-	commandResponseSize   int64         = 8192
+	commandResponseSize   int64         = 128 << 10
 	commandExpiry         time.Duration = 2 * time.Minute
 	commandClockSkew      time.Duration = 30 * time.Second
 	maxSeenCommandNonces  int           = 256
@@ -47,6 +47,14 @@ const (
 	CommandTypeFilesMetadataGet CommandType = fileprotocol.CommandMetadataGet
 	// CommandTypeFilesPreviewRead requests a bounded regular-file byte range.
 	CommandTypeFilesPreviewRead CommandType = fileprotocol.CommandPreviewRead
+	// CommandTypeFilesOperationExecute requests a preconditioned mutation.
+	CommandTypeFilesOperationExecute CommandType = fileprotocol.CommandOperationExecute
+	// CommandTypeFilesTransferPrepare requests one staged transfer.
+	CommandTypeFilesTransferPrepare CommandType = fileprotocol.CommandTransferPrepare
+	// CommandTypeFilesTransferResume resumes one staged transfer.
+	CommandTypeFilesTransferResume CommandType = fileprotocol.CommandTransferResume
+	// CommandTypeFilesTransferAbort cancels one staged transfer.
+	CommandTypeFilesTransferAbort CommandType = fileprotocol.CommandTransferAbort
 )
 
 // CommandStatus is a typed result status for command execution.

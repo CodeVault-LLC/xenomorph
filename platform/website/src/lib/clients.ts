@@ -246,3 +246,15 @@ export function resourceTone(value: number) {
   }
   return "good"
 }
+
+export const formatIP = (value: string) => {
+  if (value === "::1") {
+    return "localhost"
+  }
+
+  if (value.startsWith("::ffff:")) {
+    return value.replace("::ffff:", "")
+  }
+
+  return value
+}

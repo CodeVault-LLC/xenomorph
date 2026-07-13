@@ -21,23 +21,23 @@ type MetricCardProps = {
   className?: string
 }
 
-export function MetricCard({
+export const MetricCard = ({
   icon: Icon,
   label,
   value,
   tone = "default",
   className,
-}: MetricCardProps) {
+}: MetricCardProps) => {
   return (
     <Card className={cn(className)}>
-      <CardHeader className="pb-2">
-        <CardDescription className="flex items-center gap-2">
-          <Icon />
+      <CardHeader>
+        <CardDescription className="flex items-center gap-2 text-base">
+          <Icon className="size-5" />
           {label}
         </CardDescription>
       </CardHeader>
-      <CardContent className="pt-0">
-        <CardTitle className={cn("text-2xl", metricToneClass[tone])}>
+      <CardContent className="pt-3 pb-4">
+        <CardTitle className={cn("text-md", metricToneClass[tone])}>
           {value}
         </CardTitle>
       </CardContent>

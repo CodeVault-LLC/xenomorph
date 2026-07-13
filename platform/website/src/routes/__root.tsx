@@ -1,7 +1,7 @@
 import { Outlet, createRootRoute } from "@tanstack/react-router"
 import * as React from "react"
 
-import { SiteChrome } from "@/components/layout/site-chrome"
+import { Navbar } from "@/components/layout/navbar"
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -10,7 +10,7 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <React.Fragment>
-      <SiteChrome />
+      <Navbar />
       <Outlet />
     </React.Fragment>
   )

@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { CircleDot, UsersRound } from "lucide-react"
 
-import { ClientTable } from "@/components/dashboard/client-table"
-import { MetricCard } from "@/components/dashboard/metric-card"
+import { ClientTable } from "@/components/dashboard/client/client-table"
 import { useClients } from "@/components/data/use-clients"
 import { ErrorBanner } from "@/components/layout/error-banner"
 import { PageHeader } from "@/components/layout/page-header"
@@ -34,26 +32,6 @@ function ClientsRoute() {
           />
         }
       />
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <MetricCard
-          icon={UsersRound}
-          label="Known"
-          value={clients.length.toString()}
-        />
-        <MetricCard
-          icon={CircleDot}
-          label="Online"
-          value={onlineCount.toString()}
-          tone="good"
-        />
-        <MetricCard
-          icon={CircleDot}
-          label="Offline"
-          value={offlineCount.toString()}
-          tone={offlineCount > 0 ? "warn" : "good"}
-        />
-      </div>
 
       <ErrorBanner message={error} />
 

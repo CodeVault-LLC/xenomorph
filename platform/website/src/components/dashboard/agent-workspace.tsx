@@ -1,8 +1,6 @@
 import * as React from "react"
-import { Link } from "@tanstack/react-router"
 import {
   Activity,
-  ArrowLeft,
   Clock,
   Cpu,
   Database,
@@ -22,9 +20,8 @@ import { AgentTerminal } from "@/components/dashboard/agent-terminal"
 import { Fact } from "@/components/dashboard/fact"
 import { LiveScreen } from "@/components/dashboard/live-screen"
 import { MetricCard } from "@/components/dashboard/metric-card"
-import { OSBadge } from "@/components/dashboard/os-badge"
+import { OSLabel } from "@/components/dashboard/os-badge"
 import { ResourceMeter } from "@/components/dashboard/resource-meter"
-import { StatusBadge } from "@/components/dashboard/status-badge"
 import { TermLink } from "@/components/glossary/term-link"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -61,10 +58,12 @@ import {
   formatBytes,
   formatDate,
   formatDuration,
+  formatIP,
   formatPercent,
   formatRelative,
   resourceTone,
 } from "@/lib/clients"
+import { StatusBadge } from "./status-badge"
 
 const tabs = [
   { id: "general", label: "General", icon: Activity },
@@ -86,11 +85,11 @@ export function AgentWorkspace({ client }: { client: ClientSnapshot }) {
       value={activeTab}
       onValueChange={(value) => setActiveTab(value as TabID)}
       orientation="vertical"
-      className="grid overflow-hidden rounded-lg border border-border bg-card md:min-h-[calc(100vh-190px)] md:grid-cols-[256px_minmax(0,1fr)]"
+      className="grid overflow-hidden rounded-lg border border-border bg-card md:h-[calc(100vh-190px)] md:grid-cols-[256px_minmax(0,1fr)]"
     >
       <WorkspaceSidebar client={client} activeTab={activeTab} />
 
-      <div className="min-w-0 bg-background p-4 sm:p-5 lg:p-6">
+      <div className="min-w-0 overflow-y-auto bg-background p-4 sm:p-5 lg:p-6">
         <TabsContent value="general">
           <GeneralTab client={client} />
         </TabsContent>
@@ -124,30 +123,12 @@ function WorkspaceSidebar({
   return (
     <Sidebar>
       <SidebarHeader>
-        <Button
-          render={<Link to="/" />}
-          nativeButton={false}
-          variant="outline"
-          className="mb-4 w-fit"
-        >
-          <ArrowLeft data-icon="inline-start" />
-          Clients
-        </Button>
         <div className="flex flex-wrap gap-2">
-          <StatusBadge online={client.is_online} />
-          <OSBadge value={client.os_version} detailed />
-        </div>
-        <div className="mt-4 min-w-0">
-          <h2 className="truncate text-lg font-semibold">
-            {display(client.hostname)}
-          </h2>
-          <p className="mt-1 font-mono text-xs break-all text-sidebar-foreground/60">
-            {client.agent_id}
-          </p>
+          <OSLabel value={client.os_version} />
         </div>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="overflow-hidden">
         <SidebarGroup>
           <SidebarGroupLabel>Workspace</SidebarGroupLabel>
           <TabsList variant="line" className="h-auto w-full items-stretch p-0">
@@ -173,36 +154,22 @@ function WorkspaceSidebar({
 
         <SidebarGroup className="mt-auto pt-4">
           <Separator />
-          <SidebarGroupLabel>Gateway View</SidebarGroupLabel>
+
           <div className="grid gap-3 px-2 text-xs">
-            <SidebarStat label="Client IP" value={display(client.client_ip)} />
-            <SidebarStat
-              label="Last seen"
-              value={formatRelative(client.last_seen)}
-            />
-            <SidebarStat
-              label="Session"
-              value={
-                client.is_online
-                  ? formatDuration(client.uptime_seconds)
-                  : "Not connected"
-              }
-            />
+            <div className="mt-4 flex w-full min-w-0 flex-row items-center justify-between gap-2 overflow-hidden">
+              <h2 className="truncate text-lg font-semibold">
+                {display(client.hostname)}
+              </h2>
+
+              <StatusBadge online={client.is_online} />
+            </div>
+            <span className="truncate text-muted-foreground">
+              {formatIP(client.client_ip)}
+            </span>
           </div>
         </SidebarGroup>
       </SidebarContent>
     </Sidebar>
-  )
-}
-
-function SidebarStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid gap-1">
-      <div className="font-medium text-sidebar-foreground/55 uppercase">
-        {label}
-      </div>
-      <div className="break-words text-sidebar-foreground">{value}</div>
-    </div>
   )
 }
 
@@ -641,7 +608,7 @@ function LogsTab({
           </Empty>
         ) : null}
 
-        <ScrollArea className="max-h-[560px]">
+        <ScrollArea className="max-h-140">
           <div className="flex flex-col gap-3">
             {logState.logs.map((entry) => (
               <Card key={entry.event_id}>
@@ -659,7 +626,7 @@ function LogsTab({
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm break-words">
+                  <p className="text-sm wrap-break-word">
                     {entry.message || "n/a"}
                   </p>
                   <div className="mt-2 font-mono text-xs break-all text-muted-foreground">

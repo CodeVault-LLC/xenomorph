@@ -10,14 +10,14 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
-const navItems = [
-  { to: "/", label: "Clients", exact: true },
-  { to: "/terms", label: "Glossary", exact: true },
-] as const
+export const Navbar = () => {
+  const navItems = [
+    { to: "/", label: "Clients", exact: true },
+    { to: "/terms", label: "Glossary", exact: true },
+  ] as const
 
-export function SiteChrome() {
   return (
-    <div className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <div className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur supports-backdrop-filter:bg-background/60">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <Button
           render={<Link to="/" />}
@@ -67,9 +67,10 @@ function NavLink({
   )
 }
 
-function ThemeToggle() {
+const ThemeToggle = () => {
   const { theme, setTheme } = useTheme()
   const next = theme === "dark" ? "light" : "dark"
+
   return (
     <Tooltip>
       <TooltipTrigger

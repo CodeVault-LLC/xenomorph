@@ -4,22 +4,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // CaptureScreenshot captures the local screen and returns the image bytes.
 // The implementation is platform-specific and writes a temporary file that is
 // removed before the function returns.
 func CaptureScreenshot() ([]byte, error) {
-	tmpDir := os.TempDir()
-	if tmpDir == "" {
-		tmpDir = "/tmp"
+	tmpDir, err := os.MkdirTemp("", "xeno-screenshot-*")
+	if err != nil {
+		return nil, fmt.Errorf("create screenshot directory: %w", err)
 	}
-
-	outputPath := filepath.Join(tmpDir, fmt.Sprintf("xeno-screenshot-%d.png", time.Now().UnixMilli()))
 	defer func() {
-		_ = os.Remove(outputPath)
+		_ = os.RemoveAll(tmpDir)
 	}()
 
+	outputPath := filepath.Join(tmpDir, "screenshot.png")
 	return captureScreenOS(outputPath)
 }

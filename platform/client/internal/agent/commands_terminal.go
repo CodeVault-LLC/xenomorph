@@ -166,14 +166,19 @@ func buildShellCommand(ctx context.Context, shellName, command string) *exec.Cmd
 		if ShellName(shellName) == ShellPowerShellCore {
 			binary = "pwsh"
 		}
+		// #nosec G204 -- shellName is allowlisted before command construction; command is signed gateway input.
 		return exec.CommandContext(ctx, binary, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
 	case ShellCmd:
+		// #nosec G204 -- shellName is allowlisted before command construction; command is signed gateway input.
 		return exec.CommandContext(ctx, "cmd.exe", "/C", command)
 	case ShellZsh:
+		// #nosec G204 -- shellName is allowlisted before command construction; command is signed gateway input.
 		return exec.CommandContext(ctx, "zsh", "-lc", command)
 	case ShellBash:
+		// #nosec G204 -- shellName is allowlisted before command construction; command is signed gateway input.
 		return exec.CommandContext(ctx, "bash", "-lc", command)
 	default:
+		// #nosec G204 -- fallback shell is fixed; command is signed gateway input.
 		return exec.CommandContext(ctx, "sh", "-lc", command)
 	}
 }

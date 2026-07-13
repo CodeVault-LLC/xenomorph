@@ -16,6 +16,15 @@ import (
 	"time"
 )
 
+const (
+	telemetryValueFields = 2
+	bytesPerKiB          = 1024
+	megahertzPerGHz      = 1000
+	pciIDLength          = 4
+	pciScannerBuffer     = 1024
+	pciScannerMaxToken   = 1024 * 1024
+)
+
 func collectSystemTelemetry() SystemTelemetry {
 	ramUsage, totalRAMBytes := linuxRAMUsage()
 	network := linuxNetwork()
@@ -26,8 +35,8 @@ func collectSystemTelemetry() SystemTelemetry {
 		RAMUsage:              ramUsage,
 		UptimeSeconds:         linuxUptimeSeconds(),
 		CPUModel:              linuxCPUModel(),
-		CPUCores:              int32(linuxCPUCores()),
-		CPUThreads:            int32(runtime.NumCPU()),
+		CPUCores:              cpuCountInt32(linuxCPUCores()),
+		CPUThreads:            cpuCountInt32(runtime.NumCPU()),
 		TotalRAMBytes:         totalRAMBytes,
 		GPUDevices:            linuxGPUDevices(),
 		NetworkName:           network.name,
@@ -121,7 +130,7 @@ func linuxRAMUsage() (float64, uint64) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) < 2 {
+		if len(fields) < telemetryValueFields {
 			continue
 		}
 
@@ -142,7 +151,7 @@ func linuxRAMUsage() (float64, uint64) {
 		return 0, 0
 	}
 
-	return clampRatio((total - available) / total), uint64(total * 1024)
+	return clampRatio((total - available) / total), uint64(total * bytesPerKiB)
 }
 
 func linuxUptimeSeconds() uint64 {
@@ -190,23 +199,34 @@ func linuxCPUModel() string {
 }
 
 func linuxCPUFrequencyMHz() uint64 {
-	paths, err := filepath.Glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq")
-	if err == nil && len(paths) > 0 {
-		var total uint64
-		var count uint64
-		for _, path := range paths {
-			value, err := strconv.ParseUint(readTrimmed(path), 10, 64)
-			if err != nil || value == 0 {
-				continue
-			}
-			total += value / 1000
-			count++
-		}
-		if count > 0 {
-			return total / count
-		}
+	if frequency := sysfsCPUFrequencyMHz(); frequency > 0 {
+		return frequency
 	}
+	return procCPUFrequencyMHz()
+}
 
+func sysfsCPUFrequencyMHz() uint64 {
+	paths, err := filepath.Glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq")
+	if err != nil || len(paths) == 0 {
+		return 0
+	}
+	var total uint64
+	var count uint64
+	for _, path := range paths {
+		value, err := strconv.ParseUint(readTrimmed(path), 10, 64)
+		if err != nil || value == 0 {
+			continue
+		}
+		total += value / megahertzPerGHz
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return total / count
+}
+
+func procCPUFrequencyMHz() uint64 {
 	file, err := os.Open("/proc/cpuinfo")
 	if err != nil {
 		return 0
@@ -268,6 +288,17 @@ func linuxCPUCores() int {
 		return runtime.NumCPU()
 	}
 	return len(coreIDs)
+}
+
+func cpuCountInt32(count int) int32 {
+	const maxInt32 = int(^uint32(0) >> 1)
+	if count <= 0 {
+		return 0
+	}
+	if count > maxInt32 {
+		return int32(maxInt32)
+	}
+	return int32(count)
 }
 
 func linuxGPUDevices() []string {
@@ -359,6 +390,7 @@ func linuxWirelessLink(ifaceName string) (string, uint64) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
+	// #nosec G204 -- ifaceName originates from the local kernel interface enumeration.
 	output, err := exec.CommandContext(ctx, "iw", "dev", ifaceName, "link").Output()
 	if err != nil {
 		return "", 0
@@ -383,7 +415,7 @@ func linuxWirelessLink(ifaceName string) (string, uint64) {
 
 func parseLinkSpeedMbps(value string) uint64 {
 	fields := strings.Fields(value)
-	if len(fields) < 2 {
+	if len(fields) < telemetryValueFields {
 		return 0
 	}
 	speed, err := strconv.ParseFloat(fields[0], 64)
@@ -394,7 +426,7 @@ func parseLinkSpeedMbps(value string) uint64 {
 	case "mbit/s", "mbps":
 		return uint64(speed)
 	case "gbit/s", "gbps":
-		return uint64(speed * 1000)
+		return uint64(speed * megahertzPerGHz)
 	default:
 		return 0
 	}
@@ -416,7 +448,9 @@ func linuxPCIDeviceName(vendorID, deviceID string) string {
 	return ""
 }
 
+//nolint:cyclop // The PCI identifier format requires ordered classification of each input line.
 func pciDeviceName(path, vendorID, deviceID string) string {
+	// #nosec G304 -- callers use a fixed system PCI database path or a test fixture.
 	file, err := os.Open(path)
 	if err != nil {
 		return ""
@@ -425,7 +459,7 @@ func pciDeviceName(path, vendorID, deviceID string) string {
 
 	vendorName := ""
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	scanner.Buffer(make([]byte, pciScannerBuffer), pciScannerMaxToken)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
@@ -435,7 +469,7 @@ func pciDeviceName(path, vendorID, deviceID string) string {
 			continue
 		}
 		if strings.HasPrefix(line, "\t") {
-			if vendorName == "" || len(line) < 5 || strings.ToLower(line[1:5]) != deviceID {
+			if vendorName == "" || len(line) < pciIDLength+1 || strings.ToLower(line[1:pciIDLength+1]) != deviceID {
 				continue
 			}
 			if name := strings.TrimSpace(line[5:]); name != "" {
@@ -488,6 +522,7 @@ func linuxKernelVersion() string {
 }
 
 func readTrimmed(path string) string {
+	// #nosec G304 -- callers construct paths below fixed procfs and sysfs roots.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""

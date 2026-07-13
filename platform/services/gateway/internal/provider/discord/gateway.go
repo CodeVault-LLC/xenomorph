@@ -37,11 +37,10 @@ type InteractionHandler interface {
 // contains "kind=commands". This prevents command injection through non-command
 // channels.
 type GatewayListener struct {
-	session   *discordgo.Session
-	handler   InteractionHandler
-	guildID   string
-	provider  *Provider
-	channelID string
+	session  *discordgo.Session
+	handler  InteractionHandler
+	guildID  string
+	provider *Provider
 
 	channelIDtoAgent map[string]string
 	cacheTime        time.Time

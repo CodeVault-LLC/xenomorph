@@ -3,57 +3,114 @@ SHELL := /bin/bash
 ROOT := $(CURDIR)
 BIN_DIR := $(ROOT)/bin
 MODULES := platform/client platform/services/gateway platform/shared
+TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 GO ?= go
 GOPATH ?= $(shell $(GO) env GOPATH)
 GOFMT ?= gofmt
 
-GOBIN := $(if $(strip $(GOPATH)),$(GOPATH)/bin,$(ROOT)/bin)
+GOBIN ?= $(shell $(GO) env GOBIN)
+GOBIN := $(if $(strip $(GOBIN)),$(GOBIN),$(if $(strip $(GOPATH)),$(GOPATH)/bin,$(ROOT)/bin))
 GOLANGCI_LINT ?= $(or $(shell command -v golangci-lint 2>/dev/null),$(GOBIN)/golangci-lint)
+STATICCHECK ?= $(or $(shell command -v staticcheck 2>/dev/null),$(GOBIN)/staticcheck)
+GOVULNCHECK ?= $(or $(shell command -v govulncheck 2>/dev/null),$(GOBIN)/govulncheck)
+GOSEC ?= $(or $(shell command -v gosec 2>/dev/null),$(GOBIN)/gosec)
 
 GATEWAY_DIR := $(ROOT)/platform/services/gateway
 CLIENT_DIR := $(ROOT)/platform/client
 
-.PHONY: help fmt test tidy build build-gateway build-client run-gateway run-client clean lint
+.PHONY: help fmt fmt-check test test-race vet staticcheck govulncheck gosec tidy tidy-check build build-all build-gateway build-client run-gateway run-client clean lint install-tools ci
 
 help:
 	@printf '%s\n' "Available targets:"
-	@printf '%s\n' "  make fmt           Format Go source across the repository"
+	@printf '%s\n' "  make fmt           Format Go source across every Go module"
+	@printf '%s\n' "  make fmt-check     Verify Go source formatting"
 	@printf '%s\n' "  make test          Run tests for every Go module"
-	@printf '%s\n' "  make tidy          Run go mod tidy in every Go module"
-	@printf '%s\n' "  make build         Build gateway and client binaries"
-	@printf '%s\n' "  make run-gateway   Run the gateway directly from source"
-	@printf '%s\n' "  make run-client    Run the client directly from source"
-	@printf '%s\n' "  make clean         Remove build outputs"
-	@printf '%s\n' "  make lint          Run golangci-lint when installed"
+	@printf '%s\n' "  make test-race     Run race-detector tests for every Go module"
+	@printf '%s\n' "  make vet           Run go vet for every Go module"
+	@printf '%s\n' "  make staticcheck   Run staticcheck for every Go module"
+	@printf '%s\n' "  make govulncheck   Run govulncheck for every Go module"
+	@printf '%s\n' "  make gosec         Run gosec for every Go module"
+	@printf '%s\n' "  make tidy          Normalize module metadata across every Go module"
+	@printf '%s\n' "  make tidy-check    Verify go mod tidy produces no changes"
+	@printf '%s\n' "  make build         Build native gateway and client binaries"
+	@printf '%s\n' "  make build-all     Cross-compile gateway and client for Linux, macOS, and Windows"
+	@printf '%s\n' "  make install-tools Install pinned static-analysis tools into GOPATH/bin"
+	@printf '%s\n' "  make ci            Run all repository CI checks"
 
 fmt:
 	@set -euo pipefail; \
 	for module in $(MODULES); do \
-		cd $(ROOT)/$$module && find . -name '*.go' -not -path '*/gen/go/*' -print0 | xargs -0r $(GOFMT) -w; \
+		cd $(ROOT)/$$module; \
+		while IFS= read -r -d '' file; do $(GOFMT) -w "$$file"; done < <(find . -name '*.go' -not -path '*/gen/go/*' -print0); \
+	done
+
+fmt-check:
+	@set -euo pipefail; \
+	for module in $(MODULES); do \
+		cd $(ROOT)/$$module; \
+		unformatted=$$(find . -name '*.go' -not -path '*/gen/go/*' -exec $(GOFMT) -l {} +); \
+		if [[ -n "$$unformatted" ]]; then printf '%s\n' "$$unformatted"; exit 1; fi; \
 	done
 
 test:
 	@set -euo pipefail; \
-	for module in $(MODULES); do \
-		cd $(ROOT)/$$module && $(GO) test ./...; \
-	done
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GO) test ./...; done
+
+test-race:
+	@set -euo pipefail; \
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GO) test -race ./...; done
+
+vet:
+	@set -euo pipefail; \
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GO) vet ./...; done
+
+staticcheck:
+	@set -euo pipefail; \
+	if [[ ! -x $(STATICCHECK) ]]; then printf '%s\n' "staticcheck is not installed; run make install-tools"; exit 1; fi; \
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(STATICCHECK) ./...; done
+
+govulncheck:
+	@set -euo pipefail; \
+	if [[ ! -x $(GOVULNCHECK) ]]; then printf '%s\n' "govulncheck is not installed; run make install-tools"; exit 1; fi; \
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOVULNCHECK) ./...; done
+
+gosec:
+	@set -euo pipefail; \
+	if [[ ! -x $(GOSEC) ]]; then printf '%s\n' "gosec is not installed; run make install-tools"; exit 1; fi; \
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOSEC) ./...; done
 
 tidy:
 	@set -euo pipefail; \
-	for module in $(MODULES); do \
-		cd $(ROOT)/$$module && $(GO) mod tidy; \
-	done
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GO) mod tidy; done
+
+tidy-check:
+	@set -euo pipefail; \
+	$(MAKE) tidy; \
+	if ! git diff --exit-code -- go.mod go.sum $(addsuffix /go.mod,$(MODULES)) $(addsuffix /go.sum,$(MODULES)); then \
+		printf '%s\n' "go mod tidy changed module metadata"; \
+		exit 1; \
+	fi
 
 build: build-gateway build-client
 
 build-gateway:
 	@mkdir -p $(BIN_DIR)
-	@cd $(GATEWAY_DIR) && $(GO) build -o $(BIN_DIR)/xenomorph-gateway ./cmd
+	@cd $(GATEWAY_DIR) && CGO_ENABLED=0 $(GO) build -trimpath -o $(BIN_DIR)/xenomorph-gateway ./cmd
 
 build-client:
 	@mkdir -p $(BIN_DIR)
-	@cd $(CLIENT_DIR) && $(GO) build -o $(BIN_DIR)/xenomorph-client ./cmd
+	@cd $(CLIENT_DIR) && CGO_ENABLED=0 $(GO) build -trimpath -o $(BIN_DIR)/xenomorph-client ./cmd
+
+build-all:
+	@set -euo pipefail; \
+	for target in $(TARGETS); do \
+		os=$${target%/*}; arch=$${target#*/}; extension=""; \
+		if [[ "$$os" == "windows" ]]; then extension=".exe"; fi; \
+		output=$(BIN_DIR)/$$os/$$arch; mkdir -p "$$output"; \
+		(cd $(GATEWAY_DIR) && CGO_ENABLED=0 GOOS="$$os" GOARCH="$$arch" $(GO) build -trimpath -o "$$output/xenomorph-gateway$$extension" ./cmd); \
+		(cd $(CLIENT_DIR) && CGO_ENABLED=0 GOOS="$$os" GOARCH="$$arch" $(GO) build -trimpath -o "$$output/xenomorph-client$$extension" ./cmd); \
+	done
 
 run-gateway:
 	@cd $(GATEWAY_DIR) && $(GO) run ./cmd
@@ -66,11 +123,12 @@ clean:
 
 lint:
 	@set -euo pipefail; \
-	if [[ -x $(GOLANGCI_LINT) ]]; then \
-		for module in $(MODULES); do \
-			cd $(ROOT)/$$module && $(GOLANGCI_LINT) run; \
-		done; \
-	else \
-		printf '%s\n' "golangci-lint is not installed at $(GOLANGCI_LINT)"; \
-		exit 1; \
-	fi
+	if [[ ! -x $(GOLANGCI_LINT) ]]; then printf '%s\n' "golangci-lint is not installed at $(GOLANGCI_LINT)"; exit 1; fi; \
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOLANGCI_LINT) run; done
+
+install-tools:
+	@$(GO) install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+	@$(GO) install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+	@$(GO) install github.com/securego/gosec/v2/cmd/gosec@v2.22.10
+
+ci: fmt-check tidy-check test test-race vet staticcheck govulncheck gosec lint build-all

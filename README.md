@@ -23,9 +23,37 @@ make help
 make fmt
 make test
 make build
+make build-all
 ```
 
 Build artifacts are emitted to `bin/`.
+
+`make build-all` cross-compiles the gateway and client without requiring a Linux,
+macOS, or Windows host. It emits Linux (`amd64`, `arm64`), macOS (`amd64`,
+`arm64`), and Windows (`amd64`, `arm64`) artifacts below `bin/<os>/<arch>/`.
+Cross-compiled binaries are compile-validated; platform-specific behavior must be
+tested on its target operating system.
+
+## Go Quality Checks
+
+The Go code is split into client, gateway, and shared-schema modules. Run the
+repository targets so every module is checked:
+
+```bash
+make install-tools
+make test-race
+make vet
+make staticcheck
+make govulncheck
+make gosec
+make ci
+```
+
+The corresponding commands executed per module are `go test ./...`, `go test
+-race ./...`, `go vet ./...`, `staticcheck ./...`, `govulncheck ./...`, and
+`gosec ./...`. The root module does not own the platform packages, so invoking
+those package patterns only at the repository root does not validate the client,
+gateway, or shared modules.
 
 ## Local Run Workflow
 

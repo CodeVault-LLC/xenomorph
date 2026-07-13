@@ -45,7 +45,7 @@ func captureScreenOS(outputPath string) ([]byte, error) {
 		for i, a := range t.args {
 			args[i] = filepath.Clean(a)
 		}
-		//nolint:gosec // outputPath is system-generated (temp dir + timestamp), not user input.
+		// #nosec G204 -- tool names are constants and outputPath is within a private directory.
 		cmd := exec.Command(t.name, args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("%s failed: %w\noutput: %s", t.name, err, string(out))

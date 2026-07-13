@@ -1,6 +1,6 @@
 module github.com/codevault-llc/xenomorph/platform/client
 
-go 1.25.3
+go 1.25.12
 
 require (
 	github.com/codevault-llc/xenomorph/platform/shared v0.0.0

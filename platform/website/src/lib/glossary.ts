@@ -1,158 +1,144 @@
+export type GlossaryCategory = "identity" | "transport" | "telemetry" | "state"
+
+export type GlossarySource =
+  "Gateway-authored" | "Agent-authored" | "Transport control"
+
 export type GlossaryTerm = {
   slug: string
   term: string
   summary: string
   detail: string
-  category: "identity" | "transport" | "telemetry" | "state"
+  category: GlossaryCategory
+  source: GlossarySource
 }
 
 export const glossary: GlossaryTerm[] = [
   {
-    slug: "agent",
-    term: "Agent",
-    summary:
-      "A remote process enrolled with the gateway over mutual TLS and identified by a stable agent_id.",
-    detail:
-      "Agents are the only producers of client-side data in this system. They connect through mTLS, present a gateway-issued credential, and push heartbeats plus telemetry. The gateway owns their identity; the browser never trusts an agent directly.",
-    category: "identity",
-  },
-  {
-    slug: "client",
-    term: "Client",
-    summary:
-      "The mTLS connection endpoint. Used interchangeably with agent when describing what the gateway observes.",
-    detail:
-      "'Client' is a transport view of an agent: the side of the mTLS connection the gateway terminates. Client fields such as client_ip are gateway-authored; agent fields such as hostname are agent-authored.",
-    category: "transport",
-  },
-  {
     slug: "gateway",
     term: "Gateway",
     summary:
-      "The ingestion service that terminates mTLS, owns agent identity, and exposes this UI's API surface.",
+      "The control-plane service that authenticates agents, derives identity, and supplies dashboard state.",
     detail:
-      "The gateway is the trust boundary for this UI. Anything shown here is gateway state derived from authenticated agent connections. Browsers talk only to the gateway, never to an agent directly.",
+      "The gateway is the system trust boundary. The dashboard reads gateway state and sends actions through the gateway; it never establishes trust directly with an agent.",
     category: "transport",
+    source: "Gateway-authored",
   },
   {
     slug: "mtls",
-    term: "mTLS",
+    term: "Mutual TLS (mTLS)",
     summary:
-      "Mutual TLS. The trust source for every agent identity asserted in this UI.",
+      "The authenticated transport required before the gateway accepts an agent connection.",
     detail:
-      "Both sides of the connection present a certificate. An agent that fails certificate validation is rejected before any of its data reaches gateway state.",
+      "Both endpoints present and validate certificates. A connection that fails validation cannot create agent state or submit telemetry.",
     category: "transport",
+    source: "Transport control",
   },
   {
     slug: "trust-boundary",
     term: "Trust boundary",
     summary:
-      "Browser views read gateway state only; agents enter through mTLS ingestion.",
+      "The point where the gateway converts an authenticated connection into authoritative system state.",
     detail:
-      "Telemetry fields (hostname, OS, CPU, RAM, screen) are agent-authored and not trust-bearing. Identity-adjacent fields (agent_id, client_ip, first_seen, online state) are gateway-authored and derived from the mTLS session.",
+      "Only gateway-derived fields may support identity or authorization decisions. Agent-supplied values remain telemetry after they cross the boundary.",
     category: "transport",
+    source: "Transport control",
   },
   {
     slug: "agent-id",
     term: "Agent ID",
-    summary: "Stable identifier assigned by the gateway at enrollment.",
+    summary: "Gateway-derived identifier for the enrolled agent record.",
     detail:
-      "Used in URLs and as the primary key across the clients table and agent view. Not the OS hostname and not user-settable.",
+      "This is the stable record key used in dashboard routes and gateway state. It is not the hostname and is not supplied by the host operating system.",
     category: "identity",
-  },
-  {
-    slug: "hostname",
-    term: "Hostname",
-    summary: "OS hostname reported by the agent. Not a trust source.",
-    detail:
-      "Agent-authored. Displayed for orientation only; identity is keyed on agent_id, not hostname.",
-    category: "telemetry",
+    source: "Gateway-authored",
   },
   {
     slug: "client-ip",
     term: "Client IP",
-    summary: "Source address of the agent's mTLS connection, gateway-authored.",
+    summary:
+      "Source address observed by the gateway on the most recent accepted connection.",
     detail:
-      "Reflects the network position the gateway saw on the most recent accepted connection. Not a stable identity.",
-    category: "transport",
-  },
-  {
-    slug: "os-version",
-    term: "OS Version",
-    summary: "Agent-reported os_version string (family and version).",
-    detail:
-      "Agent-authored telemetry; not used for any authorization decision.",
-    category: "telemetry",
+      "It describes current network position, not a durable identity. Address changes do not create a new agent record by themselves.",
+    category: "identity",
+    source: "Gateway-authored",
   },
   {
     slug: "heartbeat",
     term: "Heartbeat",
-    summary: "Periodic signal an agent pushes to the gateway.",
+    summary:
+      "An accepted liveness signal from an authenticated agent connection.",
     detail:
-      "Agents are considered online while inside the heartbeat window and offline once the window lapses without an accepted signal.",
+      "The gateway uses accepted heartbeats to refresh liveness state. A received signal is not accepted until transport validation and gateway processing succeed.",
     category: "state",
+    source: "Gateway-authored",
   },
   {
     slug: "online",
-    term: "Online / Offline",
-    summary: "Whether the agent is inside the heartbeat window right now.",
+    term: "Online / offline",
+    summary:
+      "Whether the gateway has accepted a heartbeat within the configured liveness window.",
     detail:
-      "Online means the gateway has accepted a recent heartbeat for this agent_id. Offline means the agent has been seen before but the window has lapsed.",
+      "Online does not assert host health beyond recent gateway contact. Offline means the record is known but no accepted heartbeat remains inside the window.",
     category: "state",
-  },
-  {
-    slug: "known-clients",
-    term: "Known clients",
-    summary: "Distinct agents the gateway has observed this process lifetime.",
-    detail:
-      "Includes both online and offline agents. Resets when the gateway process restarts.",
-    category: "state",
+    source: "Gateway-authored",
   },
   {
     slug: "first-seen",
-    term: "First Seen",
-    summary: "First time the gateway saw this agent during this process.",
-    detail: "Gateway-authored. Resets with the gateway process.",
+    term: "First observed",
+    summary:
+      "The first accepted observation of this agent during the current gateway process lifetime.",
+    detail:
+      "This timestamp is gateway-authored and resets when gateway in-memory state is restarted. It is not an enrollment or operating-system installation time.",
     category: "state",
+    source: "Gateway-authored",
   },
   {
     slug: "last-seen",
-    term: "Last Seen",
-    summary: "Most recent heartbeat the gateway accepted for this agent.",
-    detail: "Updates on every accepted heartbeat, online or recently offline.",
+    term: "Last heartbeat",
+    summary:
+      "The most recent heartbeat the gateway accepted for the agent record.",
+    detail:
+      "Use it to assess recency of gateway contact. It may be older than the current view while an agent is offline.",
     category: "state",
+    source: "Gateway-authored",
   },
   {
     slug: "last-online",
-    term: "Last Online",
-    summary: "Last timestamp the agent was within the heartbeat window.",
+    term: "Last online",
+    summary:
+      "The latest time the agent record was inside the gateway liveness window.",
     detail:
-      "Distinct from Last Seen: a lapsed heartbeat moves the agent offline.",
+      "This records the end of the most recent known-online period and is distinct from the timestamp of a heartbeat currently being processed.",
     category: "state",
-  },
-  {
-    slug: "cpu-load",
-    term: "CPU Load",
-    summary: "Utilization across reported cores, agent-reported.",
-    detail:
-      "Normalized by available CPU cores on the agent host. Not trusted by the gateway.",
-    category: "telemetry",
-  },
-  {
-    slug: "ram-usage",
-    term: "RAM Usage",
-    summary: "Used memory ratio, agent-reported.",
-    detail:
-      "Derived from the agent heartbeat. Above 85% indicates low headroom.",
-    category: "telemetry",
+    source: "Gateway-authored",
   },
   {
     slug: "telemetry",
     term: "Telemetry",
-    summary: "Client-reported data: hostname, OS, CPU, RAM, screen.",
+    summary: "Operational data supplied by the agent for operator awareness.",
     detail:
-      "Convenience data for operators. Identity and authorization never use telemetry fields.",
+      "Hostname, operating-system information, hardware inventory, resource values, screen media, and logs are telemetry. The gateway does not use them as evidence of identity or authorization.",
     category: "telemetry",
+    source: "Agent-authored",
+  },
+  {
+    slug: "cpu-load",
+    term: "CPU load",
+    summary:
+      "Current CPU utilization normalized by the agent's reported available cores.",
+    detail:
+      "Use this as an operational pressure signal, not an integrity assertion. Collection and normalization occur on the agent host.",
+    category: "telemetry",
+    source: "Agent-authored",
+  },
+  {
+    slug: "ram-usage",
+    term: "Memory usage",
+    summary: "Current used-memory ratio reported by the agent.",
+    detail:
+      "This indicates reported memory pressure at the time of collection. It does not establish a resource guarantee or authorize an action.",
+    category: "telemetry",
+    source: "Agent-authored",
   },
 ]
 

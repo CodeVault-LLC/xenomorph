@@ -102,7 +102,7 @@ export function DirectoryTable({
                 <TableCell>
                   <Button
                     variant="ghost"
-                    className="h-9 max-w-[420px] justify-start px-2 hover:bg-transparent"
+                    className="h-9 max-w-105 justify-start px-2 hover:bg-transparent"
                     disabled={!entry.operation_name}
                     aria-label={`Open ${entry.kind} ${entry.display_name}`}
                     title={

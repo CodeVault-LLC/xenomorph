@@ -12,7 +12,6 @@ import {
 } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -37,16 +36,17 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
+import { Field, FieldDescription, FieldGroup } from "@/components/ui/field"
 import {
   InputGroup,
   InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
+  InputGroupTextarea,
   InputGroupText,
 } from "@/components/ui/input-group"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type ClientSnapshot, formatDate } from "@/lib/clients"
 import {
@@ -71,7 +71,7 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const outputRef = React.useRef<HTMLDivElement | null>(null)
-  const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
 
   const activeSession = sessions.find(
     (session) => session.session_id === activeSessionID
@@ -198,6 +198,21 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
     }
   }
 
+  function handleCommandKeyDown(
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.nativeEvent.isComposing
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    event.currentTarget.form?.requestSubmit()
+  }
+
   function handleNewTerminal(shell = selectedShell) {
     setSelectedShell(shell)
     setActiveSessionID("")
@@ -242,7 +257,7 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
   }
 
   return (
-    <Card className="overflow-visible">
+    <Card className="flex h-[min(640px,calc(100dvh-220px))] min-h-80 flex-col overflow-hidden md:h-full">
       <CardHeader className="border-b">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -268,7 +283,7 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="grid h-[min(720px,calc(100vh-260px))] min-h-[520px] grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden p-0">
+      <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_auto_auto_auto_minmax(0,1fr)_auto] overflow-hidden p-0">
         <div className="flex min-w-0 items-center gap-2 bg-muted/30 px-3 py-2">
           <Tabs
             value={activeSessionID || undefined}
@@ -305,11 +320,9 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
         </div>
         <Separator />
 
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-          <Badge variant={client.is_online ? "online" : "offline"}>
-            {client.is_online ? "Online" : "Offline"}
-          </Badge>
-          <Badge variant="outline">{displayedShell}</Badge>
+        <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+          <Shell className="size-4" />
+          <span>{displayedShell}</span>
           {activeSession ? (
             <TerminalOptions
               canCopyHistory={historyText.length > 0}
@@ -324,7 +337,6 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
         <ScrollArea
           ref={outputRef}
           className="min-h-0 overflow-auto bg-zinc-950 p-3 font-mono text-[13px] leading-6 text-zinc-100"
-          onClick={focusInput}
         >
           {error ? (
             <Alert variant="destructive" className="mb-3">
@@ -352,31 +364,60 @@ export function AgentTerminal({ client }: { client: ClientSnapshot }) {
         </ScrollArea>
 
         <form onSubmit={handleSubmit} className="border-t bg-background p-3">
-          <InputGroup className="h-10 bg-muted/30">
-            <InputGroupText className="font-mono">
-              {promptLabel(activeSession)}
-            </InputGroupText>
-            <InputGroupInput
-              ref={inputRef}
-              value={command}
-              onChange={(event) => setCommand(event.target.value)}
-              disabled={!client.is_online}
-              placeholder={
-                client.is_online ? "Run a shell command" : "Agent is offline"
-              }
-              className="font-mono"
-            />
-            <InputGroupAddon align="inline-end">
-              <InputGroupButton
-                type="submit"
-                size="icon-sm"
-                disabled={!client.is_online || submitting || !command.trim()}
-                aria-label="Run command"
-              >
-                <Play data-icon="inline-start" />
-              </InputGroupButton>
-            </InputGroupAddon>
-          </InputGroup>
+          <FieldGroup className="gap-0">
+            <Field
+              className="gap-0"
+              data-disabled={!client.is_online || undefined}
+            >
+              <InputGroup className="bg-muted/30">
+                <InputGroupTextarea
+                  ref={inputRef}
+                  value={command}
+                  onChange={(event) => setCommand(event.target.value)}
+                  onKeyDown={handleCommandKeyDown}
+                  disabled={!client.is_online}
+                  placeholder={
+                    client.is_online
+                      ? "Enter a shell command"
+                      : "Agent is offline"
+                  }
+                  rows={2}
+                  aria-label="Terminal command"
+                  className="min-h-20 font-mono"
+                />
+                <InputGroupAddon align="block-start" className="border-b">
+                  <InputGroupText className="font-mono text-foreground">
+                    {promptLabel(activeSession)}
+                    <span className="font-sans text-muted-foreground">
+                      Command
+                    </span>
+                  </InputGroupText>
+                </InputGroupAddon>
+                <InputGroupAddon
+                  align="block-end"
+                  className="justify-between border-t"
+                >
+                  <FieldDescription className="text-xs">
+                    Enter to run · Shift+Enter for a new line
+                  </FieldDescription>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={
+                      !client.is_online || submitting || !command.trim()
+                    }
+                  >
+                    {submitting ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <Play data-icon="inline-start" />
+                    )}
+                    {submitting ? "Running" : "Run command"}
+                  </Button>
+                </InputGroupAddon>
+              </InputGroup>
+            </Field>
+          </FieldGroup>
         </form>
       </CardContent>
     </Card>

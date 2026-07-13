@@ -6,7 +6,10 @@ import (
 	"time"
 )
 
-const heartbeatInterval = 500 * time.Millisecond
+const (
+	heartbeatInterval time.Duration = 500 * time.Millisecond
+	routineCount      int           = 2
+)
 
 func run() int {
 	ac, err := setupApp()
@@ -35,7 +38,7 @@ func run() int {
 }
 
 func runRuntimeLoops(ac *appContext) error {
-	errCh := make(chan error, 2)
+	errCh := make(chan error, routineCount)
 	go func() {
 		errCh <- runHeartbeatLoop(ac)
 	}()
@@ -77,8 +80,6 @@ func runCommandLoop(ac *appContext) error {
 			return err
 		}
 	}
-
-	return nil
 }
 
 func main() {

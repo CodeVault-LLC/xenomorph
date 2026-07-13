@@ -12,7 +12,7 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/provider/discord"
 )
 
-const preflightTimeout = 10 * time.Second
+const preflightTimeout time.Duration = 10 * time.Second
 
 // buildNotifier constructs the notification provider fanout from the gateway
 // configuration and returns the Discord provider separately for direct use by

@@ -11,6 +11,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	// systemEventsStream is the JetStream name for gateway ingress events.
+	systemEventsStream string = "SYSTEM_EVENTS"
+	// systemEventsSubject is the subject namespace captured by the stream.
+	systemEventsSubject string = "sys.in.>"
+)
+
 // NATS wraps the NATS connection and JetStream context. All event publishing
 // and subscription for the gateway flows through this type.
 type NATS struct {
@@ -22,8 +29,8 @@ type NATS struct {
 // context. The SYSTEM_EVENTS stream is created if it does not exist.
 //
 // The stream configuration:
-//   - Name: "SYSTEM_EVENTS"
-//   - Subjects: "sys.in.>" (the gateway ingress namespace prefix)
+//   - Name: systemEventsStream ("SYSTEM_EVENTS").
+//   - Subjects: systemEventsSubject ("sys.in.>"), the gateway ingress namespace prefix.
 //   - Storage: FileStorage (persistent across NATS restarts)
 //
 // The stream is required for all gateway event publishing. If the stream
@@ -90,21 +97,21 @@ func (n *NATS) Subscribe(subject string, handler nats.MsgHandler) (*nats.Subscri
 // exist. The stream covers the "sys.in.>" subject namespace and uses file
 // storage for persistence.
 func ensureSystemEventsStream(js nats.JetStreamContext) error {
-	_, err := js.StreamInfo("SYSTEM_EVENTS")
+	_, err := js.StreamInfo(systemEventsStream)
 	if err == nil {
 		return nil
 	}
 	if !errors.Is(err, nats.ErrStreamNotFound) {
-		return fmt.Errorf("SYSTEM_EVENTS stream lookup failed: %w", err)
+		return fmt.Errorf("%s stream lookup failed: %w", systemEventsStream, err)
 	}
 
 	_, err = js.AddStream(&nats.StreamConfig{
-		Name:     "SYSTEM_EVENTS",
-		Subjects: []string{"sys.in.>"},
+		Name:     systemEventsStream,
+		Subjects: []string{systemEventsSubject},
 		Storage:  nats.FileStorage,
 	})
 	if err != nil {
-		return fmt.Errorf("SYSTEM_EVENTS stream creation failed: %w", err)
+		return fmt.Errorf("%s stream creation failed: %w", systemEventsStream, err)
 	}
 
 	return nil

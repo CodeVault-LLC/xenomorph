@@ -16,13 +16,14 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 )
 
-const dashboardReadHeaderTimeout = 10 * time.Second
+const dashboardReadHeaderTimeout time.Duration = 10 * time.Second
+
 const (
-	clientStreamInterval = 250 * time.Millisecond
-	screenFrameTimeout   = 15 * time.Second
-	liveScreenFPS        = 60
-	liveScreenQuality    = 70
-	maxLiveViewers       = 25
+	clientStreamInterval time.Duration = 250 * time.Millisecond
+	screenFrameTimeout   time.Duration = 15 * time.Second
+	liveScreenFPS        int           = 60
+	liveScreenQuality    int           = 70
+	maxLiveViewers       int           = 25
 )
 
 var dashboardScreenUpgrader = websocket.Upgrader{
@@ -242,7 +243,7 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 		}
 
 		cmd := &command.Envelope{
-			Type:        "support.terminal.run",
+			Type:        string(CommandTypeTerminalRun),
 			Payload:     payload,
 			RequestedBy: "website",
 			Reason:      "Terminal command requested from website dashboard",
@@ -286,7 +287,7 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 		}
 
 		cmd := &command.Envelope{
-			Type:        "support.request_screenshot",
+			Type:        string(CommandTypeRequestScreenshot),
 			RequestedBy: "website",
 			Reason:      "Live screen frame requested from website dashboard",
 		}
@@ -438,7 +439,7 @@ func RunDashboard(ctx context.Context, addr string, runtime DashboardRuntime) er
 
 		for r.Context().Err() == nil {
 			cmd := &command.Envelope{
-				Type:        "support.request_screenshot",
+				Type:        string(CommandTypeRequestScreenshot),
 				RequestedBy: "website",
 				Reason:      "Live screen stream requested from website dashboard",
 			}
@@ -567,11 +568,11 @@ func enqueueScreenStreamCommand(queue *command.Queue, agentID string, start bool
 		return
 	}
 
-	cmdType := "support.stop_screen_stream"
+	cmdType := string(CommandTypeStopScreenStream)
 	reason := "Live screen media stream stopped after last dashboard viewer disconnected"
 	payload := json.RawMessage(nil)
 	if start {
-		cmdType = "support.start_screen_stream"
+		cmdType = string(CommandTypeStartScreenStream)
 		reason = "Live screen media stream requested from website dashboard"
 		payload = json.RawMessage(fmt.Sprintf(`{"fps":%d,"quality":%d}`, liveScreenFPS, liveScreenQuality))
 	}

@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	gatewayURL    = "https://localhost:8443"
-	certPath      = "../infrastructure/certs"
-	clientTimeout = 10 * time.Second
+	gatewayURL    string        = "https://localhost:8443"
+	certPath      string        = "../infrastructure/certs"
+	clientTimeout time.Duration = 10 * time.Second
 )
 
 type appContext struct {
@@ -110,16 +110,16 @@ func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 		return fmt.Errorf("command handling failed: %w", err)
 	}
 
-	if decision.Result.Status == "executed" {
+	if decision.Result.Status == agent.CommandStatusExecuted {
 		switch cmd.Type {
-		case "support.start_screen_stream":
+		case agent.CommandTypeStartScreenStream:
 			if err := ac.streamer.Start(cmd.Payload); err != nil {
 				decision.Result.Status = "rejected"
 				decision.Result.Reason = err.Error()
 			} else {
 				decision.Result.Reason = "screen stream started"
 			}
-		case "support.stop_screen_stream":
+		case agent.CommandTypeStopScreenStream:
 			ac.streamer.Stop()
 			decision.Result.Reason = "screen stream stopped"
 		}

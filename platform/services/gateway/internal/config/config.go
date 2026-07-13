@@ -12,12 +12,12 @@ import (
 )
 
 const (
-	defaultNATSURL         = "nats://localhost:4222"
-	defaultGatewayAddr     = ":8443"
-	defaultGatewayCertPath = "../../infrastructure/certs"
-	defaultDashboardAddr   = "127.0.0.1:8080"
-	defaultOfflineAfter    = 30 * time.Second
-	defaultSweepInterval   = 5 * time.Second
+	defaultNATSURL         string        = "nats://localhost:4222"
+	defaultGatewayAddr     string        = ":8443"
+	defaultGatewayCertPath string        = "../../infrastructure/certs"
+	defaultDashboardAddr   string        = "127.0.0.1:8080"
+	defaultOfflineAfter    time.Duration = 30 * time.Second
+	defaultSweepInterval   time.Duration = 5 * time.Second
 )
 
 // GatewayConfig controls runtime wiring for ingress and outbound providers.

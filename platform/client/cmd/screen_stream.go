@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	defaultScreenStreamFPS = 30
-	maxScreenStreamFPS     = 60
-	defaultJPEGQuality     = 70
+	defaultScreenStreamFPS int           = 30
+	maxScreenStreamFPS     int           = 60
+	defaultJPEGQuality     int           = 70
+	maxJPEGQuality         int           = 100
+	reconnectDelay         time.Duration = 500 * time.Millisecond
 )
 
 type screenStreamPayload struct {
@@ -136,7 +138,10 @@ func (s *screenStreamer) dial(ctx context.Context) (*websocket.Conn, error) {
 	u.RawQuery = q.Encode()
 
 	dialer := websocket.Dialer{TLSClientConfig: s.tlsConfig}
-	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
+	conn, resp, err := dialer.DialContext(ctx, u.String(), nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	return conn, err
 }
 
@@ -154,8 +159,8 @@ func clampJPEGQuality(value int) int {
 	if value <= 0 {
 		return defaultJPEGQuality
 	}
-	if value > 100 {
-		return 100
+	if value > maxJPEGQuality {
+		return maxJPEGQuality
 	}
 	return value
 }
@@ -179,7 +184,7 @@ func captureScreenJPEG(quality int) ([]byte, error) {
 }
 
 func waitBeforeReconnect(ctx context.Context) {
-	timer := time.NewTimer(500 * time.Millisecond)
+	timer := time.NewTimer(reconnectDelay)
 	defer timer.Stop()
 
 	select {

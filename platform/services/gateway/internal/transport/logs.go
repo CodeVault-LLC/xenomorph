@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const maxLogEntriesPerAgent = 200
+const maxLogEntriesPerAgent int = 200
 
 // AgentLogEntry is the dashboard read model for an authenticated agent log.
 // Agent ID, client IP, event ID, and observed time are gateway-authored.

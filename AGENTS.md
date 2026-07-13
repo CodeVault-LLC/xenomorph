@@ -12,6 +12,10 @@ This repository implements an internal remote screening platform composed of an 
 4. Validate the touched slice immediately after the first substantive change.
 5. Stop only after the repository state is internally consistent and the requested outcome is complete.
 
+## Code Quality and Security Standard
+
+Before authoring or modifying code, contributors must read and follow `.docs/code-quality.md`. It defines the mandatory Google Go Style Guide rules, security requirements aligned with OWASP ASVS Level 2 and NIST SSDF, and performance rules for this repository. Code style, security controls, and performance constraints are not optional; they are enforced by the CI gates described in that document.
+
 ## Repository Structure
 
 - `platform/client`: Go agent runtime and client transport.
@@ -28,6 +32,7 @@ Use the repository `Makefile` as the primary developer interface.
 - `make test`: run tests across all modules.
 - `make tidy`: normalize module metadata across all modules.
 - `make build`: build the gateway and client binaries into `bin/`.
+- `make lint`: run `golangci-lint` across all modules.
 - `make clean`: remove build outputs.
 
 ## Documentation Authoring Standard

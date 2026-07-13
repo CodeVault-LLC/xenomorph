@@ -11,7 +11,7 @@ func validCommand() CommandEnvelope {
 	now := time.Now().UTC()
 	return CommandEnvelope{
 		CommandID:   "cmd-1",
-		Type:        "support.notice",
+		Type:        CommandTypeNotice,
 		RequestedBy: "ops-user",
 		IssuedAt:    now,
 		ExpiresAt:   now.Add(10 * time.Minute),
@@ -25,7 +25,7 @@ func TestHandleCommandExecutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if decision.Result.Status != "executed" {
+	if decision.Result.Status != CommandStatusExecuted {
 		t.Fatalf("expected executed status, got %q", decision.Result.Status)
 	}
 }
@@ -38,20 +38,20 @@ func TestHandleCommandRejectsMissingSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if decision.Result.Status != "rejected" {
+	if decision.Result.Status != CommandStatusRejected {
 		t.Fatalf("expected rejected status, got %q", decision.Result.Status)
 	}
 }
 
 func TestHandleCommandRejectsUnknownType(t *testing.T) {
 	cmd := validCommand()
-	cmd.Type = "unknown.type"
+	cmd.Type = CommandType("unknown.type")
 
 	decision, err := HandleCommand(cmd)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if decision.Result.Status != "rejected" {
+	if decision.Result.Status != CommandStatusRejected {
 		t.Fatalf("expected rejected status, got %q", decision.Result.Status)
 	}
 }
@@ -70,23 +70,33 @@ func TestHandleCommandRejectsExpiredCommand(t *testing.T) {
 }
 
 func TestHandleCommandAllowsScreenStreamControls(t *testing.T) {
-	for _, commandType := range []string{"support.start_screen_stream", "support.stop_screen_stream"} {
-		cmd := validCommand()
-		cmd.Type = commandType
+	tests := []struct {
+		name string
+		typ  CommandType
+	}{
+		{name: "start screen stream", typ: CommandTypeStartScreenStream},
+		{name: "stop screen stream", typ: CommandTypeStopScreenStream},
+	}
 
-		decision, err := HandleCommand(cmd)
-		if err != nil {
-			t.Fatalf("expected nil error for %s, got %v", commandType, err)
-		}
-		if decision.Result.Status != "executed" {
-			t.Fatalf("expected executed status for %s, got %q", commandType, decision.Result.Status)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := validCommand()
+			cmd.Type = tt.typ
+
+			decision, err := HandleCommand(cmd)
+			if err != nil {
+				t.Fatalf("expected nil error, got %v", err)
+			}
+			if decision.Result.Status != CommandStatusExecuted {
+				t.Fatalf("expected executed status, got %q", decision.Result.Status)
+			}
+		})
 	}
 }
 
 func TestHandleCommandRunsTerminalCommand(t *testing.T) {
 	cmd := validCommand()
-	cmd.Type = "support.terminal.run"
+	cmd.Type = CommandTypeTerminalRun
 	cmd.Payload = terminalPayload(t, terminalCommandPayload{
 		SessionID: "session-1",
 		Command:   "printf terminal-ok",
@@ -97,7 +107,7 @@ func TestHandleCommandRunsTerminalCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if decision.Result.Status != "executed" {
+	if decision.Result.Status != CommandStatusExecuted {
 		t.Fatalf("expected executed status, got %q", decision.Result.Status)
 	}
 	if decision.Result.TerminalSessionID != "session-1" {
@@ -130,7 +140,7 @@ func TestHandleCommandTracksTerminalCD(t *testing.T) {
 	}
 
 	second := validCommand()
-	second.Type = "support.terminal.run"
+	second.Type = CommandTypeTerminalRun
 	second.Payload = terminalPayload(t, terminalCommandPayload{
 		SessionID: "session-cd",
 		Command:   "pwd",

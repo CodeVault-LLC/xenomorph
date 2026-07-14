@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -64,23 +65,44 @@ type unsignedEnvelope struct {
 
 // Sign applies an RSA-PSS SHA-256 signature to an envelope.
 func Sign(envelope *Envelope, privateKey *rsa.PrivateKey) error {
+	if privateKey == nil {
+		return fmt.Errorf("command signing key is nil")
+	}
+	return SignWithSigner(envelope, privateKey)
+}
+
+// SignWithSigner applies an RSA-PSS SHA-256 signature using an opaque signing
+// capability. The signer may be backed by an in-process key, HSM, or KMS, but
+// its public key must be RSA so command verification remains interoperable.
+func SignWithSigner(envelope *Envelope, signer crypto.Signer) error {
 	if envelope == nil {
 		return fmt.Errorf("command envelope is nil")
 	}
-	if privateKey == nil {
+	if signer == nil || isNilSigner(signer) {
 		return fmt.Errorf("command signing key is nil")
+	}
+	if _, ok := signer.Public().(*rsa.PublicKey); !ok {
+		return fmt.Errorf("command signing key must be RSA")
 	}
 
 	digest, err := digestEnvelope(*envelope)
 	if err != nil {
 		return err
 	}
-	signature, err := rsa.SignPSS(rand.Reader, privateKey, crypto.SHA256, digest, nil)
+	signature, err := signer.Sign(rand.Reader, digest, &rsa.PSSOptions{
+		SaltLength: rsa.PSSSaltLengthEqualsHash,
+		Hash:       crypto.SHA256,
+	})
 	if err != nil {
 		return fmt.Errorf("sign command envelope: %w", err)
 	}
 	envelope.Signature = base64.RawURLEncoding.EncodeToString(signature)
 	return nil
+}
+
+func isNilSigner(signer crypto.Signer) bool {
+	value := reflect.ValueOf(signer)
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 // Verify checks an envelope's RSA-PSS SHA-256 signature.

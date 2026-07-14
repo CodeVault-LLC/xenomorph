@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	gatewayURL    string        = "https://localhost:8443"
-	certPath      string        = "../infrastructure/certs"
-	clientTimeout time.Duration = 10 * time.Second
+	gatewayURL                 string        = "https://localhost:8443"
+	certPath                   string        = "../infrastructure/certs"
+	clientTimeout              time.Duration = 10 * time.Second
+	commandVerificationKeyBits               = 3072
 )
 
 type appContext struct {
@@ -51,10 +52,11 @@ func setupApp() (*appContext, error) {
 	caCertPool.AppendCertsFromPEM(caCert)
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      caCertPool,
-		ServerName:   "localhost",
-		MinVersion:   tls.VersionTLS13,
+		Certificates:     []tls.Certificate{cert},
+		RootCAs:          caCertPool,
+		ServerName:       "localhost",
+		MinVersion:       tls.VersionTLS13,
+		CurvePreferences: []tls.CurveID{tls.CurveP384},
 	}
 
 	httpClient := &http.Client{
@@ -74,7 +76,7 @@ func setupApp() (*appContext, error) {
 	if err != nil {
 		return nil, fmt.Errorf("derive command audience: %w", err)
 	}
-	verificationKey, keyID, err := loadCommandVerificationKey(filepath.Join(certPath, "server.crt"))
+	verificationKey, keyID, err := loadCommandVerificationKey(filepath.Join(certPath, "command-signing.pub"))
 	if err != nil {
 		return nil, err
 	}
@@ -116,19 +118,22 @@ func removeLegacyRuntimeStateAt(homeDir string) error {
 func loadCommandVerificationKey(path string) (*rsa.PublicKey, string, error) {
 	encoded, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		return nil, "", fmt.Errorf("read command verification certificate: %w", err)
+		return nil, "", fmt.Errorf("read command verification key: %w", err)
 	}
-	block, _ := pem.Decode(encoded)
-	if block == nil {
-		return nil, "", fmt.Errorf("decode command verification certificate: invalid PEM data")
+	block, remainder := pem.Decode(encoded)
+	if block == nil || len(remainder) != 0 {
+		return nil, "", fmt.Errorf("decode command verification key: invalid PEM data")
 	}
-	certificate, err := x509.ParseCertificate(block.Bytes)
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		return nil, "", fmt.Errorf("parse command verification certificate: %w", err)
+		return nil, "", fmt.Errorf("parse command verification key: %w", err)
 	}
-	publicKey, ok := certificate.PublicKey.(*rsa.PublicKey)
+	publicKey, ok := parsed.(*rsa.PublicKey)
 	if !ok {
-		return nil, "", fmt.Errorf("parse command verification certificate: RSA key required")
+		return nil, "", fmt.Errorf("parse command verification key: RSA key required")
+	}
+	if publicKey.N.BitLen() < commandVerificationKeyBits {
+		return nil, "", fmt.Errorf("parse command verification key: RSA key must contain at least 3072 bits")
 	}
 	keyID, err := commandauth.KeyID(publicKey)
 	if err != nil {

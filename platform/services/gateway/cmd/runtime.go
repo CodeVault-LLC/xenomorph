@@ -10,15 +10,32 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/config"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/keyservice"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/transport"
 )
 
-func buildGatewayServer(cfg config.GatewayConfig, natsBroker *broker.NATS, monitor *activity.Monitor) (*transport.Server, error) {
-	signingKey, signingKeyID, err := command.LoadRSASigningKey(filepath.Join(cfg.CertPath, "server.key"))
+func setupCommandSigner(ctx context.Context, cfg config.GatewayConfig, keys *keyservice.Service) (*keyservice.CommandSigner, error) {
+	if keyPathConflictsWithTLS(cfg.CommandSigningKeyPath, cfg.CertPath) || keyPathConflictsWithTLS(cfg.CommandPublicKeyPath, cfg.CertPath) {
+		return nil, fmt.Errorf("command key paths must not reuse or overwrite TLS artifacts")
+	}
+	signingKey, err := keys.LoadOrCreateCommandSigner(ctx, cfg.CommandSigningKeyPath, cfg.CommandPublicKeyPath, 1)
 	if err != nil {
 		return nil, fmt.Errorf("command signing setup: %w", err)
 	}
-	queue, err := command.NewQueue(signingKey, signingKeyID)
+	return signingKey, nil
+}
+
+func keyPathConflictsWithTLS(keyPath, certPath string) bool {
+	for _, name := range []string{"ca.crt", "server.crt", "server.key"} {
+		if samePath(keyPath, filepath.Join(certPath, name)) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildGatewayServer(cfg config.GatewayConfig, signingKey command.Signer, keys *keyservice.Service, natsBroker *broker.NATS, monitor *activity.Monitor) (*transport.Server, error) {
+	queue, err := command.NewQueueWithSigner(signingKey)
 	if err != nil {
 		return nil, fmt.Errorf("command queue setup: %w", err)
 	}
@@ -29,7 +46,14 @@ func buildGatewayServer(cfg config.GatewayConfig, natsBroker *broker.NATS, monit
 	server := transport.NewServer(natsBroker, queue, monitor)
 	server.ConfigureFileWorkspace(fileService, cfg.FileOperatorID)
 	server.ConfigureDashboardOrigin(cfg.DashboardOrigin)
+	server.ConfigureReadiness(keys)
 	return server, nil
+}
+
+func samePath(first, second string) bool {
+	firstAbsolute, firstErr := filepath.Abs(filepath.Clean(first))
+	secondAbsolute, secondErr := filepath.Abs(filepath.Clean(second))
+	return firstErr == nil && secondErr == nil && firstAbsolute == secondAbsolute
 }
 
 func startHTTPServers(ctx context.Context, cfg config.GatewayConfig, server *transport.Server) {

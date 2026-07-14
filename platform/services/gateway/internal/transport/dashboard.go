@@ -66,6 +66,11 @@ type DashboardRuntime struct {
 	Files           *fileworkspace.Service
 	FileOperatorID  string
 	DashboardOrigin string
+	Readiness       readinessProvider
+}
+
+type healthResponse struct {
+	Status string `json:"status"`
 }
 
 // RunDashboard starts the read-only browser API listener. This listener is
@@ -74,10 +79,7 @@ type DashboardRuntime struct {
 func RunDashboard(ctx context.Context, addr, certPath string, runtime DashboardRuntime) error {
 	mux := http.NewServeMux()
 	registerFileRoutes(mux, runtime)
-
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeDashboardJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	registerHealthRoutes(mux, runtime.Readiness)
 
 	mux.HandleFunc("GET /api/clients", func(w http.ResponseWriter, _ *http.Request) {
 		writeDashboardJSON(w, http.StatusOK, map[string]any{
@@ -481,7 +483,10 @@ func RunDashboard(ctx context.Context, addr, certPath string, runtime DashboardR
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: dashboardReadHeaderTimeout,
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS13},
+		TLSConfig: &tls.Config{
+			MinVersion:       tls.VersionTLS13,
+			CurvePreferences: []tls.CurveID{tls.CurveP384},
+		},
 	}
 
 	go func() {
@@ -499,6 +504,22 @@ func RunDashboard(ctx context.Context, addr, certPath string, runtime DashboardR
 		return err
 	}
 	return nil
+}
+
+func registerHealthRoutes(mux *http.ServeMux, readiness readinessProvider) {
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
+		writeDashboardJSON(w, http.StatusOK, healthResponse{Status: "ok"})
+	})
+	mux.HandleFunc("GET /api/health/live", func(w http.ResponseWriter, _ *http.Request) {
+		writeDashboardJSON(w, http.StatusOK, healthResponse{Status: "live"})
+	})
+	mux.HandleFunc("GET /api/health/ready", func(w http.ResponseWriter, _ *http.Request) {
+		if readiness == nil || readiness.Ready() != nil {
+			writeDashboardJSON(w, http.StatusServiceUnavailable, healthResponse{Status: "unready"})
+			return
+		}
+		writeDashboardJSON(w, http.StatusOK, healthResponse{Status: "ready"})
+	})
 }
 
 type terminalSessionRequest struct {

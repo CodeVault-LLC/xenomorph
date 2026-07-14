@@ -12,6 +12,7 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/config"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/keyservice"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
 )
 
@@ -24,6 +25,34 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
+	keys, err := keyservice.New(keyservice.Config{
+		ProviderName:                 cfg.CryptoProvider,
+		AllowedModuleVersions:        cfg.CryptoModuleVersions,
+		Certificate:                  cfg.CryptoCertificate,
+		SecurityPolicy:               cfg.CryptoSecurityPolicy,
+		AllowedOperatingEnvironments: cfg.CryptoEnvironments,
+	})
+	if err != nil {
+		return fmt.Errorf("cryptographic provider setup: %w", err)
+	}
+	defer func() {
+		if err := keys.Close(); err != nil {
+			slog.Error("cryptographic provider shutdown failed", "error", err)
+		}
+	}()
+	provider := keys.Provider()
+	slog.Info("cryptographic provider ready",
+		"provider", provider.Name,
+		"module_version", provider.ModuleVersion,
+		"certificate", provider.Certificate,
+		"operating_environment", provider.OperatingEnvironment,
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	signingKey, err := setupCommandSigner(ctx, cfg, keys)
+	if err != nil {
+		return err
+	}
 
 	natsBroker, err := broker.New(cfg.NATSURL)
 	if err != nil {
@@ -32,14 +61,12 @@ func run() error {
 	defer natsBroker.Close()
 
 	monitor := activity.NewMonitor(cfg.ActivityOfflineAfter)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	if err := activity.StartStream(ctx, natsBroker, monitor, cfg.ActivitySweepInterval); err != nil {
 		return fmt.Errorf("activity monitoring setup: %w", err)
 	}
 
-	srv, err := buildGatewayServer(cfg, natsBroker, monitor)
+	srv, err := buildGatewayServer(cfg, signingKey, keys, natsBroker, monitor)
 	if err != nil {
 		return err
 	}

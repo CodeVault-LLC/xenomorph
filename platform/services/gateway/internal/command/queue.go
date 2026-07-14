@@ -5,12 +5,7 @@ package command
 import (
 	"context"
 	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -31,10 +26,22 @@ type Envelope = commandauth.Envelope
 // The queue is held in memory and is not persisted across gateway restarts.
 // Operators must re-enqueue commands after a gateway restart.
 type Queue struct {
-	mu         sync.Mutex
-	notify     chan struct{}
-	entries    map[string][]*Envelope
-	signingKey *rsa.PrivateKey
+	mu      sync.Mutex
+	notify  chan struct{}
+	entries map[string][]*Envelope
+	signer  Signer
+}
+
+// Signer is the opaque command-signing capability consumed by Queue. The
+// implementation owns private-key storage and lifecycle; Queue receives only
+// signatures and a server-authored key identifier.
+type Signer interface {
+	SignCommand(envelope *Envelope) error
+	KeyID() string
+}
+
+type rsaSigner struct {
+	privateKey *rsa.PrivateKey
 	keyID      string
 }
 
@@ -46,11 +53,22 @@ func NewQueue(signingKey *rsa.PrivateKey, keyID string) (*Queue, error) {
 	if keyID == "" {
 		return nil, fmt.Errorf("command signing key ID is required")
 	}
+	return NewQueueWithSigner(&rsaSigner{privateKey: signingKey, keyID: keyID})
+}
+
+// NewQueueWithSigner creates an empty bounded command queue using an opaque
+// gateway-owned signing capability.
+func NewQueueWithSigner(signer Signer) (*Queue, error) {
+	if signer == nil {
+		return nil, fmt.Errorf("command signer is required")
+	}
+	if signer.KeyID() == "" {
+		return nil, fmt.Errorf("command signing key ID is required")
+	}
 	return &Queue{
-		notify:     make(chan struct{}),
-		entries:    make(map[string][]*Envelope),
-		signingKey: signingKey,
-		keyID:      keyID,
+		notify:  make(chan struct{}),
+		entries: make(map[string][]*Envelope),
+		signer:  signer,
 	}, nil
 }
 
@@ -82,9 +100,9 @@ func (q *Queue) Enqueue(agentID string, cmd *Envelope) error {
 	cmd.ProtocolVersion = commandauth.ProtocolVersion
 	cmd.AudienceAgentID = agentID
 	cmd.Nonce = uuid.New().String()
-	cmd.KeyID = q.keyID
+	cmd.KeyID = q.signer.KeyID()
 	cmd.Signature = ""
-	if err := commandauth.Sign(cmd, q.signingKey); err != nil {
+	if err := q.signer.SignCommand(cmd); err != nil {
 		return fmt.Errorf("sign command: %w", err)
 	}
 
@@ -99,42 +117,12 @@ func (q *Queue) Enqueue(agentID string, cmd *Envelope) error {
 	return nil
 }
 
-// LoadRSASigningKey loads a PKCS#1 or PKCS#8 RSA private key and returns its
-// SHA-256 subject-public-key fingerprint as the key ID.
-func LoadRSASigningKey(path string) (*rsa.PrivateKey, string, error) {
-	encoded, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return nil, "", fmt.Errorf("read command signing key: %w", err)
-	}
-	block, _ := pem.Decode(encoded)
-	if block == nil {
-		return nil, "", fmt.Errorf("decode command signing key: invalid PEM data")
-	}
-	privateKey, err := parseRSAPrivateKey(block.Bytes)
-	if err != nil {
-		return nil, "", err
-	}
-	publicDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		return nil, "", fmt.Errorf("encode command verification key: %w", err)
-	}
-	fingerprint := sha256.Sum256(publicDER)
-	return privateKey, fmt.Sprintf("sha256:%x", fingerprint), nil
+func (signer *rsaSigner) SignCommand(envelope *Envelope) error {
+	return commandauth.Sign(envelope, signer.privateKey)
 }
 
-func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
-	if privateKey, err := x509.ParsePKCS1PrivateKey(der); err == nil {
-		return privateKey, nil
-	}
-	parsed, err := x509.ParsePKCS8PrivateKey(der)
-	if err != nil {
-		return nil, fmt.Errorf("parse command signing key: %w", err)
-	}
-	privateKey, ok := parsed.(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("parse command signing key: RSA key required")
-	}
-	return privateKey, nil
+func (signer *rsaSigner) KeyID() string {
+	return signer.keyID
 }
 
 // Dequeue removes and returns the next command for the agent. Returns nil

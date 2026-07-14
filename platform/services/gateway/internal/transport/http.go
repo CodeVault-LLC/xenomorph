@@ -75,9 +75,14 @@ type Server struct {
 	fileOperatorID  string
 	dashboardOrigin string
 	engine          *gin.Engine
+	readiness       readinessProvider
 
 	seenMu     sync.Mutex
 	seenAgents map[string]struct{}
+}
+
+type readinessProvider interface {
+	Ready() error
 }
 
 // agentStatusProvider is the interface the Server requires for agent presence
@@ -130,6 +135,12 @@ func (s *Server) routes() {
 	s.engine.PUT("/files/transfers/:transferID/chunks/:chunkIndex", s.handleAgentTransferChunkPut)
 	s.engine.GET("/files/transfers/:transferID/chunks/:chunkIndex", s.handleAgentTransferChunkGet)
 	s.engine.POST("/files/transfers/:transferID/finalize", s.handleAgentTransferFinalize)
+}
+
+// ConfigureReadiness installs the gateway-owned readiness dependency exposed
+// by the administrative health endpoint.
+func (s *Server) ConfigureReadiness(provider readinessProvider) {
+	s.readiness = provider
 }
 
 // handleLogEntry processes an authenticated client diagnostic log entry.
@@ -565,6 +576,7 @@ func (s *Server) DashboardRuntime() DashboardRuntime {
 		Files:           s.fileWorkspace,
 		FileOperatorID:  s.fileOperatorID,
 		DashboardOrigin: s.dashboardOrigin,
+		Readiness:       s.readiness,
 	}
 }
 
@@ -763,9 +775,10 @@ func (s *Server) Run(addr, certPath string) error {
 	}
 
 	tlsConfig := &tls.Config{
-		ClientCAs:  caCertPool,
-		ClientAuth: tls.RequireAndVerifyClientCert,
-		MinVersion: tls.VersionTLS13,
+		ClientCAs:        caCertPool,
+		ClientAuth:       tls.RequireAndVerifyClientCert,
+		MinVersion:       tls.VersionTLS13,
+		CurvePreferences: []tls.CurveID{tls.CurveP384},
 	}
 
 	server := &http.Server{

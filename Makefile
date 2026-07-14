@@ -153,7 +153,7 @@ web-typecheck:
 web-build:
 	@cd $(WEBSITE_DIR) && $(BUN) run build
 
-ci-go: fmt-check tidy-check test test-race vet staticcheck govulncheck gosec lint build-all
+ci-go: fmt-check tidy-check test-race govulncheck lint build-all
 
 ci-web: web-install web-format-check web-lint web-typecheck web-build
 

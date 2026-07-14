@@ -55,8 +55,8 @@ uses only `INFO` and `ERROR`.
 | `client.runtime` | `INFO` | `runtime_started` | Client setup completed. | None. |
 | `client.authentication` | `INFO` | `authentication_succeeded` | Initial authenticated heartbeat succeeded. | None. |
 | `client.authentication` | `ERROR` | `authentication_failed` | Initial authenticated heartbeat failed. | None. |
-| `client.onboarding` | `INFO` | `entry_report_submitted` | A newly observed agent submitted its entry report. | None. |
-| `client.onboarding` | `ERROR` | `entry_report_failed` | Entry report submission failed. | None. |
+| `client.attestation` | `INFO` | `attestation_submitted` | A newly observed agent submitted its endpoint attestation. | None. |
+| `client.attestation` | `ERROR` | `attestation_failed` | Endpoint attestation submission failed. | None. |
 | `client.heartbeat` | `ERROR` | `heartbeat_failed` | A periodic heartbeat failed. Successful periodic heartbeats are intentionally not logged. | None. |
 | `client.command` | `INFO` | `command_received` | A command was received from the gateway. | None. |
 | `client.command` | `INFO` | `command_completed` | The command result was accepted by the gateway. | None. |

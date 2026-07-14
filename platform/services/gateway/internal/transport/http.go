@@ -117,7 +117,7 @@ func NewServer(b *broker.NATS, commandQueue *command.Queue, statusProvider agent
 // Endpoints:
 //
 //	POST /ingest/heartbeat   — accepts agent heartbeat payloads.
-//	POST /ingest/entry       — accepts stage-2 onboarding reports.
+//	POST /ingest/attestation — accepts endpoint attestation reports.
 //	POST /ingest/logs        — accepts client diagnostic log entries.
 //	GET  /commands/next      — dequeues the next pending command for an agent.
 //	POST /commands/result    — accepts command execution results.
@@ -127,7 +127,7 @@ func (s *Server) routes() {
 	s.engine.Use(s.mtlsMiddleware)
 
 	s.engine.POST("/ingest/heartbeat", s.handleHeartbeat)
-	s.engine.POST("/ingest/entry", s.handleEntry)
+	s.engine.POST("/ingest/attestation", s.handleAttestation)
 	s.engine.POST("/ingest/logs", s.handleLogEntry)
 	s.engine.GET("/commands/next", s.handleNextCommand)
 	s.engine.POST("/commands/result", s.handleCommandResult)
@@ -248,7 +248,7 @@ func (s *Server) mtlsMiddleware(c *gin.Context) {
 // "sys.in.default.<agentID>.heartbeat".
 //
 // Expected request body: proto.Heartbeat JSON representation.
-// Response: 202 Accepted with event_id and is_new_agent flags.
+// Response: 202 Accepted with event_id and requires_attestation flag.
 func (s *Server) handleHeartbeat(c *gin.Context) {
 	agentID := c.GetString("agent_id")
 	if agentID == "" {
@@ -288,26 +288,26 @@ func (s *Server) handleHeartbeat(c *gin.Context) {
 	_, existed := s.markSeen(agentID)
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"status":       "accepted",
-		"event_id":     env.EventId,
-		"is_new_agent": !existed,
+		"status":               "accepted",
+		"event_id":             env.EventId,
+		"requires_attestation": !existed,
 	})
 }
 
-// entryBrowser is the JSON shape for a browser entry in the onboarding report.
-type entryBrowser struct {
+// attestationBrowser is the JSON shape for a browser entry in the endpoint attestation report.
+type attestationBrowser struct {
 	Name       string `json:"name"`
 	BinaryPath string `json:"binary_path"`
 	ProfileDir string `json:"profile_dir"`
 }
 
-// entryRequest is the JSON shape for the stage-2 onboarding submission.
-type entryRequest struct {
-	Hostname              string         `json:"hostname" binding:"required"`
-	OSVersion             string         `json:"os_version"`
-	IsNewAgent            bool           `json:"is_new_agent"`
-	Browsers              []entryBrowser `json:"browsers"`
-	InstalledApplications []string       `json:"installed_applications"`
+// attestationRequest is the JSON shape for the endpoint attestation submission.
+type attestationRequest struct {
+	Hostname              string               `json:"hostname" binding:"required"`
+	OSVersion             string               `json:"os_version"`
+	RequiresAttestation   bool                 `json:"requires_attestation"`
+	Browsers              []attestationBrowser `json:"browsers"`
+	InstalledApplications []string             `json:"installed_applications"`
 }
 
 // browserInfo is normalized client-authored browser installation metadata.
@@ -317,40 +317,40 @@ type browserInfo struct {
 	ProfileDir string
 }
 
-// normalizedEntryReport is the validated onboarding data used to construct a
-// gateway-authored audit event. Its fields remain client-authored telemetry.
-type normalizedEntryReport struct {
+// normalizedAttestationReport is the validated endpoint attestation data used to
+// construct a gateway-authored audit event. Its fields remain client-authored telemetry.
+type normalizedAttestationReport struct {
 	AgentID               string
 	Hostname              string
 	OSVersion             string
-	IsNewAgent            bool
+	RequiresAttestation   bool
 	Browsers              []browserInfo
 	InstalledApplications []string
 	OccurredAt            time.Time
 }
 
-// handleEntry processes an authenticated stage-2 onboarding report.
+// handleAttestation processes an authenticated endpoint attestation report.
 //
 // The agent identity is extracted from the mTLS session. The request body
-// is validated and normalized through normalizeEntryRequest, which applies
+// is validated and normalized through normalizeAttestationRequest, which applies
 // length limits to every text field. The normalized report is published to NATS.
 //
-// Expected request body: entryRequest JSON.
+// Expected request body: attestationRequest JSON.
 // Response: 202 Accepted with event_id.
-func (s *Server) handleEntry(c *gin.Context) {
+func (s *Server) handleAttestation(c *gin.Context) {
 	agentID := c.GetString("agent_id")
 	if agentID == "" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "missing authenticated agent identity"})
 		return
 	}
 
-	var req entryRequest
+	var req attestationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schema"})
 		return
 	}
 
-	report := normalizeEntryRequest(agentID, req)
+	report := normalizeAttestationRequest(agentID, req)
 
 	env := &pb.EventEnvelope{
 		EventId:   uuid.New().String(),
@@ -364,20 +364,20 @@ func (s *Server) handleEntry(c *gin.Context) {
 		},
 		Payload: &pb.EventEnvelope_LogEntry{LogEntry: &pb.LogEntry{
 			Level:     "INFO",
-			Component: "gateway.ingest.entry",
+			Component: "gateway.ingest.attestation",
 			Message: fmt.Sprintf(
-				"stage2 entry accepted hostname=%s browsers=%d apps=%d is_new_agent=%t",
+				"endpoint attestation accepted hostname=%s browsers=%d apps=%d requires_attestation=%t",
 				report.Hostname,
 				len(report.Browsers),
 				len(report.InstalledApplications),
-				report.IsNewAgent,
+				report.RequiresAttestation,
 			),
 		}},
 	}
 
-	subject := "sys.in.default." + agentID + ".entry"
+	subject := "sys.in.default." + agentID + ".attestation"
 	if err := s.broker.Publish(subject, env); err != nil {
-		slog.ErrorContext(c.Request.Context(), "entry publish failed",
+		slog.ErrorContext(c.Request.Context(), "attestation publish failed",
 			"agent_id", agentID,
 			"error", err,
 		)
@@ -677,8 +677,8 @@ func (s *Server) markSeen(agentID string) (inserted bool, existed bool) {
 	return false, true
 }
 
-// normalizeEntryRequest validates and constrains an entry request into a
-// normalizedEntryReport. Every client-supplied text field is clamped to a
+// normalizeAttestationRequest validates and constrains an attestation request into a
+// normalizedAttestationReport. Every client-supplied text field is clamped to a
 // maximum length before entering the event pipeline.
 //
 // Length limits and why:
@@ -690,7 +690,7 @@ func (s *Server) markSeen(agentID string) (inserted bool, existed bool) {
 //   - Application name: 120 characters.
 //   - Maximum browsers: 32 (reasonable upper bound for browser enumeration).
 //   - Maximum applications: 200 (prevents unbounded memory growth).
-func normalizeEntryRequest(agentID string, req entryRequest) normalizedEntryReport {
+func normalizeAttestationRequest(agentID string, req attestationRequest) normalizedAttestationReport {
 	browsers := make([]browserInfo, 0, len(req.Browsers))
 	for _, b := range req.Browsers {
 		if len(browsers) >= maxBrowsers {
@@ -722,11 +722,11 @@ func normalizeEntryRequest(agentID string, req entryRequest) normalizedEntryRepo
 		apps = append(apps, item)
 	}
 
-	return normalizedEntryReport{
+	return normalizedAttestationReport{
 		AgentID:               agentID,
 		Hostname:              clampText(req.Hostname, maxHostnameLen),
 		OSVersion:             clampText(req.OSVersion, maxOSVersionLen),
-		IsNewAgent:            req.IsNewAgent,
+		RequiresAttestation:   req.RequiresAttestation,
 		Browsers:              browsers,
 		InstalledApplications: apps,
 		OccurredAt:            timestamppb.Now().AsTime(),

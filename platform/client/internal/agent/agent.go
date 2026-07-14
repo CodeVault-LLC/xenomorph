@@ -118,10 +118,10 @@ func (a *Agent) transferChunkURL(transferID string, index int) string {
 	return a.gatewayURL + "/files/transfers/" + url.PathEscape(transferID) + "/chunks/" + strconv.Itoa(index)
 }
 
-// Stage1AuthResult contains the gateway response to the initial authentication.
-type Stage1AuthResult struct {
-	EventID    string
-	IsNewAgent bool
+// DeviceAuthResult contains the gateway response to device authentication.
+type DeviceAuthResult struct {
+	EventID             string
+	RequiresAttestation bool
 }
 
 // CommandEnvelope is a command received from the gateway for local execution.
@@ -186,56 +186,56 @@ func (a *Agent) SendHeartbeat() error {
 	return err
 }
 
-// Authenticate performs stage-1 authentication with the gateway.
-func (a *Agent) Authenticate() (Stage1AuthResult, error) {
+// Authenticate performs device authentication with the gateway over mTLS.
+func (a *Agent) Authenticate() (DeviceAuthResult, error) {
 	payload := BuildHeartbeatPayload(nil)
 
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return Stage1AuthResult{}, err
+		return DeviceAuthResult{}, err
 	}
 
 	req, err := http.NewRequest(http.MethodPost, a.gatewayURL+"/ingest/heartbeat", bytes.NewBuffer(data))
 	if err != nil {
-		return Stage1AuthResult{}, err
+		return DeviceAuthResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return Stage1AuthResult{}, err
+		return DeviceAuthResult{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 202 && resp.StatusCode != 200 {
-		return Stage1AuthResult{}, fmt.Errorf("gateway rejected heartbeat: status %d", resp.StatusCode)
+		return DeviceAuthResult{}, fmt.Errorf("gateway rejected heartbeat: status %d", resp.StatusCode)
 	}
 
 	var ack struct {
-		EventID    string `json:"event_id"`
-		IsNewAgent bool   `json:"is_new_agent"`
+		EventID             string `json:"event_id"`
+		RequiresAttestation bool   `json:"requires_attestation"`
 	}
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, heartbeatResponseSize))
 	if readErr != nil {
-		return Stage1AuthResult{}, fmt.Errorf("read heartbeat response: %w", readErr)
+		return DeviceAuthResult{}, fmt.Errorf("read heartbeat response: %w", readErr)
 	}
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &ack); err != nil {
-			return Stage1AuthResult{}, fmt.Errorf("decode heartbeat response: %w", err)
+			return DeviceAuthResult{}, fmt.Errorf("decode heartbeat response: %w", err)
 		}
 	}
 
-	return Stage1AuthResult{EventID: ack.EventID, IsNewAgent: ack.IsNewAgent}, nil
+	return DeviceAuthResult{EventID: ack.EventID, RequiresAttestation: ack.RequiresAttestation}, nil
 }
 
-// SendEntryReport submits the stage-2 onboarding payload to the gateway.
-func (a *Agent) SendEntryReport(payload EntryPayload) error {
+// SubmitAttestation submits the endpoint attestation payload to the gateway.
+func (a *Agent) SubmitAttestation(payload EndpointAttestation) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, a.gatewayURL+"/ingest/entry", bytes.NewBuffer(data))
+	req, err := http.NewRequest(http.MethodPost, a.gatewayURL+"/ingest/attestation", bytes.NewBuffer(data))
 	if err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ func run() int {
 	}
 	reportClientLog(ac, "INFO", "client.runtime", "event=runtime_started")
 
-	isNewAgent, err := stage1Auth(ac)
+	requiresAttestation, err := authenticateDevice(ac)
 	if err != nil {
 		reportClientLog(ac, "ERROR", "client.authentication", "event=authentication_failed")
 		shutdown(ac)
@@ -26,13 +26,13 @@ func run() int {
 	}
 	reportClientLog(ac, "INFO", "client.authentication", "event=authentication_succeeded")
 
-	if err := stage2Entry(ac, isNewAgent); err != nil {
-		reportClientLog(ac, "ERROR", "client.onboarding", "event=entry_report_failed")
+	if err := attestEndpoint(ac, requiresAttestation); err != nil {
+		reportClientLog(ac, "ERROR", "client.attestation", "event=attestation_failed")
 		shutdown(ac)
 		return 1
 	}
-	if isNewAgent {
-		reportClientLog(ac, "INFO", "client.onboarding", "event=entry_report_submitted")
+	if requiresAttestation {
+		reportClientLog(ac, "INFO", "client.attestation", "event=attestation_submitted")
 	}
 
 	if err := runRuntimeLoops(ac); err != nil {

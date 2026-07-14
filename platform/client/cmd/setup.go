@@ -142,22 +142,22 @@ func loadCommandVerificationKey(path string) (*rsa.PublicKey, string, error) {
 	return publicKey, keyID, nil
 }
 
-func stage1Auth(ac *appContext) (bool, error) {
-	stage1, err := ac.ag.Authenticate()
+func authenticateDevice(ac *appContext) (bool, error) {
+	auth, err := ac.ag.Authenticate()
 	if err != nil {
 		return false, fmt.Errorf("authentication failed: %w", err)
 	}
-	return stage1.IsNewAgent, nil
+	return auth.RequiresAttestation, nil
 }
 
-func stage2Entry(ac *appContext, isNewAgent bool) error {
-	if !isNewAgent {
+func attestEndpoint(ac *appContext, requiresAttestation bool) error {
+	if !requiresAttestation {
 		return nil
 	}
 
-	entry := agent.BuildEntryPayload(isNewAgent, nil, nil)
-	if err := ac.ag.SendEntryReport(entry); err != nil {
-		return fmt.Errorf("entry report failed: %w", err)
+	attestation := agent.BuildEndpointAttestation(requiresAttestation, nil, nil)
+	if err := ac.ag.SubmitAttestation(attestation); err != nil {
+		return fmt.Errorf("endpoint attestation failed: %w", err)
 	}
 
 	return nil

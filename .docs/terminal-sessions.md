@@ -58,6 +58,6 @@ The implementation does not provide a raw interactive PTY, terminal resize event
 
 ### Priority 3
 
-- Add shell capability discovery from the client heartbeat or entry report.
+- Add shell capability discovery from the client heartbeat or endpoint attestation.
 - Add configurable output limits, timeout limits, and blocked command patterns.
 - Add UI affordances for command history search and session renaming.

@@ -15,17 +15,19 @@ type BrowserInstallation struct {
 	ProfileDir string `json:"profile_dir"`
 }
 
-// EntryPayload is the stage-2 onboarding data sent to the gateway.
-type EntryPayload struct {
+// EndpointAttestation is the one-time endpoint attestation payload sent to the
+// gateway for an unprovisioned device (NIST 800-53 IA-3(4) device attestation
+// and CM-8 system component inventory).
+type EndpointAttestation struct {
 	Hostname              string                `json:"hostname"`
 	OSVersion             string                `json:"os_version"`
-	IsNewAgent            bool                  `json:"is_new_agent"`
+	RequiresAttestation   bool                  `json:"requires_attestation"`
 	Browsers              []BrowserInstallation `json:"browsers,omitempty"`
 	InstalledApplications []string              `json:"installed_applications,omitempty"`
 }
 
-// BuildEntryPayload constructs the onboarding payload from runtime data.
-func BuildEntryPayload(isNewAgent bool, hostnameProvider func() (string, error), homeProvider func() (string, error)) EntryPayload {
+// BuildEndpointAttestation constructs the endpoint attestation payload from runtime data.
+func BuildEndpointAttestation(requiresAttestation bool, hostnameProvider func() (string, error), homeProvider func() (string, error)) EndpointAttestation {
 	if hostnameProvider == nil {
 		hostnameProvider = os.Hostname
 	}
@@ -33,13 +35,13 @@ func BuildEntryPayload(isNewAgent bool, hostnameProvider func() (string, error),
 		homeProvider = os.UserHomeDir
 	}
 
-	payload := EntryPayload{
-		Hostname:   resolveHostname(hostnameProvider),
-		OSVersion:  runtime.GOOS + "/" + runtime.GOARCH,
-		IsNewAgent: isNewAgent,
+	payload := EndpointAttestation{
+		Hostname:            resolveHostname(hostnameProvider),
+		OSVersion:           runtime.GOOS + "/" + runtime.GOARCH,
+		RequiresAttestation: requiresAttestation,
 	}
 
-	if !isNewAgent {
+	if !requiresAttestation {
 		return payload
 	}
 

@@ -1,6 +1,7 @@
 import { Link, useMatchRoute } from "@tanstack/react-router"
-import { MonitorCheck, Moon, Sun } from "lucide-react"
+import { Moon, Sun } from "lucide-react"
 
+import { Logo } from "@/components/logo"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -25,8 +26,8 @@ export const Navbar = () => {
           variant="ghost"
           className="justify-start px-1"
         >
-          <span className="flex size-8 items-center justify-center rounded-lg border border-border bg-card shadow-sm">
-            <MonitorCheck />
+          <span className="flex size-8 items-center justify-center text-foreground">
+            <Logo className="size-full" />
           </span>
           <span className="text-sm font-semibold tracking-normal">
             xenomorph

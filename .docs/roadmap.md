@@ -20,19 +20,7 @@ Status: **complete**.
 
 Gate evidence: `make ci-go` and `make ci-web` pass locally on 2026-07-14. GitHub branch-protection verification on the same date reports the two required checks `Go quality and cross-platform build` and `Website quality and production build` on `master`.
 
-## Phase 1: Close the Gateway Trust Boundary
-
-Status: **not started; release blocking**.
-
-- Add authenticated operator identity and server-side authorization to every dashboard HTTP and WebSocket route.
-- Bind terminal, screen, file, and administrative audit events to authenticated operator, agent, trace, request, and result identifiers.
-- Add session expiry, revocation, cross-site request defenses, rate limits, and negative authorization tests.
-- Configure NATS with independent mutual-TLS identity, subject authorization, secure JetStream administration, and bounded reconnect and publication failure behavior. Gateway publication already waits for the JetStream acknowledgement.
-- Remove tracked development private keys from current source and history, rotate them, externalize enrollment and runtime secrets, and document incident handling for exposed development credentials.
-
-Gate: threat-model review and integration tests prove unauthenticated, unauthorized, cross-agent, cross-origin, forged, expired, replayed, and broker-bypass actions fail closed.
-
-## Phase 2: Stabilize Runtime and Recovery Contracts
+## Phase 1: Stabilize Runtime and Recovery Contracts
 
 Status: **partially implemented; release blocking**.
 
@@ -44,9 +32,9 @@ Status: **partially implemented; release blocking**.
 
 Gate: clean install, restart, backup/restore, degraded-dependency, and rollback exercises produce the documented state without identity confusion, silent command loss, or unbounded retry.
 
-## Phase 3: Complete the File Workspace Contract
+## Phase 2: Complete the File Workspace Contract
 
-Status: **Phases 0, 2, and 3 substantially implemented; residual Phase 1 and Phases 4–5 incomplete**.
+Status: **Phases 0, 1, and 2 substantially implemented; Phases 3–4 incomplete**.
 
 - Complete bounded search, cancellation, DOM virtualization, large-directory benchmarks, and the remaining Phase 1 acceptance evidence.
 - Implement Phase 4 normalized metadata writes and archive create/list/extract only through explicit platform capability gates and archive traversal/bomb controls.
@@ -55,7 +43,7 @@ Status: **Phases 0, 2, and 3 substantially implemented; residual Phase 1 and Pha
 
 Gate: every gate in `file-explorer-transfer-plan.md` passes. Cross-compilation is not native integration evidence.
 
-## Phase 4: Complete Cryptographic Promotion Controls
+## Phase 3: Complete Cryptographic Promotion Controls
 
 Status: **software-provider foundation implemented; production controls incomplete**.
 
@@ -67,7 +55,7 @@ Status: **software-provider foundation implemented; production controls incomple
 
 Gate: the exact build, provider, certificate, operating environment, policy, key lifecycle, failure behavior, and evidence package receive independent cryptographic and operations approval. No algorithm or deployment carries a broader claim than its evidence.
 
-## Phase 5: Native Components and Packaging Decision
+## Phase 4: Native Components and Packaging Decision
 
 Status: **not specified**.
 
@@ -78,7 +66,7 @@ Status: **not specified**.
 
 Gate: each native binary has an approved owner and threat model and cannot bypass or duplicate gateway authority. If no requirement survives review, Milestone 1 ships without additional native binaries.
 
-## Phase 6: Product Documentation and Full Review
+## Phase 5: Product Documentation and Full Review
 
 Status: **not started; release blocking**.
 
@@ -90,9 +78,9 @@ Status: **not started; release blocking**.
 
 Gate: documentation is implementation-aware, release evidence is complete, and no unresolved Blocker or High finding remains.
 
-## Phase 7: Release Candidate and Promotion
+## Phase 6: Release Candidate and Promotion
 
-Status: **blocked by Phases 1–6**.
+Status: **blocked by Phases 1–5**.
 
 - Freeze the supported component versions, operating systems, architectures, deployment configuration, dependencies, and explicit exclusions.
 - Run clean-room CI plus native integration, end-to-end, accessibility, security, performance, chaos, recovery, install, upgrade, and rollback suites.

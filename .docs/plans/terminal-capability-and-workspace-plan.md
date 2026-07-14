@@ -79,7 +79,7 @@ The PTY phase must specify terminal escape handling, binary framing, frame/outpu
 
 ## Security, Privacy, and Reliability Requirements
 
-Before expanding terminal reach beyond controlled internal use, implement the repository-required administrative dashboard authentication, explicit per-command authorization policy, operator identity in audit records, and configured command policy. The gateway must validate and bound every operator-authored field, including labels, command text, selected shell, working-directory action, cursor, history query, and idempotency key. It must enforce agent/session ownership, queue and concurrency limits, command expiry, and server-generated trace/audit IDs.
+Before expanding terminal reach beyond controlled internal use, implement an explicit per-command authorization policy and configured command policy. The gateway must validate and bound every operator-authored field, including labels, command text, selected shell, working-directory action, cursor, history query, and idempotency key. It must enforce agent/session ownership, queue and concurrency limits, command expiry, and server-generated trace/audit IDs.
 
 The client must validate the signed envelope, command type, expiry, replay protections, shell enum, capability generation when supplied, command length, and working-directory action before use. It must not construct an executable path from unvalidated operator input. Shell selection stays allowlisted and maps only to audited fixed argument vectors. The selected shell cannot be treated as proof that a command is safe; policy enforcement is gateway-owned and the local operating-system account remains authoritative for process permissions.
 

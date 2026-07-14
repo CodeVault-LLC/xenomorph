@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,44 @@ func TestListDirectoryPaginatesWithoutFollowingLinks(t *testing.T) {
 	if !containsSymlink(entries, "link.txt") {
 		t.Fatal("symlink was not returned as a no-follow symlink entry")
 	}
+}
+
+func BenchmarkListDirectoryLarge(b *testing.B) {
+	root := b.TempDir()
+	const entries = 10_000
+	for index := 0; index < entries; index++ {
+		name := filepath.Join(root, fmt.Sprintf("entry-%05d.txt", index))
+		if err := os.WriteFile(name, nil, 0o600); err != nil {
+			b.Fatalf("os.WriteFile() error = %v", err)
+		}
+	}
+	rootID, relativePath := benchmarkFilesystemPath(b, root)
+	request := fileprotocol.DirectoryListRequest{
+		ProtocolVersion: fileprotocol.Version, RootID: rootID,
+		RelativePath: relativePath, PageSize: maxPageSize,
+	}
+	b.ResetTimer()
+	for range b.N {
+		if _, err := ListDirectory(request); err != nil {
+			b.Fatalf("ListDirectory() error = %v", err)
+		}
+	}
+}
+
+func benchmarkFilesystemPath(b *testing.B, path string) (string, string) {
+	b.Helper()
+	roots, err := filesystemRoots()
+	if err != nil {
+		b.Fatalf("filesystemRoots() error = %v", err)
+	}
+	for _, root := range roots {
+		relative, relativeErr := filepath.Rel(root.Path, path)
+		if relativeErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return root.ID, filepath.ToSlash(relative)
+		}
+	}
+	b.Fatalf("path %q is not beneath a discovered filesystem root", path)
+	return "", ""
 }
 
 func directoryFixture(t *testing.T) string {

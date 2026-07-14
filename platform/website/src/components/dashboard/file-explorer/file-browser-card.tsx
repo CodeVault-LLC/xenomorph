@@ -79,6 +79,7 @@ type FileBrowserCardProps = {
   onOpen: (entry: FileEntry) => void
   onOpenSearchResult: (result: DirectorySearchResult["entries"][number]) => void
   onSelectionChange: (entry: FileEntry, selected: boolean) => void
+  onSelectionRange: (entries: FileEntry[], selected: boolean) => void
   onAction: (verb: MutationVerb, entry: FileEntry) => void
   onPreviousPage: () => void
   onNextPage: () => void
@@ -110,6 +111,7 @@ export function FileBrowserCard({
   onOpen,
   onOpenSearchResult,
   onSelectionChange,
+  onSelectionRange,
   onAction,
   onPreviousPage,
   onNextPage,
@@ -224,6 +226,7 @@ export function FileBrowserCard({
           onOpen={onOpen}
           onOpenSearchResult={onOpenSearchResult}
           onSelectionChange={onSelectionChange}
+          onSelectionRange={onSelectionRange}
           onAction={onAction}
         />
         {!searchResult ? (
@@ -286,6 +289,7 @@ function DirectoryContent({
   onOpen,
   onOpenSearchResult,
   onSelectionChange,
+  onSelectionRange,
   onAction,
 }: {
   error: string
@@ -300,6 +304,7 @@ function DirectoryContent({
   onOpen: (entry: FileEntry) => void
   onOpenSearchResult: (result: DirectorySearchResult["entries"][number]) => void
   onSelectionChange: (entry: FileEntry, selected: boolean) => void
+  onSelectionRange: (entries: FileEntry[], selected: boolean) => void
   onAction: (verb: MutationVerb, entry: FileEntry) => void
 }) {
   if (error) {
@@ -368,6 +373,7 @@ function DirectoryContent({
             if (result) onOpenSearchResult(result)
           }}
           onSelectionChange={() => undefined}
+          onSelectionRange={() => undefined}
           onAction={() => undefined}
         />
       </div>
@@ -411,6 +417,7 @@ function DirectoryContent({
       canDelete={canDelete}
       onOpen={onOpen}
       onSelectionChange={onSelectionChange}
+      onSelectionRange={onSelectionRange}
       onAction={onAction}
     />
   )

@@ -412,6 +412,17 @@ export function FileExplorer({ agentID }: { agentID: string }) {
     })
   }
 
+  const selectEntryRange = (entries: FileEntry[], selected: boolean) => {
+    setSelectedEntryIDs((current) => {
+      const next = new Set(current)
+      for (const entry of entries) {
+        if (selected) next.add(entry.entry_id)
+        else next.delete(entry.entry_id)
+      }
+      return next
+    })
+  }
+
   const locatedEntry = (entry: FileEntry) => ({
     entry,
     path: joinPath(relativePath, entry.operation_name ?? ""),
@@ -517,6 +528,7 @@ export function FileExplorer({ agentID }: { agentID: string }) {
               openLocatedEntry(result.entry, result.relative_path)
             }
             onSelectionChange={selectEntry}
+            onSelectionRange={selectEntryRange}
             onAction={requestMutation}
             onPreviousPage={previousPage}
             onNextPage={nextPage}

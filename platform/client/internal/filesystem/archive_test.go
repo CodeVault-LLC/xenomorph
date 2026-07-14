@@ -3,6 +3,7 @@ package filesystem
 import (
 	"archive/zip"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,38 @@ func TestZIPArchiveRejectsExcessiveCompressionRatio(t *testing.T) {
 	request.Limits.MaxCompressionRatio = 10
 	if _, err := root.listZIP(context.Background(), request); err == nil {
 		t.Fatal("listZIP() error = nil, want compression-ratio rejection")
+	}
+}
+
+func TestZIPPreflightRejectsEntryCountBeforeParsing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "many.zip")
+	file, err := os.Create(path) // #nosec G304 -- path is an isolated test fixture.
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	for index := 0; index < 11; index++ {
+		if _, err := writer.CreateHeader(&zip.FileHeader{Name: fmt.Sprintf("%d.txt", index), Method: zip.Store}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	file, err = os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeFileAfterRead(file)
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := preflightZIP(file, info.Size(), 10); err == nil {
+		t.Fatal("preflightZIP() error = nil, want entry-count rejection")
 	}
 }
 

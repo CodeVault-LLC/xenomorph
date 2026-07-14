@@ -2,7 +2,9 @@ package filesystem
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -263,6 +265,14 @@ func (root *rootHandle) inspectZIP(ctx context.Context, request fileprotocol.Arc
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	if info.Size() < 0 || info.Size() > request.Limits.MaxTemporaryBytes {
+		_ = file.Close()
+		return nil, nil, 0, fmt.Errorf("archive file size exceeds limit")
+	}
+	if err := preflightZIP(file, info.Size(), request.Limits.MaxEntries); err != nil {
+		_ = file.Close()
+		return nil, nil, 0, err
+	}
 	reader, err := zip.NewReader(file, info.Size())
 	if err != nil {
 		_ = file.Close()
@@ -283,19 +293,57 @@ func (root *rootHandle) inspectZIP(ctx context.Context, request fileprotocol.Arc
 			_ = file.Close()
 			return nil, nil, 0, fmt.Errorf("archive contains an unsafe entry")
 		}
-		uncompressed := int64(entry.UncompressedSize64)
-		compressed := int64(entry.CompressedSize64)
 		byteLimit := request.Limits.MaxExpandedBytes
 		if request.Action == fileprotocol.ArchiveExtract && request.Limits.MaxTemporaryBytes < byteLimit {
 			byteLimit = request.Limits.MaxTemporaryBytes
 		}
-		if uncompressed < 0 || total > byteLimit-uncompressed || exceedsCompressionRatio(uncompressed, compressed, request.Limits.MaxCompressionRatio) {
+		if entry.UncompressedSize64 > uint64(byteLimit) || entry.CompressedSize64 > uint64(request.Limits.MaxTemporaryBytes) {
+			_ = file.Close()
+			return nil, nil, 0, fmt.Errorf("archive entry size exceeds limit")
+		}
+		uncompressed := int64(entry.UncompressedSize64)
+		compressed := int64(entry.CompressedSize64)
+		if total > byteLimit-uncompressed || exceedsCompressionRatio(uncompressed, compressed, request.Limits.MaxCompressionRatio) {
 			_ = file.Close()
 			return nil, nil, 0, fmt.Errorf("archive expansion exceeds limit")
 		}
 		total += uncompressed
 	}
 	return file, reader.File, total, nil
+}
+
+func preflightZIP(file *os.File, size int64, maxEntries int) error {
+	const (
+		endRecordMinimum = int64(22)
+		endRecordMaximum = int64(22 + 65_535)
+	)
+	if size < endRecordMinimum {
+		return fmt.Errorf("ZIP archive is truncated")
+	}
+	length := min(size, endRecordMaximum)
+	buffer := make([]byte, length)
+	if _, err := file.ReadAt(buffer, size-length); err != nil {
+		return fmt.Errorf("read ZIP directory footer: %w", err)
+	}
+	signature := []byte{'P', 'K', 5, 6}
+	index := -1
+	for candidate := len(buffer) - int(endRecordMinimum); candidate >= 0; candidate-- {
+		if bytes.Equal(buffer[candidate:candidate+4], signature) {
+			index = candidate
+			break
+		}
+	}
+	if index < 0 {
+		return fmt.Errorf("ZIP directory footer is missing")
+	}
+	entries := binary.LittleEndian.Uint16(buffer[index+10 : index+12])
+	if entries == ^uint16(0) {
+		return fmt.Errorf("ZIP64 archives are not supported")
+	}
+	if int(entries) > maxEntries {
+		return fmt.Errorf("archive entry count exceeds limit")
+	}
+	return nil
 }
 
 func validateArchiveEntry(entry *zip.File) ([]string, error) {

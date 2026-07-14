@@ -38,7 +38,7 @@ func runFileCommand(ctx context.Context, commandType CommandType, payload json.R
 	case CommandTypeFilesDirectorySearch:
 		return runDirectorySearch(ctx, payload)
 	case CommandTypeFilesMetadataGet:
-		return runMetadataGet(payload)
+		return runMetadataGet(ctx, payload)
 	case CommandTypeFilesMetadataSet:
 		return runMetadataSet(payload)
 	case CommandTypeFilesArchiveExecute:
@@ -84,12 +84,12 @@ func runDirectorySearch(ctx context.Context, payload json.RawMessage) (any, erro
 	}
 	return clientfs.SearchDirectory(ctx, request)
 }
-func runMetadataGet(payload json.RawMessage) (any, error) {
+func runMetadataGet(ctx context.Context, payload json.RawMessage) (any, error) {
 	var request fileprotocol.MetadataGetRequest
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
-	return clientfs.GetMetadata(request)
+	return clientfs.GetMetadata(ctx, request)
 }
 func runMetadataSet(payload json.RawMessage) (any, error) {
 	var request fileprotocol.MetadataSetRequest

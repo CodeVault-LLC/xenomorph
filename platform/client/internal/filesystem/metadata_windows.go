@@ -3,6 +3,7 @@
 package filesystem
 
 import (
+	"context"
 	"os"
 
 	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
@@ -12,7 +13,7 @@ func metadataWriteCapability() fileprotocol.CapabilityState {
 	return fileprotocol.CapabilityUnavailable
 }
 
-func platformMetadataFields(_ os.FileInfo) map[string]fileprotocol.FieldValue {
+func (root *rootHandle) platformMetadataFields(_ context.Context, _ []string, _ os.FileInfo) map[string]fileprotocol.FieldValue {
 	unavailable := fileprotocol.FieldValue{State: fileprotocol.CapabilityUnavailable}
 	return map[string]fileprotocol.FieldValue{
 		"owner": unavailable, "group": unavailable, "acl": unavailable,

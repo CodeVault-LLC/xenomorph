@@ -97,10 +97,13 @@ function OptionalMetadata({
   field: string
   value: MetadataResult["optional_fields"][string]
 }) {
-  const label = field.replaceAll("_", " ")
+  const label =
+    field === "acl"
+      ? "ACL"
+      : field.replaceAll("_", " ").replace(/^./, (value) => value.toUpperCase())
   return (
     <>
-      <dt className="text-muted-foreground capitalize">{label}</dt>
+      <dt className="text-muted-foreground">{label}</dt>
       <dd>
         {value.state === "available" && value.value ? (
           <span className="font-mono text-xs break-all">{value.value}</span>

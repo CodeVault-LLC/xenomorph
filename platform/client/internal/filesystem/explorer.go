@@ -285,7 +285,10 @@ func entriesFromNames(root *rootHandle, components []string, snapshotID string, 
 }
 
 // GetMetadata returns normalized no-follow metadata for one entry.
-func GetMetadata(request fileprotocol.MetadataGetRequest) (fileprotocol.MetadataResult, error) {
+func GetMetadata(ctx context.Context, request fileprotocol.MetadataGetRequest) (fileprotocol.MetadataResult, error) {
+	if err := ctx.Err(); err != nil {
+		return fileprotocol.MetadataResult{}, err
+	}
 	if request.ProtocolVersion != fileprotocol.Version {
 		return fileprotocol.MetadataResult{}, fmt.Errorf("unsupported file protocol version")
 	}
@@ -306,7 +309,10 @@ func GetMetadata(request fileprotocol.MetadataGetRequest) (fileprotocol.Metadata
 	if err != nil {
 		return fileprotocol.MetadataResult{}, fmt.Errorf("read metadata: %w", err)
 	}
-	optionalFields := platformMetadataFields(info)
+	if err := ctx.Err(); err != nil {
+		return fileprotocol.MetadataResult{}, err
+	}
+	optionalFields := root.platformMetadataFields(ctx, components, info)
 	return fileprotocol.MetadataResult{
 		ProtocolVersion: fileprotocol.Version, RootID: request.RootID,
 		RelativePath: request.RelativePath, Kind: kindFromMode(info.Mode()),
@@ -544,6 +550,10 @@ func platformCapabilities() fileprotocol.RootCapabilities {
 	if runtime.GOOS != windowsOS {
 		capabilities.CaseSensitive = available
 		capabilities.POSIXMode = available
+	}
+	if runtime.GOOS == "linux" {
+		capabilities.ACL = available
+		capabilities.ExtendedAttributes = available
 	}
 	if runtime.GOOS == windowsOS {
 		capabilities.SafeHandleRelativeIO = unavailable

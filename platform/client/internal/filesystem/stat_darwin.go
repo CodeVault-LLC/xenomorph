@@ -3,6 +3,7 @@
 package filesystem
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -21,7 +22,7 @@ type statFileInfo struct {
 	stat *unix.Stat_t
 }
 
-func platformMetadataFields(info os.FileInfo) map[string]fileprotocol.FieldValue {
+func (root *rootHandle) platformMetadataFields(_ context.Context, _ []string, info os.FileInfo) map[string]fileprotocol.FieldValue {
 	unavailable := fileprotocol.FieldValue{State: fileprotocol.CapabilityUnavailable}
 	fields := map[string]fileprotocol.FieldValue{
 		"owner": unavailable, "group": unavailable, "acl": unavailable,

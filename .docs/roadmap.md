@@ -14,11 +14,11 @@ Status: **complete**.
 
 - `.docs/project-status.md`, this roadmap, `.docs/code-review.md`, `.docs/ci-and-release.md`, and `.docs/overview.md` own distinct status, planning, review, build, and architecture contracts.
 - The root Makefile validates all Go modules and the website. Bun and `platform/website/bun.lock` remain the sole website package-manager contract.
-- `rewrite` is the protected temporary integration branch. GitHub requires contributors to use a current branch, one fresh code-owner approval, resolved conversations, and both named CI jobs; force-push and deletion are disabled. Administrators retain an explicit small-change bypass governed by `.docs/code-review.md`.
+- `master` is the protected integration branch. GitHub requires contributors to use a current branch, one fresh code-owner approval, resolved conversations, and both named CI jobs; force-push and deletion are disabled. Administrators retain an explicit small-change bypass governed by `.docs/code-review.md`.
 - `.github/CODEOWNERS` assigns repository and component ownership. The pull-request template requires ownership, trust classification, compatibility, validation, and residual-risk evidence from `.docs/code-review.md`.
 - All previously reported golangci-lint findings and the two subsequently exposed shared-module findings are resolved without disabling a linter. Key-service tests cover provider rejection, fail-closed lifecycle, DEK operation/failure, command signing, and protected key storage. Broker tests cover stream provisioning, unavailable state, protobuf publication, and synchronous JetStream acknowledgement failure.
 
-Gate evidence: `make ci-go` and `make ci-web` pass locally on 2026-07-14. GitHub branch-protection verification on the same date reports the two required checks `Go quality and cross-platform build` and `Website quality and production build` on `rewrite`.
+Gate evidence: `make ci-go` and `make ci-web` pass locally on 2026-07-14. GitHub branch-protection verification on the same date reports the two required checks `Go quality and cross-platform build` and `Website quality and production build` on `master`.
 
 ## Phase 1: Close the Gateway Trust Boundary
 

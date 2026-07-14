@@ -2,7 +2,7 @@
 
 ## Supported Status
 
-Xenomorph has not published a supported production release. The current `rewrite` branch is a development integration branch and must not be deployed as a public or Internet-facing service. See `.docs/project-status.md` for the current release decision and known security boundaries.
+Xenomorph has not published a supported production release. The `master` branch is the development integration branch and must not be deployed as a public or Internet-facing service. See `.docs/project-status.md` for the current release decision and known security boundaries.
 
 ## Reporting a Vulnerability
 

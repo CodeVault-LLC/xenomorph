@@ -2,7 +2,7 @@
 
 ## System Purpose
 
-Xenomorph is an internal remote screening and support platform for controlled, explicitly authorized environments. The current Go rewrite consists of an agent, gateway, shared protocol, administrative website, and NATS JetStream dependency. It collects telemetry and supports gateway-mediated command, terminal, screen, log, filesystem, and transfer workflows.
+Xenomorph is an internal remote screening and support platform for controlled, explicitly authorized environments. The platform consists of an agent, gateway, shared protocol, administrative website, and NATS JetStream dependency. It collects telemetry and supports gateway-mediated command, terminal, screen, log, filesystem, and transfer workflows.
 
 The repository is not release-ready. `.docs/project-status.md` is the authoritative readiness decision.
 

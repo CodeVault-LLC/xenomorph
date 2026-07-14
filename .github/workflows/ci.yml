@@ -23,9 +23,25 @@ jobs:
         with:
           go-version: '1.25.12'
           check-latest: true
+          cache-dependency-path: |
+            platform/client/go.sum
+            platform/services/gateway/go.sum
+            platform/shared/go.sum
+
+      - name: Cache analysis tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
 
       - name: Install analysis tools
         run: make install-tools
+
+      - name: Cache vuln DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/govulncheck
+          key: vulndb-${{ runner.os }}-${{ hashFiles('Makefile') }}
 
       - name: Run CI checks
         run: make ci-go

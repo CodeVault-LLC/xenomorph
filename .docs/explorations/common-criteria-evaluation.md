@@ -74,7 +74,7 @@ timestamps, session identifiers, and authentication context into event
 envelopes.
 
 The agent owns local telemetry collection and local execution of accepted
-commands. Heartbeat data, entry reports, logs, screenshots, screen frames,
+commands. Heartbeat data, endpoint attestations, logs, screenshots, screen frames,
 terminal output, filesystem observations, and filesystem operation results are
 client-authored. A valid client certificate authenticates the certificate to
 the gateway; it does not make these observations trustworthy evidence of host
@@ -94,7 +94,7 @@ certificates.
 
 | Connection | Present protocol and authentication | Data and trust classification | Assessment |
 | --- | --- | --- | --- |
-| Agent to gateway ingestion and command plane | HTTPS with TLS 1.3, server-name validation by the client, and gateway-side `RequireAndVerifyClientCert`. | The certificate-derived agent ID and event envelope metadata are gateway-authored. Heartbeats, entry reports, logs, command results, and transfer bytes are client-authored. | This is the intended agent trust boundary. It authenticates a certificate, not the integrity of the executing client. |
+| Agent to gateway ingestion and command plane | HTTPS with TLS 1.3, server-name validation by the client, and gateway-side `RequireAndVerifyClientCert`. | The certificate-derived agent ID and event envelope metadata are gateway-authored. Heartbeats, endpoint attestations, logs, command results, and transfer bytes are client-authored. | This is the intended agent trust boundary. It authenticates a certificate, not the integrity of the executing client. |
 | Agent to gateway screen-media plane | WebSocket over the agent’s configured TLS client settings; the same gateway mTLS middleware applies before upgrade. | Frame bytes and declared content type are client-authored opaque media. The gateway stores them in memory. | Transport identity is bound to mTLS; media truthfulness and client integrity are not established. |
 | Agent to gateway transfer data plane | mTLS HTTP routes plus a short-lived bearer capability bound to an agent and transfer. | Transfer manifest and lease are gateway-authored; uploaded or downloaded file bytes and client-side transfer results are client-authored. | The source checks agent scope, lease, chunk bounds, and hashes. It does not establish that client-originated bytes describe an untampered host. |
 | Browser dashboard to gateway dashboard API | HTTPS with TLS 1.3 server configuration. No application authentication or authorization middleware is registered. | Browser requests are operator-authored input; the runtime records a shared configured operator label rather than an authenticated operator identity. | This is an administrative control path that can queue terminal commands, screen requests, filesystem operations, and transfers. TLS and WebSocket origin checking do not authenticate an operator. |

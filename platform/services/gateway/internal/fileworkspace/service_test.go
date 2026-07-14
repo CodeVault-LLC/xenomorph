@@ -120,6 +120,30 @@ func TestDispatchBoundsDirectorySearch(t *testing.T) {
 	}
 }
 
+func TestDispatchBoundsMetadataDelta(t *testing.T) {
+	t.Parallel()
+	service, queue := newTestService(t)
+	mode := uint32(0o640)
+	modified := time.Now().UTC().Add(-time.Hour)
+	request := &fileprotocol.MetadataSetRequest{RelativePath: "reports/result.txt", Delta: fileprotocol.MetadataDelta{POSIXMode: &mode, ModifiedAt: &modified}}
+	operation, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandMetadataSet, "trace-1", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.ProtocolVersion != fileprotocol.Version || request.OperationID != operation.OperationID || queue.Dequeue("agent-1") == nil {
+		t.Fatalf("prepared metadata request = %+v, want bound queued command", request)
+	}
+	empty := &fileprotocol.MetadataSetRequest{RelativePath: "result.txt"}
+	if _, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandMetadataSet, "trace-1", empty); err == nil {
+		t.Fatal("Dispatch() error = nil, want empty delta rejection")
+	}
+	tooWide := uint32(0o10000)
+	empty.Delta.POSIXMode = &tooWide
+	if _, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandMetadataSet, "trace-1", empty); err == nil {
+		t.Fatal("Dispatch() error = nil, want mode bound rejection")
+	}
+}
+
 func TestCompleteEnforcesAuthenticatedAgentScope(t *testing.T) {
 	t.Parallel()
 	service, _ := newTestService(t)

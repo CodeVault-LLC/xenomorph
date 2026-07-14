@@ -10,7 +10,7 @@ import (
 )
 
 // Version is the current file workspace protocol version.
-const Version = 5
+const Version = 6
 
 const (
 	// CommandRootsList requests filesystem root and capability observations.
@@ -21,6 +21,8 @@ const (
 	CommandDirectorySearch = "files.directory.search"
 	// CommandMetadataGet requests metadata without following the target link.
 	CommandMetadataGet = "files.metadata.get"
+	// CommandMetadataSet requests explicit, capability-gated metadata deltas.
+	CommandMetadataSet = "files.metadata.set"
 	// CommandPreviewRead requests a bounded regular-file byte range.
 	CommandPreviewRead = "files.preview.read"
 	// CommandOperationExecute requests a bounded, preconditioned mutation.
@@ -201,6 +203,52 @@ type MetadataResult struct {
 	ModifiedAt      time.Time             `json:"modified_at"`
 	Mode            uint32                `json:"mode"`
 	OptionalFields  map[string]FieldValue `json:"optional_fields"`
+}
+
+// MetadataDelta contains only operator-authored fields explicitly requested
+// for update. Nil fields are not modified.
+type MetadataDelta struct {
+	ModifiedAt *time.Time `json:"modified_at,omitempty"`
+	POSIXMode  *uint32    `json:"posix_mode,omitempty"`
+}
+
+// MetadataSetRequest asks the agent to apply bounded metadata deltas without
+// following the target link.
+type MetadataSetRequest struct {
+	ProtocolVersion int           `json:"protocol_version"`
+	OperationID     string        `json:"operation_id"`
+	RootID          string        `json:"root_id"`
+	RelativePath    string        `json:"relative_path"`
+	Preconditions   Preconditions `json:"preconditions"`
+	Delta           MetadataDelta `json:"delta"`
+}
+
+// MetadataApplyState is the allowlisted outcome of one requested field update.
+type MetadataApplyState string
+
+const (
+	// MetadataApplied indicates the native adapter applied the requested value.
+	MetadataApplied MetadataApplyState = "applied"
+	// MetadataUnavailable indicates the native adapter cannot update the field.
+	MetadataUnavailable MetadataApplyState = "unavailable"
+	// MetadataDenied indicates the operating system denied the update.
+	MetadataDenied MetadataApplyState = "denied"
+	// MetadataFailed indicates the update failed without being reported as applied.
+	MetadataFailed MetadataApplyState = "failed"
+)
+
+// MetadataFieldResult reports exactly what happened to one requested field.
+type MetadataFieldResult struct {
+	Field      string             `json:"field"`
+	State      MetadataApplyState `json:"state"`
+	ErrorClass string             `json:"error_class,omitempty"`
+}
+
+// MetadataSetResult is client-authored evidence for an explicit metadata write.
+type MetadataSetResult struct {
+	ProtocolVersion int                   `json:"protocol_version"`
+	OperationID     string                `json:"operation_id"`
+	Fields          []MetadataFieldResult `json:"fields"`
 }
 
 // FieldValue explicitly represents an optional platform metadata field.

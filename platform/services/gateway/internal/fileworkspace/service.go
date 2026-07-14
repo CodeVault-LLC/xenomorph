@@ -86,6 +86,9 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 	if mutation, ok := request.(*fileprotocol.MutationRequest); ok {
 		mutation.OperationID = operationID
 	}
+	if metadata, ok := request.(*fileprotocol.MetadataSetRequest); ok {
+		metadata.OperationID = operationID
+	}
 	if err := prepareRequest(commandType, request, rootID); err != nil {
 		return Operation{}, err
 	}
@@ -116,7 +119,7 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 }
 
 func fileCommandReason(commandType string) string {
-	if commandType == fileprotocol.CommandOperationExecute {
+	if commandType == fileprotocol.CommandOperationExecute || commandType == fileprotocol.CommandMetadataSet {
 		return "Preconditioned file workspace mutation"
 	}
 	return "Read-only file workspace operation"
@@ -360,6 +363,8 @@ func prepareRequest(commandType string, request any, rootID string) error {
 		return prepareDirectorySearchRequest(commandType, rootID, typed)
 	case *fileprotocol.MetadataGetRequest:
 		return prepareMetadataRequest(commandType, rootID, typed)
+	case *fileprotocol.MetadataSetRequest:
+		return prepareMetadataSetRequest(commandType, rootID, typed)
 	case *fileprotocol.PreviewReadRequest:
 		return preparePreviewRequest(commandType, rootID, typed)
 	case *fileprotocol.MutationRequest:
@@ -405,6 +410,25 @@ func prepareDirectoryRequest(commandType, rootID string, request *fileprotocol.D
 func prepareMetadataRequest(commandType, rootID string, request *fileprotocol.MetadataGetRequest) error {
 	if commandType != fileprotocol.CommandMetadataGet {
 		return fmt.Errorf("invalid metadata request")
+	}
+	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+	return nil
+}
+func prepareMetadataSetRequest(commandType, rootID string, request *fileprotocol.MetadataSetRequest) error {
+	if commandType != fileprotocol.CommandMetadataSet || request.Delta.ModifiedAt == nil && request.Delta.POSIXMode == nil {
+		return fmt.Errorf("invalid metadata update request")
+	}
+	if err := validateOperatorRelativePath(request.RelativePath); err != nil {
+		return fmt.Errorf("metadata path is invalid")
+	}
+	if request.Delta.ModifiedAt != nil {
+		minimum, maximum := time.Unix(0, 0).UTC(), time.Now().UTC().Add(24*time.Hour)
+		if request.Delta.ModifiedAt.Before(minimum) || request.Delta.ModifiedAt.After(maximum) {
+			return fmt.Errorf("metadata timestamp is outside limit")
+		}
+	}
+	if request.Delta.POSIXMode != nil && *request.Delta.POSIXMode > 0o7777 {
+		return fmt.Errorf("POSIX mode is outside limit")
 	}
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
 	return nil

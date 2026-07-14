@@ -306,15 +306,12 @@ func GetMetadata(request fileprotocol.MetadataGetRequest) (fileprotocol.Metadata
 	if err != nil {
 		return fileprotocol.MetadataResult{}, fmt.Errorf("read metadata: %w", err)
 	}
-	unavailable := fileprotocol.FieldValue{State: fileprotocol.CapabilityUnavailable}
+	optionalFields := platformMetadataFields(info)
 	return fileprotocol.MetadataResult{
 		ProtocolVersion: fileprotocol.Version, RootID: request.RootID,
 		RelativePath: request.RelativePath, Kind: kindFromMode(info.Mode()),
 		Size: info.Size(), ModifiedAt: info.ModTime().UTC(), Mode: uint32(info.Mode()),
-		OptionalFields: map[string]fileprotocol.FieldValue{
-			"owner": unavailable, "acl": unavailable, "birth_time": unavailable,
-			"extended_attributes": unavailable,
-		},
+		OptionalFields: optionalFields,
 	}, nil
 }
 
@@ -540,7 +537,7 @@ func platformCapabilities() fileprotocol.RootCapabilities {
 		POSIXMode: unavailable, Owner: unavailable, ACL: unavailable,
 		ExtendedAttributes: unavailable, SparseFiles: unavailable,
 		SafeHandleRelativeIO: available,
-		MetadataWrite:        unavailable, ArchiveCreate: unavailable,
+		MetadataWrite:        metadataWriteCapability(), ArchiveCreate: unavailable,
 		ArchiveList: unavailable, ArchiveExtract: unavailable,
 		ArchiveFormats: []string{},
 	}

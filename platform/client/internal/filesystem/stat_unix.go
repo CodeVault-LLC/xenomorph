@@ -3,12 +3,15 @@
 package filesystem
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
 )
 
 const unixPermissionBits uint32 = 0o777
@@ -16,6 +19,19 @@ const unixPermissionBits uint32 = 0o777
 type statFileInfo struct {
 	name string
 	stat *unix.Stat_t
+}
+
+func platformMetadataFields(info os.FileInfo) map[string]fileprotocol.FieldValue {
+	unavailable := fileprotocol.FieldValue{State: fileprotocol.CapabilityUnavailable}
+	fields := map[string]fileprotocol.FieldValue{
+		"owner": unavailable, "group": unavailable, "acl": unavailable,
+		"birth_time": unavailable, "extended_attributes": unavailable,
+	}
+	if stat, ok := info.Sys().(*unix.Stat_t); ok {
+		fields["owner"] = fileprotocol.FieldValue{State: fileprotocol.CapabilityAvailable, Value: fmt.Sprint(stat.Uid)}
+		fields["group"] = fileprotocol.FieldValue{State: fileprotocol.CapabilityAvailable, Value: fmt.Sprint(stat.Gid)}
+	}
+	return fields
 }
 
 func fileInfoFromStat(name string, stat *unix.Stat_t) os.FileInfo {

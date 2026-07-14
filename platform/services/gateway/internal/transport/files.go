@@ -41,6 +41,13 @@ type metadataGetAPIRequest struct {
 	RelativePath string `json:"relative_path"`
 }
 
+type metadataSetAPIRequest struct {
+	RootID        string                     `json:"root_id"`
+	RelativePath  string                     `json:"relative_path"`
+	Preconditions fileprotocol.Preconditions `json:"preconditions"`
+	Delta         fileprotocol.MetadataDelta `json:"delta"`
+}
+
 type previewReadAPIRequest struct {
 	RootID       string `json:"root_id"`
 	RelativePath string `json:"relative_path"`
@@ -82,6 +89,9 @@ func registerFileRoutes(mux *http.ServeMux, runtime DashboardRuntime) {
 	})
 	mux.HandleFunc("POST /api/clients/{agentID}/files/metadata", func(w http.ResponseWriter, request *http.Request) {
 		handleMetadataGet(w, request, runtime)
+	})
+	mux.HandleFunc("PATCH /api/clients/{agentID}/files/metadata", func(w http.ResponseWriter, request *http.Request) {
+		handleMetadataSet(w, request, runtime)
 	})
 	mux.HandleFunc("POST /api/clients/{agentID}/files/preview", func(w http.ResponseWriter, request *http.Request) {
 		handlePreviewRead(w, request, runtime)
@@ -360,6 +370,16 @@ func handleMetadataGet(w http.ResponseWriter, request *http.Request, runtime Das
 		return
 	}
 	dispatchFileOperation(w, request, runtime, body.RootID, fileprotocol.CommandMetadataGet, &fileprotocol.MetadataGetRequest{RelativePath: body.RelativePath})
+}
+
+func handleMetadataSet(w http.ResponseWriter, request *http.Request, runtime DashboardRuntime) {
+	var body metadataSetAPIRequest
+	if !decodeFileAPIRequest(w, request, &body) {
+		return
+	}
+	dispatchFileOperation(w, request, runtime, body.RootID, fileprotocol.CommandMetadataSet, &fileprotocol.MetadataSetRequest{
+		RelativePath: body.RelativePath, Preconditions: body.Preconditions, Delta: body.Delta,
+	})
 }
 
 func handlePreviewRead(w http.ResponseWriter, request *http.Request, runtime DashboardRuntime) {

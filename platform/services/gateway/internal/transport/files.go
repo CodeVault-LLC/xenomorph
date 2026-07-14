@@ -17,6 +17,12 @@ const maxFileAPIRequestBytes int64 = 64 << 10
 
 const maxFileChunkBytes int64 = 4 << 20
 
+const (
+	fileSearchMaxResults = 250
+	fileSearchMaxEntries = 10_000
+	fileSearchMaxDepth   = 16
+)
+
 type directoryListAPIRequest struct {
 	RootID       string `json:"root_id"`
 	RelativePath string `json:"relative_path"`
@@ -344,7 +350,7 @@ func handleDirectorySearch(w http.ResponseWriter, request *http.Request, runtime
 	}
 	dispatchFileOperation(w, request, runtime, body.RootID, fileprotocol.CommandDirectorySearch, &fileprotocol.DirectorySearchRequest{
 		RelativePath: body.RelativePath, Query: body.Query,
-		MaxResults: 250, MaxEntries: 10_000, MaxDepth: 16,
+		MaxResults: fileSearchMaxResults, MaxEntries: fileSearchMaxEntries, MaxDepth: fileSearchMaxDepth,
 	})
 }
 

@@ -11,7 +11,40 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
 )
 
-func TestSearchDirectoryIsBoundedCancellableAndDoesNotFollowLinks(t *testing.T) {
+func TestSearchDirectoryFindsNestedEntriesWithoutFollowingLinks(t *testing.T) {
+	request := searchFixture(t)
+	result, err := SearchDirectory(context.Background(), request)
+	if err != nil {
+		t.Fatalf("SearchDirectory() error = %v", err)
+	}
+	if len(result.Entries) != 2 || result.ScannedEntries > request.MaxEntries || result.Truncated {
+		t.Fatalf("SearchDirectory() = %+v, want two bounded matches", result)
+	}
+}
+
+func TestSearchDirectoryReportsResultLimit(t *testing.T) {
+	request := searchFixture(t)
+	request.MaxResults = 1
+	result, err := SearchDirectory(context.Background(), request)
+	if err != nil {
+		t.Fatalf("SearchDirectory() error = %v", err)
+	}
+	if len(result.Entries) != 1 || !result.Truncated {
+		t.Fatalf("SearchDirectory() = %+v, want one truncated match", result)
+	}
+}
+
+func TestSearchDirectoryHonorsCancellation(t *testing.T) {
+	request := searchFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := SearchDirectory(ctx, request); err == nil {
+		t.Fatal("SearchDirectory() cancelled error = nil, want cancellation")
+	}
+}
+
+func searchFixture(t *testing.T) fileprotocol.DirectorySearchRequest {
+	t.Helper()
 	root := t.TempDir()
 	nested := filepath.Join(root, "nested")
 	if err := os.Mkdir(nested, 0o700); err != nil {
@@ -34,28 +67,7 @@ func TestSearchDirectoryIsBoundedCancellableAndDoesNotFollowLinks(t *testing.T) 
 		ProtocolVersion: fileprotocol.Version, RootID: rootID, RelativePath: relativePath,
 		Query: "NEEDLE", MaxResults: 10, MaxEntries: 100, MaxDepth: 4,
 	}
-	result, err := SearchDirectory(context.Background(), request)
-	if err != nil {
-		t.Fatalf("SearchDirectory() error = %v", err)
-	}
-	if len(result.Entries) != 2 || result.ScannedEntries > request.MaxEntries || result.Truncated {
-		t.Fatalf("SearchDirectory() = %+v, want two bounded matches", result)
-	}
-
-	request.MaxResults = 1
-	limited, err := SearchDirectory(context.Background(), request)
-	if err != nil {
-		t.Fatalf("SearchDirectory() limited error = %v", err)
-	}
-	if len(limited.Entries) != 1 || !limited.Truncated {
-		t.Fatalf("limited search = %+v, want one truncated match", limited)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := SearchDirectory(ctx, request); err == nil {
-		t.Fatal("SearchDirectory() cancelled error = nil, want cancellation")
-	}
+	return request
 }
 
 func TestListDirectoryPaginatesWithoutFollowingLinks(t *testing.T) {

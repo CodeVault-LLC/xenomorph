@@ -33,7 +33,7 @@
   "devDependencies": {
     "@eslint/js": "^10",
     "@tanstack/eslint-plugin-query": "^5.101.2",
-    "@tanstack/router-plugin": "^1.168.19",
+    "@tanstack/router-plugin": "^1.168.20",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -42,7 +42,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17",
-    "prettier": "^3.8.3",
+    "prettier": "^3.9.5",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "typescript": "~6",
     "typescript-eslint": "^8",

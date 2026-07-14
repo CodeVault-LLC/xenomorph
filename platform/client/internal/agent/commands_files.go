@@ -45,6 +45,13 @@ func runFileCommand(ctx context.Context, commandType CommandType, payload json.R
 		return runArchive(ctx, payload)
 	case CommandTypeFilesPreviewRead:
 		return runPreviewRead(payload)
+	default:
+		return runFileMutationCommand(ctx, commandType, payload, plane)
+	}
+}
+
+func runFileMutationCommand(ctx context.Context, commandType CommandType, payload json.RawMessage, plane clientfs.TransferPlane) (any, error) {
+	switch commandType {
 	case CommandTypeFilesOperationExecute:
 		return runMutation(payload)
 	case CommandTypeFilesTransferPrepare, CommandTypeFilesTransferResume:

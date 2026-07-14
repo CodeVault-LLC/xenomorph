@@ -20,6 +20,14 @@ const (
 	archiveCopyBufferSize      = 64 << 10
 	archiveFilePermission      = 0o600
 	archiveDirectoryPermission = 0o700
+	archiveMaxSources          = 100
+	archiveMaxEntries          = 10_000
+	archiveMaxDepth            = 64
+	archiveMaxBytes            = 1 << 30
+	archiveMaxCompressionRatio = 100
+	archiveMaxRuntime          = 30 * time.Second
+	archiveMaxListedEntries    = 250
+	archiveMaxListedNameBytes  = 32 << 10
 )
 
 type archivePlanEntry struct {
@@ -64,21 +72,39 @@ func ExecuteArchive(ctx context.Context, request fileprotocol.ArchiveRequest) (f
 }
 
 func validateArchiveRequest(request fileprotocol.ArchiveRequest) error {
-	limits := request.Limits
 	if request.ProtocolVersion != fileprotocol.Version || request.OperationID == "" || request.Format != fileprotocol.ArchiveZIP {
 		return fmt.Errorf("invalid archive protocol envelope")
 	}
-	if limits.MaxEntries <= 0 || limits.MaxEntries > 10_000 || limits.MaxDepth <= 0 || limits.MaxDepth > 64 ||
-		limits.MaxExpandedBytes <= 0 || limits.MaxExpandedBytes > 1<<30 || limits.MaxTemporaryBytes <= 0 || limits.MaxTemporaryBytes > 1<<30 ||
-		limits.MaxCompressionRatio <= 0 || limits.MaxCompressionRatio > 100 || limits.MaxRuntime <= 0 || limits.MaxRuntime > 30*time.Second ||
-		limits.MaxListedEntries <= 0 || limits.MaxListedEntries > 250 || limits.MaxListedNameBytes <= 0 || limits.MaxListedNameBytes > 32<<10 {
-		return fmt.Errorf("archive limits are outside fixed maxima")
+	if err := validateArchiveLimits(request.Limits); err != nil {
+		return err
 	}
 	if _, err := validateArchivePath(request.ArchivePath); err != nil {
 		return fmt.Errorf("archive path is invalid: %w", err)
 	}
 	return nil
 }
+
+func validateArchiveLimits(limits fileprotocol.ArchiveLimits) error {
+	if !withinArchiveInt(limits.MaxEntries, archiveMaxEntries) || !withinArchiveInt(limits.MaxDepth, archiveMaxDepth) {
+		return fmt.Errorf("archive limits are outside fixed maxima")
+	}
+	if !withinArchiveInt64(limits.MaxExpandedBytes, archiveMaxBytes) || !withinArchiveInt64(limits.MaxTemporaryBytes, archiveMaxBytes) {
+		return fmt.Errorf("archive byte limits are outside fixed maxima")
+	}
+	if !withinArchiveInt64(limits.MaxCompressionRatio, archiveMaxCompressionRatio) || !withinArchiveDuration(limits.MaxRuntime, archiveMaxRuntime) {
+		return fmt.Errorf("archive execution limits are outside fixed maxima")
+	}
+	if !withinArchiveInt(limits.MaxListedEntries, archiveMaxListedEntries) || !withinArchiveInt(limits.MaxListedNameBytes, archiveMaxListedNameBytes) {
+		return fmt.Errorf("archive listing limits are outside fixed maxima")
+	}
+	return nil
+}
+
+func withinArchiveInt(value, maximum int) bool { return value > 0 && value <= maximum }
+
+func withinArchiveInt64(value, maximum int64) bool { return value > 0 && value <= maximum }
+
+func withinArchiveDuration(value, maximum time.Duration) bool { return value > 0 && value <= maximum }
 
 func (root *rootHandle) createZIP(ctx context.Context, request fileprotocol.ArchiveRequest) (fileprotocol.ArchiveResult, error) {
 	plan, total, err := root.buildArchivePlan(ctx, request.SourcePaths, request.Limits)
@@ -96,102 +122,154 @@ func (root *rootHandle) createZIP(ctx context.Context, request fileprotocol.Arch
 			stage.abort()
 		}
 	}()
-	bounded := &archiveBoundedWriter{writer: stage.file, remaining: request.Limits.MaxTemporaryBytes}
-	writer := zip.NewWriter(bounded)
-	for _, entry := range plan {
-		if err := ctx.Err(); err != nil {
-			_ = writer.Close()
-			return fileprotocol.ArchiveResult{}, err
-		}
-		if err := writeArchiveEntry(ctx, writer, root, entry); err != nil {
-			_ = writer.Close()
-			return fileprotocol.ArchiveResult{}, err
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return fileprotocol.ArchiveResult{}, fmt.Errorf("finalize ZIP archive: %w", err)
-	}
-	if err := stage.file.Sync(); err != nil {
+	if err := writeZIPPlan(ctx, root, stage.file, plan, request.Limits.MaxTemporaryBytes); err != nil {
 		return fileprotocol.ArchiveResult{}, err
 	}
-	if err := stage.file.Close(); err != nil {
-		return fileprotocol.ArchiveResult{}, err
-	}
-	_, skipped, err := stage.publish(request.Conflict)
+	state, err := publishArchiveStage(stage, request.Conflict)
 	if err != nil {
 		return fileprotocol.ArchiveResult{}, err
 	}
 	committed = true
-	state := "completed"
-	if skipped {
-		state = "skipped"
-	}
 	return archiveResult(request, state, len(plan), total), nil
 }
 
+func writeZIPPlan(ctx context.Context, root *rootHandle, file *os.File, plan []archivePlanEntry, temporaryLimit int64) error {
+	bounded := &archiveBoundedWriter{writer: file, remaining: temporaryLimit}
+	writer := zip.NewWriter(bounded)
+	for _, entry := range plan {
+		if err := ctx.Err(); err != nil {
+			_ = writer.Close()
+			return err
+		}
+		if err := writeArchiveEntry(ctx, writer, root, entry); err != nil {
+			_ = writer.Close()
+			return err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("finalize ZIP archive: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+func publishArchiveStage(stage archiveStage, conflict fileprotocol.ConflictStrategy) (string, error) {
+	_, skipped, err := stage.publish(conflict)
+	if err != nil {
+		return "", err
+	}
+	if skipped {
+		return "skipped", nil
+	}
+	return "completed", nil
+}
+
 func (root *rootHandle) buildArchivePlan(ctx context.Context, sources []string, limits fileprotocol.ArchiveLimits) ([]archivePlanEntry, int64, error) {
-	if len(sources) == 0 || len(sources) > 100 {
-		return nil, 0, fmt.Errorf("archive source count exceeds limit")
+	queue, err := archiveSourceQueue(sources)
+	if err != nil {
+		return nil, 0, err
+	}
+	planner := archivePlanner{root: root, ctx: ctx, limits: limits, queue: queue, seen: make(map[string]struct{}, len(queue))}
+	return planner.run()
+}
+
+func archiveSourceQueue(sources []string) ([]archivePlanEntry, error) {
+	if len(sources) == 0 || len(sources) > archiveMaxSources {
+		return nil, fmt.Errorf("archive source count exceeds limit")
 	}
 	queue := make([]archivePlanEntry, 0, len(sources))
-	seen := make(map[string]struct{}, len(sources))
 	for _, source := range sources {
 		components, err := validateArchivePath(source)
 		if err != nil || len(components) == 0 {
-			return nil, 0, fmt.Errorf("archive source path is invalid")
+			return nil, fmt.Errorf("archive source path is invalid")
 		}
 		queue = append(queue, archivePlanEntry{components: components, name: components[len(components)-1]})
 	}
-	plan := make([]archivePlanEntry, 0, len(queue))
-	var total int64
-	for len(queue) > 0 {
-		if err := ctx.Err(); err != nil {
+	return queue, nil
+}
+
+type archivePlanner struct {
+	root   *rootHandle
+	ctx    context.Context
+	limits fileprotocol.ArchiveLimits
+	queue  []archivePlanEntry
+	plan   []archivePlanEntry
+	seen   map[string]struct{}
+	total  int64
+}
+
+func (planner *archivePlanner) run() ([]archivePlanEntry, int64, error) {
+	planner.plan = make([]archivePlanEntry, 0, len(planner.queue))
+	for len(planner.queue) > 0 {
+		if err := planner.ctx.Err(); err != nil {
 			return nil, 0, err
 		}
-		entry := queue[0]
-		queue = queue[1:]
-		if _, duplicate := seen[entry.name]; duplicate {
+		entry := planner.dequeue()
+		if _, duplicate := planner.seen[entry.name]; duplicate {
 			return nil, 0, fmt.Errorf("archive sources overlap")
 		}
-		seen[entry.name] = struct{}{}
-		if len(plan) >= limits.MaxEntries || len(entry.components) > limits.MaxDepth {
+		planner.seen[entry.name] = struct{}{}
+		if len(planner.plan) >= planner.limits.MaxEntries || len(entry.components) > planner.limits.MaxDepth {
 			return nil, 0, fmt.Errorf("archive traversal exceeds limit")
 		}
-		info, err := root.statNoFollow(entry.components)
-		if err != nil {
+		if err := planner.inspect(&entry); err != nil {
 			return nil, 0, err
-		}
-		if !info.IsDir() && !info.Mode().IsRegular() {
-			return nil, 0, fmt.Errorf("archive sources must be regular files or directories")
-		}
-		entry.info = info
-		plan = append(plan, entry)
-		if info.Mode().IsRegular() {
-			if info.Size() < 0 || total > limits.MaxExpandedBytes-info.Size() {
-				return nil, 0, fmt.Errorf("archive expanded bytes exceed limit")
-			}
-			total += info.Size()
-			continue
-		}
-		directory, _, err := root.openDirectory(entry.components)
-		if err != nil {
-			return nil, 0, err
-		}
-		names, readErr := directory.Readdirnames(limits.MaxEntries + 1)
-		_ = directory.Close()
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return nil, 0, readErr
-		}
-		for _, name := range names {
-			child := append(append([]string(nil), entry.components...), name)
-			childName := entry.name + "/" + name
-			if _, err := validateArchivePath(childName); err != nil {
-				return nil, 0, fmt.Errorf("archive source name is unsafe")
-			}
-			queue = append(queue, archivePlanEntry{components: child, name: childName})
 		}
 	}
-	return plan, total, nil
+	return planner.plan, planner.total, nil
+}
+
+func (planner *archivePlanner) dequeue() archivePlanEntry {
+	entry := planner.queue[0]
+	planner.queue = planner.queue[1:]
+	return entry
+}
+
+func (planner *archivePlanner) inspect(entry *archivePlanEntry) error {
+	info, err := planner.root.statNoFollow(entry.components)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		return fmt.Errorf("archive sources must be regular files or directories")
+	}
+	entry.info = info
+	planner.plan = append(planner.plan, *entry)
+	if info.Mode().IsRegular() {
+		return planner.addFileSize(info.Size())
+	}
+	return planner.enqueueDirectory(*entry)
+}
+
+func (planner *archivePlanner) addFileSize(size int64) error {
+	if size < 0 || planner.total > planner.limits.MaxExpandedBytes-size {
+		return fmt.Errorf("archive expanded bytes exceed limit")
+	}
+	planner.total += size
+	return nil
+}
+
+func (planner *archivePlanner) enqueueDirectory(entry archivePlanEntry) error {
+	directory, _, err := planner.root.openDirectory(entry.components)
+	if err != nil {
+		return err
+	}
+	names, readErr := directory.Readdirnames(planner.limits.MaxEntries + 1)
+	_ = directory.Close()
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return readErr
+	}
+	for _, name := range names {
+		child := append(append([]string(nil), entry.components...), name)
+		childName := entry.name + "/" + name
+		if _, err := validateArchivePath(childName); err != nil {
+			return fmt.Errorf("archive source name is unsafe")
+		}
+		planner.queue = append(planner.queue, archivePlanEntry{components: child, name: childName})
+	}
+	return nil
 }
 
 func writeArchiveEntry(ctx context.Context, writer *zip.Writer, root *rootHandle, entry archivePlanEntry) error {
@@ -263,81 +341,110 @@ func (root *rootHandle) listZIP(ctx context.Context, request fileprotocol.Archiv
 }
 
 func (root *rootHandle) inspectZIP(ctx context.Context, request fileprotocol.ArchiveRequest) (*os.File, []*zip.File, int64, error) {
+	file, entries, err := root.openZIP(request)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	total, kinds, err := inspectZIPEntries(ctx, entries, request)
+	if err == nil {
+		err = validateArchiveHierarchy(kinds)
+	}
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, 0, err
+	}
+	return file, entries, total, nil
+}
+
+func (root *rootHandle) openZIP(request fileprotocol.ArchiveRequest) (*os.File, []*zip.File, error) {
 	components, _ := validateArchivePath(request.ArchivePath)
 	if hasPreconditions(request.Preconditions) {
 		if err := root.checkPreconditions(components, request.Preconditions); err != nil {
-			return nil, nil, 0, err
+			return nil, nil, err
 		}
 	}
 	file, info, err := root.openRegularFile(components)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 	if info.Size() < 0 || info.Size() > request.Limits.MaxTemporaryBytes {
 		_ = file.Close()
-		return nil, nil, 0, fmt.Errorf("archive file size exceeds limit")
+		return nil, nil, fmt.Errorf("archive file size exceeds limit")
 	}
 	if err := preflightZIP(file, info.Size(), request.Limits.MaxEntries); err != nil {
 		_ = file.Close()
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 	reader, err := zip.NewReader(file, info.Size())
 	if err != nil {
 		_ = file.Close()
-		return nil, nil, 0, fmt.Errorf("parse ZIP archive: %w", err)
+		return nil, nil, fmt.Errorf("parse ZIP archive: %w", err)
 	}
 	if len(reader.File) > request.Limits.MaxEntries {
 		_ = file.Close()
-		return nil, nil, 0, fmt.Errorf("archive entry count exceeds limit")
+		return nil, nil, fmt.Errorf("archive entry count exceeds limit")
 	}
+	return file, reader.File, nil
+}
+
+func inspectZIPEntries(ctx context.Context, entries []*zip.File, request fileprotocol.ArchiveRequest) (int64, map[string]bool, error) {
 	var total int64
-	entryKinds := make(map[string]bool, len(reader.File))
-	for _, entry := range reader.File {
+	entryKinds := make(map[string]bool, len(entries))
+	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
-			_ = file.Close()
-			return nil, nil, 0, err
+			return 0, nil, err
 		}
-		components, err := validateArchiveEntry(entry)
-		if err != nil || len(components) > request.Limits.MaxDepth {
-			_ = file.Close()
-			return nil, nil, 0, fmt.Errorf("archive contains an unsafe entry")
+		key, directory, uncompressed, compressed, err := inspectZIPEntry(entry, request)
+		if err != nil {
+			return 0, nil, err
 		}
-		key := strings.ToLower(strings.Join(components, "/"))
 		if _, duplicate := entryKinds[key]; duplicate {
-			_ = file.Close()
-			return nil, nil, 0, fmt.Errorf("archive contains colliding entry names")
+			return 0, nil, fmt.Errorf("archive contains colliding entry names")
 		}
-		entryKinds[key] = entry.FileInfo().IsDir()
-		byteLimit := request.Limits.MaxExpandedBytes
-		if request.Action == fileprotocol.ArchiveExtract && request.Limits.MaxTemporaryBytes < byteLimit {
-			byteLimit = request.Limits.MaxTemporaryBytes
-		}
-		uncompressed, sizeErr := boundedArchiveSize(entry.UncompressedSize64)
-		if sizeErr != nil || uncompressed > byteLimit {
-			_ = file.Close()
-			return nil, nil, 0, fmt.Errorf("archive entry size exceeds limit")
-		}
-		compressed, sizeErr := boundedArchiveSize(entry.CompressedSize64)
-		if sizeErr != nil || compressed > request.Limits.MaxTemporaryBytes {
-			_ = file.Close()
-			return nil, nil, 0, fmt.Errorf("archive entry size exceeds limit")
-		}
+		entryKinds[key] = directory
+		byteLimit := archiveExpandedLimit(request)
 		if total > byteLimit-uncompressed || exceedsCompressionRatio(uncompressed, compressed, request.Limits.MaxCompressionRatio) {
-			_ = file.Close()
-			return nil, nil, 0, fmt.Errorf("archive expansion exceeds limit")
+			return 0, nil, fmt.Errorf("archive expansion exceeds limit")
 		}
 		total += uncompressed
 	}
+	return total, entryKinds, nil
+}
+
+func inspectZIPEntry(entry *zip.File, request fileprotocol.ArchiveRequest) (string, bool, int64, int64, error) {
+	components, err := validateArchiveEntry(entry)
+	if err != nil || len(components) > request.Limits.MaxDepth {
+		return "", false, 0, 0, fmt.Errorf("archive contains an unsafe entry")
+	}
+	uncompressed, err := boundedArchiveSize(entry.UncompressedSize64)
+	if err != nil || uncompressed > archiveExpandedLimit(request) {
+		return "", false, 0, 0, fmt.Errorf("archive entry size exceeds limit")
+	}
+	compressed, err := boundedArchiveSize(entry.CompressedSize64)
+	if err != nil || compressed > request.Limits.MaxTemporaryBytes {
+		return "", false, 0, 0, fmt.Errorf("archive entry size exceeds limit")
+	}
+	key := strings.ToLower(strings.Join(components, "/"))
+	return key, entry.FileInfo().IsDir(), uncompressed, compressed, nil
+}
+
+func archiveExpandedLimit(request fileprotocol.ArchiveRequest) int64 {
+	if request.Action == fileprotocol.ArchiveExtract && request.Limits.MaxTemporaryBytes < request.Limits.MaxExpandedBytes {
+		return request.Limits.MaxTemporaryBytes
+	}
+	return request.Limits.MaxExpandedBytes
+}
+
+func validateArchiveHierarchy(entryKinds map[string]bool) error {
 	for path := range entryKinds {
 		components := strings.Split(path, "/")
 		for index := 1; index < len(components); index++ {
 			if directory, exists := entryKinds[strings.Join(components[:index], "/")]; exists && !directory {
-				_ = file.Close()
-				return nil, nil, 0, fmt.Errorf("archive contains a file-directory collision")
+				return fmt.Errorf("archive contains a file-directory collision")
 			}
 		}
 	}
-	return file, reader.File, total, nil
+	return nil
 }
 
 func preflightZIP(file *os.File, size int64, maxEntries int) error {
@@ -398,7 +505,7 @@ func exceedsCompressionRatio(uncompressed, compressed, limit int64) bool {
 }
 
 func boundedArchiveSize(value uint64) (int64, error) {
-	if value > 1<<30 {
+	if value > archiveMaxBytes {
 		return 0, fmt.Errorf("archive entry size exceeds limit")
 	}
 	// #nosec G115 -- value is bounded to 1 GiB immediately above.
@@ -424,45 +531,8 @@ func (root *rootHandle) extractZIP(ctx context.Context, request fileprotocol.Arc
 		if err := ctx.Err(); err != nil {
 			return fileprotocol.ArchiveResult{}, err
 		}
-		entryComponents, _ := validateArchiveEntry(entry)
-		target := append(append([]string(nil), destination...), entryComponents...)
-		if entry.FileInfo().IsDir() {
-			if err := root.ensureArchiveDirectories(target); err != nil {
-				return fileprotocol.ArchiveResult{}, err
-			}
-			processed++
-			continue
-		}
-		if err := root.ensureArchiveDirectories(target[:len(target)-1]); err != nil {
-			return fileprotocol.ArchiveResult{}, err
-		}
-		stage, err := root.openArchiveStage(target)
+		written, err := root.extractZIPEntry(ctx, request.Conflict, destination, entry)
 		if err != nil {
-			return fileprotocol.ArchiveResult{}, err
-		}
-		source, err := entry.Open()
-		if err != nil {
-			stage.abort()
-			return fileprotocol.ArchiveResult{}, err
-		}
-		written, copyErr := io.CopyBuffer(stage.file, &archiveContextReader{ctx: ctx, reader: source}, make([]byte, archiveCopyBufferSize))
-		closeErr := source.Close()
-		expected, sizeErr := boundedArchiveSize(entry.UncompressedSize64)
-		if copyErr != nil || closeErr != nil || sizeErr != nil || written != expected {
-			stage.abort()
-			return fileprotocol.ArchiveResult{}, fmt.Errorf("extract archive entry: %w", errors.Join(copyErr, closeErr))
-		}
-		if err := stage.file.Sync(); err != nil {
-			stage.abort()
-			return fileprotocol.ArchiveResult{}, err
-		}
-		if err := stage.file.Close(); err != nil {
-			stage.abort()
-			return fileprotocol.ArchiveResult{}, err
-		}
-		_, _, err = stage.publish(request.Conflict)
-		if err != nil {
-			stage.abort()
 			return fileprotocol.ArchiveResult{}, err
 		}
 		processed++
@@ -471,6 +541,48 @@ func (root *rootHandle) extractZIP(ctx context.Context, request fileprotocol.Arc
 	result := archiveResult(request, "completed", processed, bytesProcessed)
 	result.BytesProcessed = total
 	return result, nil
+}
+
+func (root *rootHandle) extractZIPEntry(ctx context.Context, conflict fileprotocol.ConflictStrategy, destination []string, entry *zip.File) (int64, error) {
+	entryComponents, _ := validateArchiveEntry(entry)
+	target := append(append([]string(nil), destination...), entryComponents...)
+	if entry.FileInfo().IsDir() {
+		return 0, root.ensureArchiveDirectories(target)
+	}
+	if err := root.ensureArchiveDirectories(target[:len(target)-1]); err != nil {
+		return 0, err
+	}
+	stage, err := root.openArchiveStage(target)
+	if err != nil {
+		return 0, err
+	}
+	written, err := copyZIPEntry(ctx, stage.file, entry)
+	if err != nil {
+		stage.abort()
+		return 0, err
+	}
+	if _, _, err := stage.publish(conflict); err != nil {
+		stage.abort()
+		return 0, err
+	}
+	return written, nil
+}
+
+func copyZIPEntry(ctx context.Context, destination *os.File, entry *zip.File) (int64, error) {
+	source, err := entry.Open()
+	if err != nil {
+		return 0, err
+	}
+	written, copyErr := io.CopyBuffer(destination, &archiveContextReader{ctx: ctx, reader: source}, make([]byte, archiveCopyBufferSize))
+	closeErr := source.Close()
+	expected, sizeErr := boundedArchiveSize(entry.UncompressedSize64)
+	if copyErr != nil || closeErr != nil || sizeErr != nil || written != expected {
+		return 0, fmt.Errorf("extract archive entry: %w", errors.Join(copyErr, closeErr, sizeErr))
+	}
+	if err := destination.Sync(); err != nil {
+		return 0, err
+	}
+	return written, destination.Close()
 }
 
 func validateArchivePath(value string) ([]string, error) {

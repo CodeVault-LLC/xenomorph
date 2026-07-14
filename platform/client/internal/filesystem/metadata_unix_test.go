@@ -14,13 +14,9 @@ import (
 func TestSetMetadataAppliesExplicitFieldsWithoutFollowingLinks(t *testing.T) {
 	directory := t.TempDir()
 	target := filepath.Join(directory, "target.txt")
-	if err := os.WriteFile(target, []byte("bounded"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, os.WriteFile(target, []byte("bounded"), 0o600))
 	root, err := openRoot(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer closeRootAfterRead(root)
 	mode := uint32(0o640)
 	modified := time.Unix(1_700_000_000, 123_000_000).UTC()
@@ -29,16 +25,12 @@ func TestSetMetadataAppliesExplicitFieldsWithoutFollowingLinks(t *testing.T) {
 		t.Fatalf("setMetadata() = %+v, want two applied fields", results)
 	}
 	info, err := os.Stat(target)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if info.Mode().Perm() != 0o640 || !info.ModTime().UTC().Equal(modified) {
 		t.Fatalf("metadata = (%o, %s), want (640, %s)", info.Mode().Perm(), info.ModTime(), modified)
 	}
 	link := filepath.Join(directory, "link.txt")
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, os.Symlink(target, link))
 	linkResults := root.setMetadata([]string{"link.txt"}, fileprotocol.MetadataDelta{POSIXMode: &mode})
 	if len(linkResults) != 1 || linkResults[0].State == fileprotocol.MetadataApplied {
 		t.Fatalf("setMetadata(link) = %+v, want explicit non-applied result", linkResults)

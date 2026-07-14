@@ -13,30 +13,22 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
 )
 
+const completedTestState = "completed"
+
 func TestZIPArchiveCreateListExtractRoundTrip(t *testing.T) {
 	directory := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(directory, "source", "nested"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(directory, "source", "nested", "report.txt"), []byte("bounded archive"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(directory, "output"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, os.MkdirAll(filepath.Join(directory, "source", "nested"), 0o700))
+	requireNoError(t, os.WriteFile(filepath.Join(directory, "source", "nested", "report.txt"), []byte("bounded archive"), 0o600))
+	requireNoError(t, os.Mkdir(filepath.Join(directory, "output"), 0o700))
 	root, err := openRoot(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer closeRootAfterRead(root)
 
 	request := testArchiveRequest(fileprotocol.ArchiveCreate)
 	request.SourcePaths = []string{"source"}
 	request.ArchivePath = "bundle.zip"
 	created, err := root.createZIP(context.Background(), request)
-	if err != nil || created.State != "completed" || created.EntriesProcessed != 3 {
-		t.Fatalf("createZIP() = (%+v, %v)", created, err)
-	}
+	requireArchiveResult(t, created, err, 3)
 	request.Action = fileprotocol.ArchiveList
 	listed, err := root.listZIP(context.Background(), request)
 	if err != nil || len(listed.Entries) != 3 || listed.Entries[0].Path != "source" {
@@ -45,9 +37,8 @@ func TestZIPArchiveCreateListExtractRoundTrip(t *testing.T) {
 	request.Action = fileprotocol.ArchiveExtract
 	request.DestinationPath = "output"
 	extracted, err := root.extractZIP(context.Background(), request)
-	if err != nil || extracted.EntriesProcessed != 3 {
-		t.Fatalf("extractZIP() = (%+v, %v)", extracted, err)
-	}
+	requireArchiveResult(t, extracted, err, 3)
+	// #nosec G304 -- the path is below the isolated test root.
 	data, err := os.ReadFile(filepath.Join(directory, "output", "source", "nested", "report.txt"))
 	if err != nil || string(data) != "bounded archive" {
 		t.Fatalf("extracted data = %q, %v", data, err)
@@ -144,6 +135,7 @@ func TestZIPPreflightRejectsEntryCountBeforeParsing(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G304 -- path is an isolated test fixture.
 	file, err = os.Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +147,20 @@ func TestZIPPreflightRejectsEntryCountBeforeParsing(t *testing.T) {
 	}
 	if err := preflightZIP(file, info.Size(), 10); err == nil {
 		t.Fatal("preflightZIP() error = nil, want entry-count rejection")
+	}
+}
+
+func requireNoError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func requireArchiveResult(t *testing.T, result fileprotocol.ArchiveResult, err error, entries int) {
+	t.Helper()
+	if err != nil || result.State != completedTestState || result.EntriesProcessed != entries {
+		t.Fatalf("archive result = (%+v, %v), want completed with %d entries", result, err, entries)
 	}
 }
 

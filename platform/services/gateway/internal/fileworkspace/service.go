@@ -13,26 +13,27 @@ import (
 )
 
 const (
-	operationExpiry     = 2 * time.Minute
-	maxRootIDBytes      = 128
-	maxDirectoryPage    = 500
-	maxSearchQueryBytes = 256
-	maxSearchResults    = 250
-	maxSearchEntries    = 10_000
-	maxSearchDepth      = 16
-	maxPreviewReadBytes = 1 << 20
-	maxMutationItems    = 100
-	maxAppendBytes      = 1 << 20
-	maxRelativePath     = 4096
-	maxPathComponents   = 256
-	maxArchiveSources   = 100
-	maxArchiveEntries   = 10_000
-	maxArchiveDepth     = 64
-	maxArchiveBytes     = 1 << 30
-	maxArchiveRatio     = 100
-	maxArchiveRuntime   = 30 * time.Second
-	maxArchiveListItems = 250
-	maxArchiveNameBytes = 32 << 10
+	operationExpiry       = 2 * time.Minute
+	maxRootIDBytes        = 128
+	maxDirectoryPage      = 500
+	maxSearchQueryBytes   = 256
+	maxSearchResults      = 250
+	maxSearchEntries      = 10_000
+	maxSearchDepth        = 16
+	maxPreviewReadBytes   = 1 << 20
+	maxMutationItems      = 100
+	maxAppendBytes        = 1 << 20
+	maxRelativePath       = 4096
+	maxPathComponents     = 256
+	maxArchiveSources     = 100
+	maxArchiveEntries     = 10_000
+	maxArchiveDepth       = 64
+	maxArchiveBytes       = 1 << 30
+	maxArchiveRatio       = 100
+	maxArchiveRuntime     = 30 * time.Second
+	maxArchiveListItems   = 250
+	maxArchiveNameBytes   = 32 << 10
+	maxMetadataFutureSkew = 24 * time.Hour
 )
 
 // Service validates and dispatches durable file workspace operations.
@@ -435,7 +436,7 @@ func prepareMetadataSetRequest(commandType, rootID string, request *fileprotocol
 		return fmt.Errorf("metadata path is invalid")
 	}
 	if request.Delta.ModifiedAt != nil {
-		minimum, maximum := time.Unix(0, 0).UTC(), time.Now().UTC().Add(24*time.Hour)
+		minimum, maximum := time.Unix(0, 0).UTC(), time.Now().UTC().Add(maxMetadataFutureSkew)
 		if request.Delta.ModifiedAt.Before(minimum) || request.Delta.ModifiedAt.After(maximum) {
 			return fmt.Errorf("metadata timestamp is outside limit")
 		}
@@ -447,31 +448,16 @@ func prepareMetadataSetRequest(commandType, rootID string, request *fileprotocol
 	return nil
 }
 func prepareArchiveRequest(commandType, rootID string, request *fileprotocol.ArchiveRequest) error {
-	if commandType != fileprotocol.CommandArchiveExecute || request.Format != fileprotocol.ArchiveZIP {
+	if commandType != fileprotocol.CommandArchiveExecute || request.Format != fileprotocol.ArchiveZIP || !validArchiveAction(request.Action) {
 		return fmt.Errorf("invalid archive request")
-	}
-	if request.Action != fileprotocol.ArchiveCreate && request.Action != fileprotocol.ArchiveList && request.Action != fileprotocol.ArchiveExtract {
-		return fmt.Errorf("archive action is invalid")
 	}
 	if err := validateOperatorRelativePath(request.ArchivePath); err != nil {
 		return fmt.Errorf("archive path is invalid")
 	}
-	if request.Action == fileprotocol.ArchiveCreate {
-		if len(request.SourcePaths) == 0 || len(request.SourcePaths) > maxArchiveSources {
-			return fmt.Errorf("archive source count exceeds limit")
-		}
-		for _, source := range request.SourcePaths {
-			if err := validateOperatorRelativePath(source); err != nil {
-				return fmt.Errorf("archive source path is invalid")
-			}
-		}
+	if err := validateArchiveOperands(request); err != nil {
+		return err
 	}
-	if request.Action == fileprotocol.ArchiveExtract {
-		if err := validateOperatorRelativePath(request.DestinationPath); err != nil {
-			return fmt.Errorf("archive destination is invalid")
-		}
-	}
-	if request.Action != fileprotocol.ArchiveList && request.Conflict != fileprotocol.ConflictFail && request.Conflict != fileprotocol.ConflictSkip && request.Conflict != fileprotocol.ConflictRenameNew {
+	if request.Action != fileprotocol.ArchiveList && !validArchiveConflict(request.Conflict) {
 		return fmt.Errorf("archive conflict strategy is invalid")
 	}
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
@@ -482,6 +468,38 @@ func prepareArchiveRequest(commandType, rootID string, request *fileprotocol.Arc
 		MaxListedEntries: maxArchiveListItems, MaxListedNameBytes: maxArchiveNameBytes,
 	}
 	return nil
+}
+
+func validArchiveAction(action fileprotocol.ArchiveAction) bool {
+	return action == fileprotocol.ArchiveCreate || action == fileprotocol.ArchiveList || action == fileprotocol.ArchiveExtract
+}
+
+func validateArchiveOperands(request *fileprotocol.ArchiveRequest) error {
+	if request.Action == fileprotocol.ArchiveCreate {
+		return validateArchiveSources(request.SourcePaths)
+	}
+	if request.Action == fileprotocol.ArchiveExtract {
+		if err := validateOperatorRelativePath(request.DestinationPath); err != nil {
+			return fmt.Errorf("archive destination is invalid")
+		}
+	}
+	return nil
+}
+
+func validateArchiveSources(sources []string) error {
+	if len(sources) == 0 || len(sources) > maxArchiveSources {
+		return fmt.Errorf("archive source count exceeds limit")
+	}
+	for _, source := range sources {
+		if err := validateOperatorRelativePath(source); err != nil {
+			return fmt.Errorf("archive source path is invalid")
+		}
+	}
+	return nil
+}
+
+func validArchiveConflict(conflict fileprotocol.ConflictStrategy) bool {
+	return conflict == fileprotocol.ConflictFail || conflict == fileprotocol.ConflictSkip || conflict == fileprotocol.ConflictRenameNew
 }
 func preparePreviewRequest(commandType, rootID string, request *fileprotocol.PreviewReadRequest) error {
 	if commandType != fileprotocol.CommandPreviewRead || request.Offset < 0 || request.Length <= 0 || request.Length > maxPreviewReadBytes {

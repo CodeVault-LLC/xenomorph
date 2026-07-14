@@ -111,7 +111,7 @@ func TestMutationDeleteRemovesFilesLinksAndEmptyDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete file mutate() error = %v", err)
 	}
-	if result.State != "completed" {
+	if result.State != completedTestState {
 		t.Fatalf("delete file state = %q, want completed", result.State)
 	}
 	requireNotExist(t, filepath.Join(rootPath, "report.txt"))

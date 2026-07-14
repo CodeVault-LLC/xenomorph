@@ -12,12 +12,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const metadataWritableFieldCount = 2
+
 func metadataWriteCapability() fileprotocol.CapabilityState {
 	return fileprotocol.CapabilityAvailable
 }
 
 func (root *rootHandle) setMetadata(components []string, delta fileprotocol.MetadataDelta) []fileprotocol.MetadataFieldResult {
-	results := make([]fileprotocol.MetadataFieldResult, 0, 2)
+	results := make([]fileprotocol.MetadataFieldResult, 0, metadataWritableFieldCount)
 	if delta.ModifiedAt != nil {
 		results = append(results, metadataFieldOutcome("modified_at", root.setModifiedAt(components, delta.ModifiedAt.UTC())))
 	}

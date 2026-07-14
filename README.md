@@ -1,16 +1,17 @@
 # Xenomorph
 
-Xenomorph is an internal remote screening platform implemented as a Go control plane and Go agent. The repository currently contains three primary modules:
+Xenomorph is an internal remote screening and support platform implemented as a Go control plane, Go agent, shared protocol, and React administrative website. The primary components are:
 
-- `platform/services/gateway`: mTLS-terminated ingestion gateway that accepts heartbeat traffic and publishes normalized events into NATS JetStream.
-- `platform/client`: agent process that establishes a mutually authenticated TLS session with the gateway and submits heartbeat telemetry.
-- `platform/shared`: protocol definitions and generated types shared by both sides of the system.
+- `platform/services/gateway`: mTLS-terminated agent boundary, command author, dashboard API, file-workspace coordinator, and NATS publisher.
+- `platform/client`: agent process for telemetry and gateway-authored command execution.
+- `platform/shared`: protocol definitions and generated types shared across the Go components.
+- `platform/website`: React and TypeScript administrative interface.
 
 The repository is intentionally structured for controlled, authorized environments. Any deployment, test harness, or operator workflow must assume explicit administrative authorization and a bounded internal trust domain.
 
-## Operational Model
+## Current Status
 
-The current implementation is intentionally narrow. The gateway accepts authenticated client traffic, derives agent identity from the verified client certificate fingerprint, wraps the payload in a trusted envelope, and forwards the event to NATS JetStream. The client is a heartbeat emitter and does not expose a generalized command surface in the present tree.
+The Go rewrite has a substantial working development baseline, including signed command handling, telemetry, terminal, screen, logs, and a gateway-mediated file workspace. It is **not ready for release**. Operator authentication/authorization, protected broker transport, credential remediation, cryptographic promotion evidence, native platform validation, recovery, and signed release automation remain blocking. See [Project Status](.docs/project-status.md) and [Roadmap](.docs/roadmap.md).
 
 ## Build
 
@@ -22,6 +23,8 @@ make fmt
 make test
 make build
 make build-all
+make ci-web
+make ci
 ```
 
 Build artifacts are emitted to `bin/`.
@@ -69,7 +72,7 @@ Terminal 2:
 make run-client
 ```
 
-The gateway expects a reachable NATS JetStream endpoint at `nats://localhost:4222` and the certificate material under `platform/infrastructure/certs`. The client expects the same certificate material and a live gateway listener at `https://localhost:8443`.
+The gateway and client currently use local-development endpoints and certificate paths. These defaults are not a production contract. The gateway also requires a compatible FIPS module and an explicit allowed operating environment. Consult the current configuration source and project status before running the development stack.
 
 ### Gateway Activity Configuration
 
@@ -89,7 +92,10 @@ reads this gateway-owned presence state; client-provided hostnames remain teleme
 Repository documentation is maintained in [.docs](.docs):
 
 - [Overview](.docs/overview.md)
+- [Project Status](.docs/project-status.md)
 - [Roadmap](.docs/roadmap.md)
+- [CI, Build, and Release Contract](.docs/ci-and-release.md)
+- [Code Review Standard](.docs/code-review.md)
 - [Lingual Standard](.docs/lingual.md)
 
 The root [AGENTS.md](AGENTS.md) file defines the operating rules for contributors and automation.

@@ -4,8 +4,10 @@ ROOT := $(CURDIR)
 BIN_DIR := $(ROOT)/bin
 MODULES := platform/client platform/services/gateway platform/shared
 TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
+WEBSITE_DIR := $(ROOT)/platform/website
 
 GO ?= go
+BUN ?= bun
 FIPS_MODULE ?= v1.0.0
 GOPATH ?= $(shell $(GO) env GOPATH)
 GOFMT ?= gofmt
@@ -20,7 +22,7 @@ GOSEC ?= $(or $(shell command -v gosec 2>/dev/null),$(GOBIN)/gosec)
 GATEWAY_DIR := $(ROOT)/platform/services/gateway
 CLIENT_DIR := $(ROOT)/platform/client
 
-.PHONY: help fmt fmt-check test test-race vet staticcheck govulncheck gosec tidy tidy-check build build-all build-gateway build-client run-gateway run-client clean lint install-tools ci
+.PHONY: help fmt fmt-check test test-race vet staticcheck govulncheck gosec tidy tidy-check build build-all build-gateway build-client run-gateway run-client clean lint install-tools web-install web-format-check web-lint web-typecheck web-build ci-go ci-web ci
 
 help:
 	@printf '%s\n' "Available targets:"
@@ -37,6 +39,8 @@ help:
 	@printf '%s\n' "  make build         Build native gateway and client binaries"
 	@printf '%s\n' "  make build FIPS_MODULE=v1.0.0  Build with the selected Go FIPS 140-3 module"
 	@printf '%s\n' "  make build-all     Cross-compile gateway and client for Linux, macOS, and Windows"
+	@printf '%s\n' "  make ci-go         Run the complete Go quality and build gate"
+	@printf '%s\n' "  make ci-web        Run the complete website quality and build gate"
 	@printf '%s\n' "  make install-tools Install pinned static-analysis tools into GOPATH/bin"
 	@printf '%s\n' "  make ci            Run all repository CI checks"
 
@@ -80,7 +84,7 @@ govulncheck:
 gosec:
 	@set -euo pipefail; \
 	if [[ ! -x $(GOSEC) ]]; then printf '%s\n' "gosec is not installed; run make install-tools"; exit 1; fi; \
-	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOSEC) ./...; done
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOSEC) -exclude-generated ./...; done
 
 tidy:
 	@set -euo pipefail; \
@@ -129,8 +133,28 @@ lint:
 	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOLANGCI_LINT) run; done
 
 install-tools:
+	@$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
 	@$(GO) install honnef.co/go/tools/cmd/staticcheck@v0.7.0
 	@$(GO) install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 	@$(GO) install github.com/securego/gosec/v2/cmd/gosec@v2.22.10
 
-ci: fmt-check tidy-check test test-race vet staticcheck govulncheck gosec lint build-all
+web-install:
+	@cd $(WEBSITE_DIR) && $(BUN) install --frozen-lockfile
+
+web-format-check:
+	@cd $(WEBSITE_DIR) && $(BUN) run format:check
+
+web-lint:
+	@cd $(WEBSITE_DIR) && $(BUN) run lint
+
+web-typecheck:
+	@cd $(WEBSITE_DIR) && $(BUN) run typecheck
+
+web-build:
+	@cd $(WEBSITE_DIR) && $(BUN) run build
+
+ci-go: fmt-check tidy-check test test-race vet staticcheck govulncheck gosec lint build-all
+
+ci-web: web-install web-format-check web-lint web-typecheck web-build
+
+ci: ci-go ci-web

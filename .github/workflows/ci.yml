@@ -5,13 +5,14 @@ on:
   push:
     branches:
       - main
+      - rewrite
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  quality:
+  go-quality:
     name: Go quality and cross-platform build
     runs-on: ubuntu-24.04
     steps:
@@ -28,4 +29,19 @@ jobs:
         run: make install-tools
 
       - name: Run CI checks
-        run: make ci
+        run: make ci-go
+
+  website-quality:
+    name: Website quality and production build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Run website CI checks
+        run: make ci-web

@@ -66,7 +66,10 @@ export async function createTerminalSession(
   return payload.session
 }
 
-export async function deleteTerminalSession(agentId: string, sessionId: string) {
+export async function deleteTerminalSession(
+  agentId: string,
+  sessionId: string
+) {
   const response = await fetch(
     `/api/clients/${agentId}/terminal/sessions/${sessionId}`,
     { method: "DELETE" }
@@ -76,10 +79,7 @@ export async function deleteTerminalSession(agentId: string, sessionId: string) 
   }
 }
 
-export async function fetchTerminalEntries(
-  agentId: string,
-  sessionId: string
-) {
+export async function fetchTerminalEntries(agentId: string, sessionId: string) {
   const response = await fetch(
     `/api/clients/${agentId}/terminal/sessions/${sessionId}/entries`,
     { cache: "no-store" }

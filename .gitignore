@@ -13,4 +13,5 @@ xenomorph.exe
 uploads
 /bin
 /certs
+/platform/infrastructure/certs
 /platform/services/gateway/data

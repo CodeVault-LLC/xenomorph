@@ -24,6 +24,13 @@ depends on the selected provider certificate, covered operating environment,
 provider security policy, operational controls, and the controls listed as
 missing below.
 
+For Milestone 1, every cryptographic service exposed by the runtime must close
+its applicable partial and missing controls and produce the test and approval
+evidence in this plan. A service that is not required for the bounded milestone
+must remain disabled at the public contract; dormant design text is not a
+reason to expose a partially protected algorithm. The release decision is
+tracked in `.docs/project-status.md` and `.docs/roadmap.md`.
+
 ### Completed production logic
 
 - `platform/services/gateway/internal/keyservice` owns software-provider

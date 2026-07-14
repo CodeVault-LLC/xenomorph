@@ -10,7 +10,9 @@ The first implementation must target Windows, macOS, and Linux. It must provide 
 
 ## Current Implementation Status
 
-Phase 0 command-authenticity controls, the read-only subset of Phase 1, Phase 2 individual transfers, and Phase 3 safe mutations are implemented. The website discovers roots automatically, lists directories with cursor pagination, reads metadata, renders bounded previews, uploads and downloads individual files, and reconciles durable progress in a transfer drawer. It exposes create, move/rename, copy, duplicate, touch, truncate, append, single and bulk permanent deletion, dry-run review, and per-item results. The gateway provides encrypted staged upload/download chunks, scoped leases, durable acknowledgements, resume/abort control, gateway-normalized operator paths, and preconditioned mutation dispatch. Deletion creates no gateway recovery record or agent-side staging copy. Search, DOM virtualization, metadata writes, and archives remain planned. Phase 4 is prepared through explicit unavailable metadata-write and archive capability fields and an archive-format allowlist field; no Phase 4 command is enabled.
+Phase 0 command-authenticity controls, the implemented subset of Phase 1, Phase 2 individual transfers, and Phase 3 safe mutations are present. The website discovers roots automatically, lists directories with cursor pagination, reads metadata, renders bounded previews, uploads and downloads individual files, and reconciles durable progress in a transfer drawer. It exposes create, move/rename, copy, duplicate, touch, truncate, append, single and bulk permanent deletion, dry-run review, and per-item results. The gateway provides encrypted staged upload/download chunks, scoped leases, durable acknowledgements, resume/abort control, gateway-normalized operator paths, and preconditioned mutation dispatch. Deletion creates no gateway recovery record or agent-side staging copy.
+
+Phase 1 is not complete because bounded search, DOM virtualization, large-directory performance evidence, and its full cross-platform acceptance gate remain absent. Phase 4 is prepared only through explicit unavailable metadata-write and archive capability fields and an archive-format allowlist field; no Phase 4 command is enabled. Phase 5 metrics, operational controls, chaos/load/recovery/accessibility evidence, and internal-user documentation remain absent. No release may describe the file workspace as complete until these residual gates pass.
 
 ## Existing-System Fit
 
@@ -173,11 +175,15 @@ Gate: malicious path, symlink/reparse race, cross-volume move, collision, permis
 
 ### Phase 4: Metadata and archives
 
+Status: not implemented.
+
 Implement normalized metadata read/write, platform capability gating, archive creation/list/extraction, and all archive safety limits. Add UI explanations for unsupported and denied fields.
 
 Gate: native metadata integration tests and archive traversal/bomb tests pass; no unavailable platform field is silently discarded or falsely reported as applied.
 
 ### Phase 5: Hardening and operations
+
+Status: not implemented.
 
 Add metrics, dashboards, alerts, retention enforcement, audit export controls, chaos testing, load testing, accessibility testing, and internal-user documentation. Set production defaults from observed capacity and security reviews.
 

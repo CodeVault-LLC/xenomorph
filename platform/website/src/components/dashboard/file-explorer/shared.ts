@@ -52,7 +52,6 @@ export function isValidRelativePath(value: string) {
   }
   const parts = value.split("/")
   return parts.every(
-    (part) =>
-      part !== "" && part !== "." && part !== ".." && part.length <= 255
+    (part) => part !== "" && part !== "." && part !== ".." && part.length <= 255
   )
 }

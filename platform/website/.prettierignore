@@ -1,5 +1,6 @@
 node_modules/
 coverage/
+src/routeTree.gen.ts
 .pnpm-store/
 pnpm-lock.yaml
 package-lock.json

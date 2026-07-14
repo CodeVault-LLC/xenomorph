@@ -2,35 +2,43 @@
 
 ## System Purpose
 
-Xenomorph is an internal remote screening platform composed of a gateway, an agent, and a shared event schema. The repository models a controlled telemetry path in which the gateway is the sole trust boundary and the agent is an authenticated emitter of operational status.
+Xenomorph is an internal remote screening and support platform for controlled, explicitly authorized environments. The current Go rewrite consists of an agent, gateway, shared protocol, administrative website, and NATS JetStream dependency. It collects telemetry and supports gateway-mediated command, terminal, screen, log, filesystem, and transfer workflows.
 
-## Architectural Summary
+The repository is not release-ready. `.docs/project-status.md` is the authoritative readiness decision.
 
-The current system has three explicit layers:
+## Component Ownership
 
-1. The agent constructs heartbeat telemetry and submits it over mTLS to the gateway.
-2. The gateway validates the client certificate, derives the agent identity from the certificate common name, and wraps the payload in a server-authored envelope.
-3. The broker publishes the normalized event into NATS JetStream for downstream consumers.
+| Component | Owns | Does not own | Trust source |
+| --- | --- | --- | --- |
+| Agent | Local telemetry, local command execution, filesystem adapters, screen capture, transfer I/O | Identity assertion, operator authorization, command authorship, event provenance | Gateway command verification key and mutually authenticated gateway channel |
+| Gateway | Agent authentication, certificate-derived agent ID, server-authored event/command identifiers, command signing and dispatch, validation, audit coordination, broker publication | Truth of client telemetry/results, local filesystem interpretation, current human-operator authentication | Verified client certificate for agent identity; gateway cryptographic state for command authorship |
+| Website | Presentation, navigation, accessibility, and collection of operator intent | Agent identity, command authenticity, filesystem truth, server-side authorization | Gateway responses for system state; browser input remains operator-authored |
+| Shared protocol | Versioned Go/protobuf and command/file structures | Runtime authorization, persistence, or transport | Reviewed source contracts and generated artifacts |
+| NATS JetStream | Durable storage/delivery of gateway-published events | Agent or operator identity, command issuance, payload truth | Gateway broker identity and subject policy once secured; current development connection lacks this production control |
 
-This arrangement establishes a single ingress point for identity enforcement, schema validation, and event provenance. Payload data remains distinct from trust metadata.
+## Runtime Flows
+
+Agent traffic reaches the gateway over TLS 1.3 mutual TLS. The gateway derives the agent ID from the verified certificate fingerprint. It creates trusted envelope metadata and treats heartbeat, entry, log, terminal, screen, filesystem, transfer, and command-result content as client-authored payload.
+
+The gateway creates signed, audience-bound, expiring commands. The agent verifies the dedicated command public key, command type, key ID, audience, time window, and replay nonce before local execution. Results return through the authenticated agent channel but remain client-authored observations.
+
+The website calls the gateway dashboard listener for administrative workflows. Browser requests are operator-authored. The current runtime has no authenticated human operator or authorization middleware, so that listener is a release-blocking administrative trust gap even when bound to loopback or protected by TLS.
+
+The gateway publishes protobuf events to NATS JetStream. The current broker client accepts a URL without configured TLS credentials or subject authorization. Production broker protection remains a release blocker.
+
+## Persistence and Recovery Boundary
+
+File-operation and transfer records are filesystem-backed under the configured gateway state path. Command queues and several dashboard/runtime stores are memory-backed and can be lost at restart. Client replay state and credentials are local files. These mixed durability semantics are development behavior, not an approved recovery contract.
 
 ## Repository Structure
 
-- `platform/client`: agent runtime and client-side HTTP transport.
-- `platform/services/gateway`: ingestion service, TLS endpoint, and NATS publishing layer.
-- `platform/shared`: protobuf schema and generated Go types.
-- `scripts`: operational utilities, currently certificate generation helpers.
-- `.docs`: repository documentation for operators, engineers, and automation.
+- `platform/client`: Go agent runtime, transport, command handling, telemetry, screen, and filesystem adapters.
+- `platform/services/gateway`: Go gateway, mTLS listeners, dashboard API, command queue, key service, file workspace, activity state, and broker integration.
+- `platform/shared`: shared command/file contracts and protobuf schema/generated Go artifacts.
+- `platform/website`: React and TypeScript administrative website.
+- `scripts`: development operational helpers.
+- `.docs`: architecture, standards, plans, status, and roadmap.
 
-## Runtime Boundaries
+## Deployment Constraint
 
-The gateway is expected to run inside the protected service plane with reachability to NATS JetStream. The agent is expected to operate in a constrained network domain with access to the gateway certificate authority and the client credential pair. The system should not be treated as an Internet-exposed control surface.
-
-## Control-Plane Contract
-
-The current contract is intentionally conservative:
-
-- TLS client authentication is mandatory.
-- Event envelopes are gateway-authored.
-- Agent identity is bound to certificate material, not to self-declared payload data.
-- Downstream consumers should treat payload fields as telemetry, not as trust evidence.
+The intended Milestone 1 deployment is an authorized internal environment with an authenticated operator boundary, explicit agent enrollment, protected gateway and NATS service identities, externalized secrets, and documented recovery. The present local-development defaults and tracked development certificates are not production deployment inputs.

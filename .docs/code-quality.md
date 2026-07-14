@@ -326,15 +326,16 @@ The system must remain fast and predictable as the number of agents and operator
 
 ### Local checks
 
-Before opening a pull request, contributors must run:
+Before opening a pull request, contributors must run the complete gate for every touched component:
 
 ```bash
 make fmt
 make tidy
-make test
-make build
-make lint
+make ci-go
+make ci-web
 ```
+
+`make ci` runs both gates. Website review rules are defined in `.docs/code-review.md`.
 
 ### CI gates
 
@@ -347,6 +348,7 @@ A change may not merge unless all of the following pass:
 5. `make build`
 6. All new exported identifiers have doc comments
 7. All new security-sensitive code has a corresponding test or threat-model note
+8. `make ci-web` passes when the website or an externally visible dashboard contract changes
 
 ### Lint configuration
 

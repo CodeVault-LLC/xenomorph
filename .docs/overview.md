@@ -22,7 +22,7 @@ Agent traffic reaches the gateway over TLS 1.3 mutual TLS. The gateway derives t
 
 The gateway creates signed, audience-bound, expiring commands. The agent verifies the dedicated command public key, command type, key ID, audience, time window, and replay nonce before local execution. Results return through the authenticated agent channel but remain client-authored observations.
 
-The website calls the gateway dashboard listener for administrative workflows. Browser requests are operator-authored. The current runtime has no authenticated human operator or authorization middleware, so that listener is a release-blocking administrative trust gap even when bound to loopback or protected by TLS.
+The website calls the gateway dashboard listener for administrative workflows. Browser requests are operator-authored. The current runtime has no authenticated human operator or authorization middleware. Operator authentication is deferred beyond Milestone 1; the listener's security relies on network placement controls.
 
 The gateway publishes protobuf events synchronously to NATS JetStream and returns success only after the broker acknowledgement. The current broker client accepts a URL without configured TLS credentials or subject authorization. Production broker protection remains a release blocker.
 
@@ -41,4 +41,4 @@ File-operation and transfer records are filesystem-backed under the configured g
 
 ## Deployment Constraint
 
-The intended Milestone 1 deployment is an authorized internal environment with an authenticated operator boundary, explicit agent enrollment, protected gateway and NATS service identities, externalized secrets, and documented recovery. The present local-development defaults and tracked development certificates are not production deployment inputs.
+The intended Milestone 1 deployment is an authorized internal environment with explicit agent enrollment, protected gateway and NATS service identities, externalized secrets, and documented recovery. Operator authentication is deferred beyond Milestone 1. The present local-development defaults and tracked development certificates are not production deployment inputs.

@@ -1,4 +1,5 @@
 import {
+  Archive,
   ChevronLeft,
   ChevronRight,
   FilePlus2,
@@ -66,11 +67,15 @@ type FileBrowserCardProps = {
   canTransfer: boolean
   canMutate: boolean
   canDelete: boolean
+  canArchiveCreate: boolean
+  canArchiveRead: boolean
   selectedEntryIDs: Set<string>
   cursorIndex: number
   onUpload: () => void
   onCreate: (verb: "create_file" | "create_directory") => void
   onBulkDelete: () => void
+  onArchiveCreate: () => void
+  onArchiveAction: (action: "list" | "extract", entry: FileEntry) => void
   onSearchQueryChange: (query: string) => void
   onSearch: () => void
   onClearSearch: () => void
@@ -98,11 +103,15 @@ export function FileBrowserCard({
   canTransfer,
   canMutate,
   canDelete,
+  canArchiveCreate,
+  canArchiveRead,
   selectedEntryIDs,
   cursorIndex,
   onUpload,
   onCreate,
   onBulkDelete,
+  onArchiveCreate,
+  onArchiveAction,
   onSearchQueryChange,
   onSearch,
   onClearSearch,
@@ -127,6 +136,12 @@ export function FileBrowserCard({
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
+            {canArchiveCreate && selectedEntryIDs.size > 0 ? (
+              <Button size="sm" variant="outline" onClick={onArchiveCreate}>
+                <Archive data-icon="inline-start" /> Archive{" "}
+                {selectedEntryIDs.size}
+              </Button>
+            ) : null}
             {canDelete && selectedEntryIDs.size > 0 ? (
               <Button size="sm" variant="destructive" onClick={onBulkDelete}>
                 <Trash2 data-icon="inline-start" /> Delete{" "}
@@ -223,11 +238,14 @@ export function FileBrowserCard({
           selectedEntryIDs={selectedEntryIDs}
           canMutate={canMutate}
           canDelete={canDelete}
+          canArchiveCreate={canArchiveCreate}
+          canArchiveRead={canArchiveRead}
           onOpen={onOpen}
           onOpenSearchResult={onOpenSearchResult}
           onSelectionChange={onSelectionChange}
           onSelectionRange={onSelectionRange}
           onAction={onAction}
+          onArchiveAction={onArchiveAction}
         />
         {!searchResult ? (
           <DirectoryPagination
@@ -286,11 +304,14 @@ function DirectoryContent({
   selectedEntryIDs,
   canMutate,
   canDelete,
+  canArchiveCreate,
+  canArchiveRead,
   onOpen,
   onOpenSearchResult,
   onSelectionChange,
   onSelectionRange,
   onAction,
+  onArchiveAction,
 }: {
   error: string
   loading: boolean
@@ -301,11 +322,14 @@ function DirectoryContent({
   selectedEntryIDs: Set<string>
   canMutate: boolean
   canDelete: boolean
+  canArchiveCreate: boolean
+  canArchiveRead: boolean
   onOpen: (entry: FileEntry) => void
   onOpenSearchResult: (result: DirectorySearchResult["entries"][number]) => void
   onSelectionChange: (entry: FileEntry, selected: boolean) => void
   onSelectionRange: (entries: FileEntry[], selected: boolean) => void
   onAction: (verb: MutationVerb, entry: FileEntry) => void
+  onArchiveAction: (action: "list" | "extract", entry: FileEntry) => void
 }) {
   if (error) {
     return (
@@ -366,6 +390,8 @@ function DirectoryContent({
           selectedEntryIDs={new Set()}
           canMutate={false}
           canDelete={false}
+          canSelect={false}
+          canArchive={false}
           onOpen={(entry) => {
             const result = searchResult.entries.find(
               (candidate) => candidate.entry.entry_id === entry.entry_id
@@ -375,6 +401,7 @@ function DirectoryContent({
           onSelectionChange={() => undefined}
           onSelectionRange={() => undefined}
           onAction={() => undefined}
+          onArchiveAction={() => undefined}
         />
       </div>
     )
@@ -415,10 +442,13 @@ function DirectoryContent({
       selectedEntryIDs={selectedEntryIDs}
       canMutate={canMutate}
       canDelete={canDelete}
+      canSelect={canDelete || canArchiveCreate}
+      canArchive={canArchiveRead}
       onOpen={onOpen}
       onSelectionChange={onSelectionChange}
       onSelectionRange={onSelectionRange}
       onAction={onAction}
+      onArchiveAction={onArchiveAction}
     />
   )
 }

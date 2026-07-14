@@ -16,7 +16,18 @@ export interface RootCapabilities {
   safe_handle_relative_io: "available" | "unavailable" | "denied"
   atomic_rename: "available" | "unavailable" | "denied"
   permanent_delete: "available" | "unavailable" | "denied"
+  posix_mode: CapabilityState
+  owner: CapabilityState
+  acl: CapabilityState
+  extended_attributes: CapabilityState
+  metadata_write: CapabilityState
+  archive_create: CapabilityState
+  archive_list: CapabilityState
+  archive_extract: CapabilityState
+  archive_formats: string[]
 }
+
+export type CapabilityState = "available" | "unavailable" | "denied"
 
 export interface RootObservation {
   root_id: string
@@ -80,6 +91,135 @@ export interface MetadataResult {
     string,
     { state: "available" | "unavailable" | "denied"; value?: string }
   >
+}
+
+export interface MetadataSetResult {
+  protocol_version: number
+  operation_id: string
+  fields: Array<{
+    field: "modified_at" | "posix_mode"
+    state: "applied" | "unavailable" | "denied" | "failed"
+    error_class?: string
+  }>
+}
+
+export interface ArchiveResult {
+  protocol_version: number
+  operation_id: string
+  state: "completed" | "skipped"
+  entries?: Array<{
+    path: string
+    kind: FileEntryKind
+    uncompressed_size: number
+    compressed_size: number
+  }>
+  entries_processed: number
+  bytes_processed: number
+  truncated?: boolean
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const boundedNumber = (value: unknown, maximum: number): value is number =>
+  typeof value === "number" &&
+  Number.isSafeInteger(value) &&
+  value >= 0 &&
+  value <= maximum
+
+const parseMetadataSetResult = (value: unknown): MetadataSetResult => {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.fields) ||
+    value.fields.length === 0 ||
+    value.fields.length > 2
+  ) {
+    throw new Error("Metadata operation returned a malformed result")
+  }
+  const fields = value.fields.map((field) => {
+    if (
+      !isRecord(field) ||
+      (field.field !== "modified_at" && field.field !== "posix_mode") ||
+      !["applied", "unavailable", "denied", "failed"].includes(
+        String(field.state)
+      )
+    ) {
+      throw new Error("Metadata operation returned a malformed field result")
+    }
+    return {
+      field: field.field as MetadataSetResult["fields"][number]["field"],
+      state: field.state as MetadataSetResult["fields"][number]["state"],
+      error_class:
+        typeof field.error_class === "string"
+          ? field.error_class.slice(0, 128)
+          : undefined,
+    }
+  })
+  if (
+    value.protocol_version !== 6 ||
+    typeof value.operation_id !== "string" ||
+    value.operation_id.length === 0 ||
+    value.operation_id.length > 128
+  ) {
+    throw new Error("Metadata operation returned a malformed envelope")
+  }
+  return {
+    protocol_version: value.protocol_version,
+    operation_id: value.operation_id,
+    fields,
+  }
+}
+
+const parseArchiveResult = (value: unknown): ArchiveResult => {
+  if (
+    !isRecord(value) ||
+    value.protocol_version !== 6 ||
+    typeof value.operation_id !== "string" ||
+    value.operation_id.length === 0 ||
+    value.operation_id.length > 128 ||
+    (value.state !== "completed" && value.state !== "skipped") ||
+    !boundedNumber(value.entries_processed, 10_000) ||
+    !boundedNumber(value.bytes_processed, 1 << 30)
+  ) {
+    throw new Error("Archive operation returned a malformed result")
+  }
+  const rawEntries = value.entries === undefined ? [] : value.entries
+  if (!Array.isArray(rawEntries) || rawEntries.length > 250) {
+    throw new Error("Archive operation returned an oversized entry list")
+  }
+  let nameBytes = 0
+  const entries = rawEntries.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.path !== "string" ||
+      entry.path.length > 4096 ||
+      /[\0\\\r\n]/u.test(entry.path) ||
+      !["file", "directory"].includes(String(entry.kind)) ||
+      !boundedNumber(entry.uncompressed_size, 1 << 30) ||
+      !boundedNumber(entry.compressed_size, 1 << 30)
+    ) {
+      throw new Error("Archive operation returned a malformed entry")
+    }
+    nameBytes += new TextEncoder().encode(entry.path).byteLength
+    if (nameBytes > 32 << 10) {
+      throw new Error("Archive operation returned oversized entry names")
+    }
+    return {
+      path: entry.path,
+      kind: entry.kind as "file" | "directory",
+      uncompressed_size: entry.uncompressed_size,
+      compressed_size: entry.compressed_size,
+    }
+  })
+  return {
+    protocol_version: value.protocol_version,
+    operation_id: value.operation_id,
+    state: value.state,
+    entries,
+    entries_processed: value.entries_processed,
+    bytes_processed: value.bytes_processed,
+    truncated: value.truncated === true,
+  }
 }
 
 export interface PreviewResult {
@@ -227,6 +367,82 @@ export const getFileMetadata = (
     { root_id: rootID, relative_path: relativePath },
     signal
   )
+
+export const setFileMetadata = async (
+  agentID: string,
+  rootID: string,
+  relativePath: string,
+  preconditions: FilePreconditions,
+  delta: { modified_at?: string; posix_mode?: number },
+  signal?: AbortSignal
+) => {
+  const response = await fetch(`/api/clients/${agentID}/files/metadata`, {
+    method: "PATCH",
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      root_id: rootID,
+      relative_path: relativePath,
+      preconditions,
+      delta,
+    }),
+    signal,
+  })
+  const created = await readJSON<{
+    operation: FileOperation<MetadataSetResult>
+  }>(response)
+  const result = await pollOperation<unknown>(
+    agentID,
+    created.operation.operation_id,
+    signal
+  )
+  return parseMetadataSetResult(result)
+}
+
+export const executeArchive = async (
+  agentID: string,
+  rootID: string,
+  request: {
+    action: "create" | "list" | "extract"
+    archive_path: string
+    destination_path?: string
+    source_paths?: string[]
+    conflict_strategy: "fail" | "skip" | "rename_new"
+    preconditions?: FilePreconditions
+  },
+  signal?: AbortSignal
+) => {
+  const response = await fetch(`/api/clients/${agentID}/files/archives`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      root_id: rootID,
+      format: "zip",
+      preconditions: {},
+      ...request,
+    }),
+    signal,
+  })
+  const created = await readJSON<{ operation: FileOperation<ArchiveResult> }>(
+    response
+  )
+  const result = await pollOperation<unknown>(
+    agentID,
+    created.operation.operation_id,
+    signal
+  )
+  const parsed = parseArchiveResult(result)
+  if (
+    request.action === "list" &&
+    !parsed.truncated &&
+    parsed.entries?.length !== parsed.entries_processed
+  ) {
+    throw new Error("Archive listing returned an inconsistent result")
+  }
+  if (request.action !== "list" && (parsed.entries?.length ?? 0) !== 0) {
+    throw new Error("Archive operation returned an unexpected entry list")
+  }
+  return parsed
+}
 
 export const readFilePreview = (
   agentID: string,

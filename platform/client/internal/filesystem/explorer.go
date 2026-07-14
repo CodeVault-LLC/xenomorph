@@ -537,9 +537,9 @@ func platformCapabilities() fileprotocol.RootCapabilities {
 		POSIXMode: unavailable, Owner: unavailable, ACL: unavailable,
 		ExtendedAttributes: unavailable, SparseFiles: unavailable,
 		SafeHandleRelativeIO: available,
-		MetadataWrite:        metadataWriteCapability(), ArchiveCreate: unavailable,
-		ArchiveList: unavailable, ArchiveExtract: unavailable,
-		ArchiveFormats: []string{},
+		MetadataWrite:        metadataWriteCapability(), ArchiveCreate: available,
+		ArchiveList: available, ArchiveExtract: available,
+		ArchiveFormats: []string{string(fileprotocol.ArchiveZIP)},
 	}
 	if runtime.GOOS != windowsOS {
 		capabilities.CaseSensitive = available

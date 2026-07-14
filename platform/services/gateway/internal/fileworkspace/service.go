@@ -25,6 +25,14 @@ const (
 	maxAppendBytes      = 1 << 20
 	maxRelativePath     = 4096
 	maxPathComponents   = 256
+	maxArchiveSources   = 100
+	maxArchiveEntries   = 10_000
+	maxArchiveDepth     = 64
+	maxArchiveBytes     = 1 << 30
+	maxArchiveRatio     = 100
+	maxArchiveRuntime   = 30 * time.Second
+	maxArchiveListItems = 250
+	maxArchiveNameBytes = 32 << 10
 )
 
 // Service validates and dispatches durable file workspace operations.
@@ -89,6 +97,9 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 	if metadata, ok := request.(*fileprotocol.MetadataSetRequest); ok {
 		metadata.OperationID = operationID
 	}
+	if archive, ok := request.(*fileprotocol.ArchiveRequest); ok {
+		archive.OperationID = operationID
+	}
 	if err := prepareRequest(commandType, request, rootID); err != nil {
 		return Operation{}, err
 	}
@@ -119,7 +130,7 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 }
 
 func fileCommandReason(commandType string) string {
-	if commandType == fileprotocol.CommandOperationExecute || commandType == fileprotocol.CommandMetadataSet {
+	if commandType == fileprotocol.CommandOperationExecute || commandType == fileprotocol.CommandMetadataSet || commandType == fileprotocol.CommandArchiveExecute {
 		return "Preconditioned file workspace mutation"
 	}
 	return "Read-only file workspace operation"
@@ -365,6 +376,8 @@ func prepareRequest(commandType string, request any, rootID string) error {
 		return prepareMetadataRequest(commandType, rootID, typed)
 	case *fileprotocol.MetadataSetRequest:
 		return prepareMetadataSetRequest(commandType, rootID, typed)
+	case *fileprotocol.ArchiveRequest:
+		return prepareArchiveRequest(commandType, rootID, typed)
 	case *fileprotocol.PreviewReadRequest:
 		return preparePreviewRequest(commandType, rootID, typed)
 	case *fileprotocol.MutationRequest:
@@ -431,6 +444,43 @@ func prepareMetadataSetRequest(commandType, rootID string, request *fileprotocol
 		return fmt.Errorf("POSIX mode is outside limit")
 	}
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+	return nil
+}
+func prepareArchiveRequest(commandType, rootID string, request *fileprotocol.ArchiveRequest) error {
+	if commandType != fileprotocol.CommandArchiveExecute || request.Format != fileprotocol.ArchiveZIP {
+		return fmt.Errorf("invalid archive request")
+	}
+	if request.Action != fileprotocol.ArchiveCreate && request.Action != fileprotocol.ArchiveList && request.Action != fileprotocol.ArchiveExtract {
+		return fmt.Errorf("archive action is invalid")
+	}
+	if err := validateOperatorRelativePath(request.ArchivePath); err != nil {
+		return fmt.Errorf("archive path is invalid")
+	}
+	if request.Action == fileprotocol.ArchiveCreate {
+		if len(request.SourcePaths) == 0 || len(request.SourcePaths) > maxArchiveSources {
+			return fmt.Errorf("archive source count exceeds limit")
+		}
+		for _, source := range request.SourcePaths {
+			if err := validateOperatorRelativePath(source); err != nil {
+				return fmt.Errorf("archive source path is invalid")
+			}
+		}
+	}
+	if request.Action == fileprotocol.ArchiveExtract {
+		if err := validateOperatorRelativePath(request.DestinationPath); err != nil {
+			return fmt.Errorf("archive destination is invalid")
+		}
+	}
+	if request.Action != fileprotocol.ArchiveList && request.Conflict != fileprotocol.ConflictFail && request.Conflict != fileprotocol.ConflictSkip && request.Conflict != fileprotocol.ConflictRenameNew {
+		return fmt.Errorf("archive conflict strategy is invalid")
+	}
+	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+	request.Limits = fileprotocol.ArchiveLimits{
+		MaxEntries: maxArchiveEntries, MaxDepth: maxArchiveDepth,
+		MaxExpandedBytes: maxArchiveBytes, MaxTemporaryBytes: maxArchiveBytes,
+		MaxCompressionRatio: maxArchiveRatio, MaxRuntime: maxArchiveRuntime,
+		MaxListedEntries: maxArchiveListItems, MaxListedNameBytes: maxArchiveNameBytes,
+	}
 	return nil
 }
 func preparePreviewRequest(commandType, rootID string, request *fileprotocol.PreviewReadRequest) error {

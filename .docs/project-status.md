@@ -6,7 +6,7 @@ Status date: 2026-07-14.
 
 **NOT READY FOR RELEASE.**
 
-The current repository is a substantial Go rewrite with a working gateway, agent, shared protocol, and React administrative website. It is suitable for continued development and bounded local evaluation. It is not a production-ready or public release because administrative authority, broker transport, credential lifecycle, cryptographic promotion evidence, operating-system validation, recovery, and release provenance are incomplete.
+The current repository is a substantial Go implementation with a working gateway, agent, shared protocol, and React administrative website. It is suitable for continued development and bounded local evaluation. It is not a production-ready or public release because administrative authority, broker transport, credential lifecycle, cryptographic promotion evidence, operating-system validation, recovery, and release provenance are incomplete.
 
 Milestone 1 is defined as an **authorized internal preview** of one gateway deployment, explicitly enrolled agents, the administrative website, and a secured NATS deployment. It is not an Internet-facing service, a Common Criteria evaluated product, a tamper-resistant endpoint claim, or a production cryptographic-module approval.
 
@@ -21,7 +21,7 @@ Milestone 1 is defined as an **authorized internal preview** of one gateway depl
 | Operator website | Agent, logs, terminal, screen, and file workflows build successfully in React and TypeScript. | No authenticated human operator or authorization layer exists. A configured operator label is audit-only. |
 | Cryptographic service | Software-provider validation, fail-closed readiness, opaque key handles, command-key separation, cryptographic consistency probes, lifecycle tests, nonce-failure tests, and protected command-key storage tests exist. | The key-generation plan explicitly records partial and missing production controls. |
 | Broker publication | Gateway events are protobuf messages published synchronously to JetStream; publication succeeds only after a broker acknowledgement. Stream provisioning and acknowledgement failures have direct tests. | The gateway-to-NATS connection still lacks independent mutual-TLS identity, subject authorization, and bounded reconnect policy. |
-| CI and review | Go formatting, tests, race, vet, static/security analysis, vulnerability scan, lint, cross-build, and website format/lint/type/build gates pass locally. Contributor changes to `rewrite` require both CI jobs, a fresh code-owner review, a current branch, and resolved conversations. Large AI changes always use that PR workflow; administrators retain a documented small-change bypass. | Platform integration, browser tests, signing, provenance, SBOM, and release publication do not exist. |
+| CI and review | Go formatting, tests, race, vet, static/security analysis, vulnerability scan, lint, cross-build, and website format/lint/type/build gates pass locally. Contributor changes to `master` require both CI jobs, a fresh code-owner review, a current branch, and resolved conversations. Large AI changes always use that PR workflow; administrators retain a documented small-change bypass. | Platform integration, browser tests, signing, provenance, SBOM, and release publication do not exist. |
 
 ## Milestone 1 Blockers
 

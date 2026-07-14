@@ -11,7 +11,7 @@ The repository is intentionally structured for controlled, authorized environmen
 
 ## Current Status
 
-The Go rewrite has a substantial working development baseline, including signed command handling, telemetry, terminal, screen, logs, and a gateway-mediated file workspace. It is **not ready for release**. Operator authentication/authorization, protected broker transport, credential remediation, cryptographic promotion evidence, native platform validation, recovery, and signed release automation remain blocking. See [Project Status](.docs/project-status.md) and [Roadmap](.docs/roadmap.md).
+The project has a substantial working development baseline, including signed command handling, telemetry, terminal, screen, logs, and a gateway-mediated file workspace. It is **not ready for release**. Operator authentication/authorization, protected broker transport, credential remediation, cryptographic promotion evidence, native platform validation, recovery, and signed release automation remain blocking. See [Project Status](.docs/project-status.md) and [Roadmap](.docs/roadmap.md).
 
 ## Build
 

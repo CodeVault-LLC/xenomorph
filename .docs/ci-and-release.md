@@ -2,7 +2,7 @@
 
 ## Ownership
 
-The root `Makefile` owns reproducible developer commands. `.github/workflows/ci.yml` owns pull-request, `main`, and `rewrite` verification. `.github/CODEOWNERS` owns review routing, and `.github/pull_request_template.md` owns the required change-evidence shape. Neither the repository nor workflow currently owns artifact publication, signing, deployment, rollback, or update distribution. Those release functions do not yet exist.
+The root `Makefile` owns reproducible developer commands. `.github/workflows/ci.yml` owns pull-request and `master` verification. `.github/CODEOWNERS` owns review routing, and `.github/pull_request_template.md` owns the required change-evidence shape. Neither the repository nor workflow currently owns artifact publication, signing, deployment, rollback, or update distribution. Those release functions do not yet exist.
 
 ## Current CI Gates
 
@@ -10,11 +10,11 @@ The Go job installs pinned analysis tools and runs `make ci-go`. That target ver
 
 The website job installs pinned Bun `1.3.9` dependencies from `bun.lock` and runs `make ci-web`. That target checks Prettier formatting, ESLint, TypeScript, and a Vite production build. Bun is the only supported website package manager.
 
-CI runs on pull requests, pushes to `main` and the temporary `rewrite` integration branch, and manual dispatch.
+CI runs on pull requests, pushes to `master`, and manual dispatch.
 
 ## Integration Branch Protection
 
-The GitHub `rewrite` branch rule requires the following for contributors:
+The GitHub `master` branch rule requires the following for contributors:
 
 - the `Go quality and cross-platform build` and `Website quality and production build` checks on a branch current with its base;
 - one code-owner approval, dismissal of stale approvals, and approval after the most recent push;
@@ -23,7 +23,7 @@ The GitHub `rewrite` branch rule requires the following for contributors:
 
 Repository administrators may bypass the pull-request rule for the explicit small-change path in `.docs/code-review.md`. The bypass exists for a solo-maintainer workflow; it is not permission to route large changes around review or required local validation. Large changes always use a branch and pull request by repository policy.
 
-The default `main` branch remains outside the temporary rewrite-integration rule. Promotion to `main` is blocked by the Milestone 1 release decision and requires its own reviewed release-branch protection before merge.
+`master` is the protected integration branch. Promotion from `master` to a release branch is blocked by the Milestone 1 release decision and requires its own reviewed release-branch protection before creating a release.
 
 Cross-compilation proves compilation only. It does not prove filesystem safety, process behavior, screen capture, terminal execution, packaging, installation, or upgrade behavior on a target operating system.
 
@@ -54,4 +54,4 @@ The repository must not publish a release while `.docs/project-status.md` report
 
 ## Versioning and Branch Flow
 
-Use semantic versions after Milestone 1 establishes a stable supported contract. Until then, builds are development snapshots and must not carry production or compliance claims. Work branches follow `.docs/code-review.md`; `rewrite` remains the temporary integration branch for the Go rewrite. Merge it into a protected release branch only after the milestone acceptance record is complete. Do not maintain competing Python and Go top-level products: historical Python behavior is not a release contract unless explicitly reintroduced through an approved plan.
+Use semantic versions after Milestone 1 establishes a stable supported contract. Until then, builds are development snapshots and must not carry production or compliance claims. Work branches follow `.docs/code-review.md`; `master` is the integration branch. Promote it into a protected release branch only after the milestone acceptance record is complete. Do not maintain competing Python and Go top-level products: historical Python behavior is not a release contract unless explicitly reintroduced through an approved plan.

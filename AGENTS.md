@@ -67,7 +67,7 @@ Use the repository `Makefile` as the primary developer interface.
 
 ## Change Workflow and Naming
 
-- Branch from the current integration branch. Use `<type>/<short-kebab-case-scope>`, where `type` is `feature`, `fix`, `security`, `docs`, `refactor`, `test`, `build`, `ci`, or `chore`. The long-lived `rewrite` branch is an integration branch, not the naming model for new work.
+- Branch from the current integration branch. Use `<type>/<short-kebab-case-scope>`, where `type` is `feature`, `fix`, `security`, `docs`, `refactor`, `test`, `build`, `ci`, or `chore`. The `master` branch is the integration branch, not the naming model for new work.
 - Use Conventional Commit subjects: `<type>(<scope>): <imperative summary>`. Keep one coherent behavior change per commit. Do not mix generated artifacts, dependency changes, and unrelated cleanup into a feature commit.
 - Use lowercase `snake_case.go` only where Go requires multiple words, `kebab-case.md` for documentation, and `kebab-case.ts` or `kebab-case.tsx` for TypeScript and React files. React component and exported type names use `PascalCase`; functions, hooks, variables, and non-component files use `camelCase` identifiers.
 - Generated files must be produced by their owning generator, must not be hand-edited, and must be committed only when the source contract changes.

@@ -16,6 +16,10 @@ const (
 	operationExpiry     = 2 * time.Minute
 	maxRootIDBytes      = 128
 	maxDirectoryPage    = 500
+	maxSearchQueryBytes = 256
+	maxSearchResults    = 250
+	maxSearchEntries    = 10_000
+	maxSearchDepth      = 16
 	maxPreviewReadBytes = 1 << 20
 	maxMutationItems    = 100
 	maxAppendBytes      = 1 << 20
@@ -352,6 +356,8 @@ func prepareRequest(commandType string, request any, rootID string) error {
 	switch typed := request.(type) {
 	case *fileprotocol.DirectoryListRequest:
 		return prepareDirectoryRequest(commandType, rootID, typed)
+	case *fileprotocol.DirectorySearchRequest:
+		return prepareDirectorySearchRequest(commandType, rootID, typed)
 	case *fileprotocol.MetadataGetRequest:
 		return prepareMetadataRequest(commandType, rootID, typed)
 	case *fileprotocol.PreviewReadRequest:
@@ -361,6 +367,22 @@ func prepareRequest(commandType string, request any, rootID string) error {
 	default:
 		return fmt.Errorf("unsupported file command request")
 	}
+}
+
+func prepareDirectorySearchRequest(commandType, rootID string, request *fileprotocol.DirectorySearchRequest) error {
+	if commandType != fileprotocol.CommandDirectorySearch || strings.TrimSpace(request.Query) != request.Query || len(request.Query) < 2 || len(request.Query) > maxSearchQueryBytes || !utf8.ValidString(request.Query) {
+		return fmt.Errorf("invalid directory search request")
+	}
+	if request.MaxResults <= 0 || request.MaxResults > maxSearchResults || request.MaxEntries <= 0 || request.MaxEntries > maxSearchEntries || request.MaxDepth < 0 || request.MaxDepth > maxSearchDepth {
+		return fmt.Errorf("directory search bounds exceed limit")
+	}
+	if request.RelativePath != "" {
+		if err := validateOperatorRelativePath(request.RelativePath); err != nil {
+			return fmt.Errorf("directory search path is invalid")
+		}
+	}
+	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+	return nil
 }
 
 func prepareDirectoryRequest(commandType, rootID string, request *fileprotocol.DirectoryListRequest) error {

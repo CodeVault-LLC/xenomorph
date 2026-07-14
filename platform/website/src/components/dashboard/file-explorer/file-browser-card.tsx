@@ -6,8 +6,10 @@ import {
   FolderOpen,
   FolderPlus,
   HardDrive,
+  Search,
   Trash2,
   Upload,
+  X,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -34,8 +36,15 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group"
 import type {
   DirectoryPage,
+  DirectorySearchResult,
   FileEntry,
   FileRoot,
   MutationVerb,
@@ -49,6 +58,9 @@ type FileBrowserCardProps = {
   root?: FileRoot
   relativePath: string
   page?: DirectoryPage
+  searchQuery: string
+  searchResult?: DirectorySearchResult
+  searchLoading: boolean
   loading: boolean
   error: string
   canTransfer: boolean
@@ -59,9 +71,13 @@ type FileBrowserCardProps = {
   onUpload: () => void
   onCreate: (verb: "create_file" | "create_directory") => void
   onBulkDelete: () => void
+  onSearchQueryChange: (query: string) => void
+  onSearch: () => void
+  onClearSearch: () => void
   onRootChange: (root: FileRoot) => void
   onNavigate: (path: string) => void
   onOpen: (entry: FileEntry) => void
+  onOpenSearchResult: (result: DirectorySearchResult["entries"][number]) => void
   onSelectionChange: (entry: FileEntry, selected: boolean) => void
   onAction: (verb: MutationVerb, entry: FileEntry) => void
   onPreviousPage: () => void
@@ -73,6 +89,9 @@ export function FileBrowserCard({
   root,
   relativePath,
   page,
+  searchQuery,
+  searchResult,
+  searchLoading,
   loading,
   error,
   canTransfer,
@@ -83,9 +102,13 @@ export function FileBrowserCard({
   onUpload,
   onCreate,
   onBulkDelete,
+  onSearchQueryChange,
+  onSearch,
+  onClearSearch,
   onRootChange,
   onNavigate,
   onOpen,
+  onOpenSearchResult,
   onSelectionChange,
   onAction,
   onPreviousPage,
@@ -147,25 +170,71 @@ export function FileBrowserCard({
           onChange={onRootChange}
         />
         <PathNavigation relativePath={relativePath} onNavigate={onNavigate} />
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onSearch()
+          }}
+        >
+          <InputGroup className="min-w-64 flex-1">
+            <InputGroupInput
+              aria-label="Search this folder and subfolders"
+              placeholder="Search this folder and subfolders…"
+              value={searchQuery}
+              minLength={2}
+              maxLength={256}
+              onChange={(event) => onSearchQueryChange(event.target.value)}
+            />
+            <InputGroupAddon>
+              <Search />
+            </InputGroupAddon>
+            {searchQuery || searchResult ? (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  type="button"
+                  size="icon-xs"
+                  aria-label="Clear search"
+                  onClick={onClearSearch}
+                >
+                  <X />
+                </InputGroupButton>
+              </InputGroupAddon>
+            ) : null}
+          </InputGroup>
+          <Button
+            type="submit"
+            variant="secondary"
+            disabled={searchQuery.trim().length < 2 || searchLoading}
+          >
+            <Search data-icon="inline-start" />
+            {searchLoading ? "Searching…" : "Search"}
+          </Button>
+        </form>
         <DirectoryContent
           error={error}
           loading={loading}
           root={root}
           page={page}
+          searchResult={searchResult}
+          searchLoading={searchLoading}
           selectedEntryIDs={selectedEntryIDs}
           canMutate={canMutate}
           canDelete={canDelete}
           onOpen={onOpen}
+          onOpenSearchResult={onOpenSearchResult}
           onSelectionChange={onSelectionChange}
           onAction={onAction}
         />
-        <DirectoryPagination
-          page={page}
-          cursorIndex={cursorIndex}
-          loading={loading}
-          onPrevious={onPreviousPage}
-          onNext={onNextPage}
-        />
+        {!searchResult ? (
+          <DirectoryPagination
+            page={page}
+            cursorIndex={cursorIndex}
+            loading={loading}
+            onPrevious={onPreviousPage}
+            onNext={onNextPage}
+          />
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -209,10 +278,13 @@ function DirectoryContent({
   loading,
   root,
   page,
+  searchResult,
+  searchLoading,
   selectedEntryIDs,
   canMutate,
   canDelete,
   onOpen,
+  onOpenSearchResult,
   onSelectionChange,
   onAction,
 }: {
@@ -220,10 +292,13 @@ function DirectoryContent({
   loading: boolean
   root?: FileRoot
   page?: DirectoryPage
+  searchResult?: DirectorySearchResult
+  searchLoading: boolean
   selectedEntryIDs: Set<string>
   canMutate: boolean
   canDelete: boolean
   onOpen: (entry: FileEntry) => void
+  onOpenSearchResult: (result: DirectorySearchResult["entries"][number]) => void
   onSelectionChange: (entry: FileEntry, selected: boolean) => void
   onAction: (verb: MutationVerb, entry: FileEntry) => void
 }) {
@@ -240,7 +315,7 @@ function DirectoryContent({
       </Empty>
     )
   }
-  if (loading) {
+  if (loading || searchLoading) {
     return (
       <div
         className="flex flex-col gap-2"
@@ -250,6 +325,51 @@ function DirectoryContent({
         {Array.from({ length: 6 }, (_, index) => (
           <Skeleton key={index} className="h-10 w-full" />
         ))}
+      </div>
+    )
+  }
+  if (searchResult) {
+    if (searchResult.entries.length === 0) {
+      return (
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Search />
+            </EmptyMedia>
+            <EmptyTitle>No matching files</EmptyTitle>
+            <EmptyDescription>
+              Search inspected {searchResult.scanned_entries.toLocaleString()}{" "}
+              entries within the bounded subtree.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )
+    }
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>
+            {searchResult.entries.length.toLocaleString()} matches across{" "}
+            {searchResult.scanned_entries.toLocaleString()} inspected entries
+          </span>
+          {searchResult.truncated ? (
+            <Badge variant="outline">Bound reached · refine search</Badge>
+          ) : null}
+        </div>
+        <DirectoryTable
+          entries={searchResult.entries.map((result) => result.entry)}
+          selectedEntryIDs={new Set()}
+          canMutate={false}
+          canDelete={false}
+          onOpen={(entry) => {
+            const result = searchResult.entries.find(
+              (candidate) => candidate.entry.entry_id === entry.entry_id
+            )
+            if (result) onOpenSearchResult(result)
+          }}
+          onSelectionChange={() => undefined}
+          onAction={() => undefined}
+        />
       </div>
     )
   }

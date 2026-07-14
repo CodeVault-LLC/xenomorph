@@ -58,6 +58,16 @@ export interface DirectoryPage {
   has_more: boolean
 }
 
+export interface DirectorySearchResult {
+  protocol_version: number
+  root_id: string
+  relative_path: string
+  query: string
+  entries: Array<{ relative_path: string; entry: FileEntry }>
+  scanned_entries: number
+  truncated: boolean
+}
+
 export interface MetadataResult {
   protocol_version: number
   root_id: string
@@ -188,6 +198,20 @@ export const listDirectory = (
     agentID,
     "directory",
     { root_id: rootID, relative_path: relativePath, cursor, page_size: 100 },
+    signal
+  )
+
+export const searchDirectory = (
+  agentID: string,
+  rootID: string,
+  relativePath: string,
+  query: string,
+  signal?: AbortSignal
+) =>
+  createOperation<DirectorySearchResult>(
+    agentID,
+    "search",
+    { root_id: rootID, relative_path: relativePath, query },
     signal
   )
 

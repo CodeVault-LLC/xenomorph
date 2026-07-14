@@ -22,6 +22,7 @@ var allowedCommandTypes = map[CommandType]struct{}{
 	CommandTypeTerminalRun:           {},
 	CommandTypeFilesRootsList:        {},
 	CommandTypeFilesDirectoryList:    {},
+	CommandTypeFilesDirectorySearch:  {},
 	CommandTypeFilesMetadataGet:      {},
 	CommandTypeFilesPreviewRead:      {},
 	CommandTypeFilesOperationExecute: {},
@@ -215,7 +216,7 @@ func executeAllowedCommand(ctx context.Context, cmd CommandEnvelope, plane clien
 		return commandOutcome{reason: "screen stream stop acknowledged"}
 	case CommandTypeTerminalRun:
 		return executeTerminalCommand(cmd.Payload)
-	case CommandTypeFilesRootsList, CommandTypeFilesDirectoryList, CommandTypeFilesMetadataGet,
+	case CommandTypeFilesRootsList, CommandTypeFilesDirectoryList, CommandTypeFilesDirectorySearch, CommandTypeFilesMetadataGet,
 		CommandTypeFilesPreviewRead, CommandTypeFilesOperationExecute,
 		CommandTypeFilesTransferPrepare, CommandTypeFilesTransferResume, CommandTypeFilesTransferAbort:
 		return executeFileCommand(ctx, cmd.Type, cmd.Payload, plane)

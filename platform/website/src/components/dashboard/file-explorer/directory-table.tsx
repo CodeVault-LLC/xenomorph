@@ -7,6 +7,7 @@ import {
   ScissorsLineDashed,
   Trash2,
 } from "lucide-react"
+import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -50,13 +51,28 @@ export function DirectoryTable({
   onSelectionChange: (entry: FileEntry, selected: boolean) => void
   onAction: (verb: MutationVerb, entry: FileEntry) => void
 }) {
+  const rowHeight = 60
+  const viewportHeight = 520
+  const overscan = 6
+  const [scrollTop, setScrollTop] = useState(0)
+  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan)
+  const endIndex = Math.min(
+    entries.length,
+    startIndex + Math.ceil(viewportHeight / rowHeight) + overscan * 2
+  )
+  const visibleEntries = entries.slice(startIndex, endIndex)
+  const paddingTop = startIndex * rowHeight
+  const paddingBottom = (entries.length - endIndex) * rowHeight
   const selectableEntries = entries.filter((entry) => entry.operation_name)
   const allSelected =
     selectableEntries.length > 0 &&
     selectableEntries.every((entry) => selectedEntryIDs.has(entry.entry_id))
 
   return (
-    <div className="max-h-130 overflow-auto rounded-lg border">
+    <div
+      className="max-h-130 overflow-auto rounded-lg border"
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+    >
       <Table>
         <TableHeader>
           <TableRow>
@@ -82,11 +98,22 @@ export function DirectoryTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {entries.map((entry) => {
+          {paddingTop > 0 ? (
+            <TableRow aria-hidden="true">
+              <TableCell
+                colSpan={6}
+                className="p-0"
+                style={{ height: paddingTop }}
+              />
+            </TableRow>
+          ) : null}
+          {visibleEntries.map((entry, visibleIndex) => {
+            const entryIndex = startIndex + visibleIndex
             const isDirectory = entry.kind === "directory"
             return (
               <TableRow
                 key={entry.entry_id}
+                data-index={entryIndex}
                 className="group/entry hover:bg-muted/50"
               >
                 <TableCell className="w-10">
@@ -140,6 +167,15 @@ export function DirectoryTable({
               </TableRow>
             )
           })}
+          {paddingBottom > 0 ? (
+            <TableRow aria-hidden="true">
+              <TableCell
+                colSpan={6}
+                className="p-0"
+                style={{ height: paddingBottom }}
+              />
+            </TableRow>
+          ) : null}
         </TableBody>
       </Table>
     </div>

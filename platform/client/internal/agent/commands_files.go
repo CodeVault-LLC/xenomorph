@@ -35,6 +35,8 @@ func runFileCommand(ctx context.Context, commandType CommandType, payload json.R
 		return runRootsList(payload)
 	case CommandTypeFilesDirectoryList:
 		return runDirectoryList(payload)
+	case CommandTypeFilesDirectorySearch:
+		return runDirectorySearch(ctx, payload)
 	case CommandTypeFilesMetadataGet:
 		return runMetadataGet(payload)
 	case CommandTypeFilesPreviewRead:
@@ -63,6 +65,13 @@ func runDirectoryList(payload json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return clientfs.ListDirectory(request)
+}
+func runDirectorySearch(ctx context.Context, payload json.RawMessage) (any, error) {
+	var request fileprotocol.DirectorySearchRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return clientfs.SearchDirectory(ctx, request)
 }
 func runMetadataGet(payload json.RawMessage) (any, error) {
 	var request fileprotocol.MetadataGetRequest

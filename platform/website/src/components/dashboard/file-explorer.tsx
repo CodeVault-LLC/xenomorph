@@ -22,7 +22,9 @@ import {
   listTransfers,
   probeFileRoots,
   readFilePreview,
+  searchDirectory,
   type DirectoryPage,
+  type DirectorySearchResult,
   type FileEntry,
   type FileRoot,
   type FileTransfer,
@@ -45,6 +47,9 @@ export function FileExplorer({ agentID }: { agentID: string }) {
   const [rootSelection, setRootSelection] = useState<RootSelection>()
   const [relativePath, setRelativePath] = useState("")
   const [page, setPage] = useState<DirectoryPage>()
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResult, setSearchResult] = useState<DirectorySearchResult>()
+  const [searchLoading, setSearchLoading] = useState(false)
   const [cursorHistory, setCursorHistory] = useState<string[]>([""])
   const [cursorIndex, setCursorIndex] = useState(0)
   const [metadata, setMetadata] = useState<MetadataResult>()
@@ -67,6 +72,7 @@ export function FileExplorer({ agentID }: { agentID: string }) {
   const probeRequestRef = useRef<AbortController | undefined>(undefined)
   const directoryRequestRef = useRef<AbortController | undefined>(undefined)
   const detailsRequestRef = useRef<AbortController | undefined>(undefined)
+  const searchRequestRef = useRef<AbortController | undefined>(undefined)
   const activeAgentRef = useRef(agentID)
 
   const root =
@@ -77,6 +83,7 @@ export function FileExplorer({ agentID }: { agentID: string }) {
     const controller = replaceRequest(probeRequestRef)
     directoryRequestRef.current?.abort()
     detailsRequestRef.current?.abort()
+    searchRequestRef.current?.abort()
     queueMicrotask(() => {
       if (controller.signal.aborted) return
       setProbeLoading(true)
@@ -92,6 +99,9 @@ export function FileExplorer({ agentID }: { agentID: string }) {
       setRootSelection(undefined)
       setRelativePath("")
       setPage(undefined)
+      setSearchQuery("")
+      setSearchResult(undefined)
+      setSearchLoading(false)
       setCursorHistory([""])
       setCursorIndex(0)
       setMetadata(undefined)
@@ -223,6 +233,7 @@ export function FileExplorer({ agentID }: { agentID: string }) {
       probeRequestRef.current?.abort()
       directoryRequestRef.current?.abort()
       detailsRequestRef.current?.abort()
+      searchRequestRef.current?.abort()
     },
     []
   )
@@ -234,6 +245,13 @@ export function FileExplorer({ agentID }: { agentID: string }) {
     setSelectedPath("")
     setDetailsError("")
     setDetailsLoading(false)
+  }
+
+  const clearSearch = () => {
+    searchRequestRef.current?.abort()
+    setSearchQuery("")
+    setSearchResult(undefined)
+    setSearchLoading(false)
   }
 
   const resetPagination = () => {
@@ -248,6 +266,7 @@ export function FileExplorer({ agentID }: { agentID: string }) {
     resetPagination()
     clearSelectedFile()
     setSelectedEntryIDs(new Set())
+    clearSearch()
   }
 
   const navigate = (path: string) => {
@@ -256,6 +275,7 @@ export function FileExplorer({ agentID }: { agentID: string }) {
     resetPagination()
     clearSelectedFile()
     setSelectedEntryIDs(new Set())
+    clearSearch()
   }
 
   const openEntry = (entry: FileEntry) => {
@@ -263,6 +283,11 @@ export function FileExplorer({ agentID }: { agentID: string }) {
     const path = relativePath
       ? `${relativePath}/${entry.operation_name}`
       : entry.operation_name
+    openLocatedEntry(entry, path)
+  }
+
+  const openLocatedEntry = (entry: FileEntry, path: string) => {
+    if (!root) return
     if (entry.kind === "directory") {
       navigate(path)
       return
@@ -297,6 +322,31 @@ export function FileExplorer({ agentID }: { agentID: string }) {
         ) {
           setDetailsLoading(false)
         }
+      })
+  }
+
+  const submitSearch = () => {
+    if (!root || searchQuery.trim().length < 2) return
+    const controller = replaceRequest(searchRequestRef)
+    setSearchLoading(true)
+    setWorkspaceError("")
+    searchDirectory(
+      agentID,
+      root.root_id,
+      relativePath,
+      searchQuery.trim(),
+      controller.signal
+    )
+      .then((result) => {
+        if (searchRequestRef.current === controller) setSearchResult(result)
+      })
+      .catch((cause: unknown) => {
+        if (!isAbortError(cause) && searchRequestRef.current === controller) {
+          setWorkspaceError(errorMessage(cause))
+        }
+      })
+      .finally(() => {
+        if (searchRequestRef.current === controller) setSearchLoading(false)
       })
   }
 
@@ -435,6 +485,9 @@ export function FileExplorer({ agentID }: { agentID: string }) {
             root={root}
             relativePath={relativePath}
             page={page}
+            searchQuery={searchQuery}
+            searchResult={searchResult}
+            searchLoading={searchLoading}
             loading={
               probeLoading ||
               directoryLoading ||
@@ -454,9 +507,15 @@ export function FileExplorer({ agentID }: { agentID: string }) {
             onUpload={() => setUploadOpen(true)}
             onCreate={requestCreate}
             onBulkDelete={requestBulkDelete}
+            onSearchQueryChange={setSearchQuery}
+            onSearch={submitSearch}
+            onClearSearch={clearSearch}
             onRootChange={selectRoot}
             onNavigate={navigate}
             onOpen={openEntry}
+            onOpenSearchResult={(result) =>
+              openLocatedEntry(result.entry, result.relative_path)
+            }
             onSelectionChange={selectEntry}
             onAction={requestMutation}
             onPreviousPage={previousPage}

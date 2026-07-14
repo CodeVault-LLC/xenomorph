@@ -24,6 +24,12 @@ type directoryListAPIRequest struct {
 	PageSize     int    `json:"page_size"`
 }
 
+type directorySearchAPIRequest struct {
+	RootID       string `json:"root_id"`
+	RelativePath string `json:"relative_path"`
+	Query        string `json:"query"`
+}
+
 type metadataGetAPIRequest struct {
 	RootID       string `json:"root_id"`
 	RelativePath string `json:"relative_path"`
@@ -64,6 +70,9 @@ func registerFileRoutes(mux *http.ServeMux, runtime DashboardRuntime) {
 	})
 	mux.HandleFunc("POST /api/clients/{agentID}/files/directory", func(w http.ResponseWriter, request *http.Request) {
 		handleDirectoryList(w, request, runtime)
+	})
+	mux.HandleFunc("POST /api/clients/{agentID}/files/search", func(w http.ResponseWriter, request *http.Request) {
+		handleDirectorySearch(w, request, runtime)
 	})
 	mux.HandleFunc("POST /api/clients/{agentID}/files/metadata", func(w http.ResponseWriter, request *http.Request) {
 		handleMetadataGet(w, request, runtime)
@@ -325,6 +334,17 @@ func handleDirectoryList(w http.ResponseWriter, request *http.Request, runtime D
 	}
 	dispatchFileOperation(w, request, runtime, body.RootID, fileprotocol.CommandDirectoryList, &fileprotocol.DirectoryListRequest{
 		RelativePath: body.RelativePath, Cursor: body.Cursor, PageSize: body.PageSize,
+	})
+}
+
+func handleDirectorySearch(w http.ResponseWriter, request *http.Request, runtime DashboardRuntime) {
+	var body directorySearchAPIRequest
+	if !decodeFileAPIRequest(w, request, &body) {
+		return
+	}
+	dispatchFileOperation(w, request, runtime, body.RootID, fileprotocol.CommandDirectorySearch, &fileprotocol.DirectorySearchRequest{
+		RelativePath: body.RelativePath, Query: body.Query,
+		MaxResults: 250, MaxEntries: 10_000, MaxDepth: 16,
 	})
 }
 

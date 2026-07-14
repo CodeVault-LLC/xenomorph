@@ -93,6 +93,33 @@ func TestDispatchPersistsBeforeSignedCommand(t *testing.T) {
 	}
 }
 
+func TestDispatchBoundsDirectorySearch(t *testing.T) {
+	t.Parallel()
+	service, queue := newTestService(t)
+	request := &fileprotocol.DirectorySearchRequest{
+		RelativePath: "documents", Query: "report", MaxResults: 25, MaxEntries: 1_000, MaxDepth: 8,
+	}
+	operation, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandDirectorySearch, "trace-1", request)
+	if err != nil {
+		t.Fatalf("Dispatch() search error = %v", err)
+	}
+	if operation.Type != fileprotocol.CommandDirectorySearch || queue.Dequeue("agent-1") == nil {
+		t.Fatalf("Dispatch() operation = %+v, want queued search", operation)
+	}
+
+	invalid := []fileprotocol.DirectorySearchRequest{
+		{Query: "x", MaxResults: 25, MaxEntries: 1_000, MaxDepth: 8},
+		{Query: "report", MaxResults: 251, MaxEntries: 1_000, MaxDepth: 8},
+		{Query: "report", MaxResults: 25, MaxEntries: 10_001, MaxDepth: 8},
+		{RelativePath: "../escape", Query: "report", MaxResults: 25, MaxEntries: 1_000, MaxDepth: 8},
+	}
+	for _, candidate := range invalid {
+		if _, dispatchErr := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandDirectorySearch, "trace-1", &candidate); dispatchErr == nil {
+			t.Fatalf("Dispatch() accepted invalid search %+v", candidate)
+		}
+	}
+}
+
 func TestCompleteEnforcesAuthenticatedAgentScope(t *testing.T) {
 	t.Parallel()
 	service, _ := newTestService(t)

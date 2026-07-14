@@ -5,6 +5,7 @@
 package filesystem
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -27,6 +28,10 @@ const (
 	maxCursorOffset   = 10_000_000
 	maxPageSize       = 500
 	maxPreviewBytes   = 1 << 20
+	maxSearchQuery    = 256
+	maxSearchResults  = 250
+	maxSearchEntries  = 10_000
+	maxSearchDepth    = 16
 	windowsOS         = "windows"
 	contentText       = "text"
 )
@@ -34,6 +39,11 @@ const (
 type cursor struct {
 	Offset     int    `json:"offset"`
 	SnapshotID string `json:"snapshot_id"`
+}
+
+type searchDirectory struct {
+	components []string
+	depth      int
 }
 
 type rootDefinition struct {
@@ -115,6 +125,84 @@ func ListDirectory(request fileprotocol.DirectoryListRequest) (fileprotocol.Dire
 		SnapshotID: snapshotID, Ordering: "native-stable-within-snapshot",
 		Entries: entries, NextCursor: nextCursor, HasMore: hasMore,
 	}, nil
+}
+
+// SearchDirectory performs a bounded, cancellable, no-follow name search.
+func SearchDirectory(ctx context.Context, request fileprotocol.DirectorySearchRequest) (fileprotocol.DirectorySearchResult, error) {
+	components, err := validateSearchRequest(request)
+	if err != nil {
+		return fileprotocol.DirectorySearchResult{}, err
+	}
+	definition, err := resolveFilesystemRoot(request.RootID)
+	if err != nil {
+		return fileprotocol.DirectorySearchResult{}, err
+	}
+	root, err := openRoot(definition.Path)
+	if err != nil {
+		return fileprotocol.DirectorySearchResult{}, fmt.Errorf("open filesystem root: %w", err)
+	}
+	defer closeRootAfterRead(root)
+	result := fileprotocol.DirectorySearchResult{
+		ProtocolVersion: fileprotocol.Version, RootID: request.RootID,
+		RelativePath: request.RelativePath, Query: request.Query,
+		Entries: make([]fileprotocol.SearchEntry, 0, request.MaxResults),
+	}
+	queue := []searchDirectory{{components: components}}
+	query := strings.ToLower(request.Query)
+	for len(queue) > 0 && result.ScannedEntries < request.MaxEntries && len(result.Entries) < request.MaxResults {
+		if err := ctx.Err(); err != nil {
+			return fileprotocol.DirectorySearchResult{}, fmt.Errorf("search cancelled: %w", err)
+		}
+		current := queue[0]
+		queue = queue[1:]
+		directory, snapshotID, openErr := root.openDirectory(current.components)
+		if openErr != nil {
+			continue
+		}
+		for result.ScannedEntries < request.MaxEntries && len(result.Entries) < request.MaxResults {
+			names, readErr := directory.Readdirnames(maxPageSize)
+			for _, name := range names {
+				result.ScannedEntries++
+				entryComponents := append(append([]string(nil), current.components...), name)
+				info, statErr := root.statNoFollow(entryComponents)
+				if statErr != nil {
+					continue
+				}
+				entry := entryFromInfo(snapshotID, info)
+				if strings.Contains(strings.ToLower(entry.DisplayName), query) {
+					result.Entries = append(result.Entries, fileprotocol.SearchEntry{RelativePath: strings.Join(entryComponents, "/"), Entry: entry})
+				}
+				if entry.Kind == fileprotocol.EntryDirectory && current.depth < request.MaxDepth {
+					queue = append(queue, searchDirectory{components: entryComponents, depth: current.depth + 1})
+				}
+				if result.ScannedEntries >= request.MaxEntries || len(result.Entries) >= request.MaxResults {
+					break
+				}
+			}
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				break
+			}
+		}
+		closeFileAfterRead(directory)
+	}
+	result.Truncated = len(queue) > 0 || result.ScannedEntries >= request.MaxEntries || len(result.Entries) >= request.MaxResults
+	return result, nil
+}
+
+func validateSearchRequest(request fileprotocol.DirectorySearchRequest) ([]string, error) {
+	if request.ProtocolVersion != fileprotocol.Version || strings.TrimSpace(request.RootID) == "" {
+		return nil, fmt.Errorf("invalid directory search request")
+	}
+	if strings.TrimSpace(request.Query) != request.Query || len(request.Query) < 2 || len(request.Query) > maxSearchQuery || !utf8.ValidString(request.Query) {
+		return nil, fmt.Errorf("directory search query is outside limit")
+	}
+	if request.MaxResults <= 0 || request.MaxResults > maxSearchResults || request.MaxEntries <= 0 || request.MaxEntries > maxSearchEntries || request.MaxDepth < 0 || request.MaxDepth > maxSearchDepth {
+		return nil, fmt.Errorf("directory search bounds are outside limit")
+	}
+	return validateRelativePath(request.RelativePath)
 }
 
 func validateDirectoryRequest(request fileprotocol.DirectoryListRequest) ([]string, error) {

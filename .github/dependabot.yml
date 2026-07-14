@@ -1,0 +1,59 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /platform/shared
+      - /platform/client
+      - /platform/services/gateway
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Etc/UTC
+    groups:
+      opentelemetry:
+        patterns:
+          - go.opentelemetry.io/*
+      otel-contrib:
+        patterns:
+          - github.com/open-telemetry/*
+      org-golang:
+        patterns:
+          - golang.org/x/*
+      google-grpc:
+        patterns:
+          - google.golang.org/*
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Etc/UTC
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directory: /platform/website
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Etc/UTC
+    groups:
+      production:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5

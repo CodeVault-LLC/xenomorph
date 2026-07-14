@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - master
+    branches-ignore:
+      - 'dependabot/**'
   workflow_dispatch:
 
 permissions:

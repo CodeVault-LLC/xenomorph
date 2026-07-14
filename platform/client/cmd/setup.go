@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -27,14 +28,16 @@ type appContext struct {
 	httpClient *http.Client
 	gatewayURL string
 	tlsConfig  *tls.Config
-	statePath  string
-	runtimeSt  agent.RuntimeState
 	ag         *agent.Agent
 	streamer   *screenStreamer
 	validator  *agent.CommandValidator
 }
 
 func setupApp() (*appContext, error) {
+	if err := removeLegacyRuntimeState(); err != nil {
+		return nil, err
+	}
+
 	cert, err := tls.LoadX509KeyPair(certPath+"/client.crt", certPath+"/client.key")
 	if err != nil {
 		return nil, fmt.Errorf("load client certs: %w", err)
@@ -63,16 +66,6 @@ func setupApp() (*appContext, error) {
 
 	a := agent.New(httpClient, gatewayURL)
 
-	statePath, err := agent.DefaultStatePath()
-	if err != nil {
-		return nil, fmt.Errorf("resolve state path: %w", err)
-	}
-
-	runtimeState, err := agent.LoadRuntimeState(statePath)
-	if err != nil {
-		runtimeState = agent.RuntimeState{}
-	}
-
 	clientCertificate, err := x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {
 		return nil, fmt.Errorf("parse client identity certificate: %w", err)
@@ -90,20 +83,34 @@ func setupApp() (*appContext, error) {
 		httpClient: httpClient,
 		gatewayURL: gatewayURL,
 		tlsConfig:  tlsConfig,
-		statePath:  statePath,
-		runtimeSt:  runtimeState,
 		ag:         a,
 		streamer:   newScreenStreamer(gatewayURL, tlsConfig),
 	}
-	validator, err := agent.NewCommandValidator(verificationKey, keyID, audience, runtimeState.SeenCommandNonces, func(nonce string) error {
-		ac.runtimeSt.RecordCommandNonce(nonce)
-		return agent.SaveRuntimeState(ac.statePath, ac.runtimeSt)
-	})
+	validator, err := agent.NewCommandValidator(verificationKey, keyID, audience)
 	if err != nil {
 		return nil, fmt.Errorf("initialize command validator: %w", err)
 	}
 	ac.validator = validator
 	return ac, nil
+}
+
+// removeLegacyRuntimeState removes the pre-stateless client state file. The
+// client never recreates this file; failure leaves data at rest and blocks
+// startup until the condition is remediated.
+func removeLegacyRuntimeState() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home directory for legacy state cleanup: %w", err)
+	}
+	return removeLegacyRuntimeStateAt(homeDir)
+}
+
+func removeLegacyRuntimeStateAt(homeDir string) error {
+	statePath := filepath.Join(homeDir, ".xenomorph", "agent-state.json")
+	if err := os.Remove(statePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove legacy runtime state: %w", err)
+	}
+	return nil
 }
 
 func loadCommandVerificationKey(path string) (*rsa.PublicKey, string, error) {
@@ -139,18 +146,13 @@ func stage1Auth(ac *appContext) (bool, error) {
 }
 
 func stage2Entry(ac *appContext, isNewAgent bool) error {
-	if !isNewAgent && ac.runtimeSt.OnboardingSent {
+	if !isNewAgent {
 		return nil
 	}
 
 	entry := agent.BuildEntryPayload(isNewAgent, nil, nil)
 	if err := ac.ag.SendEntryReport(entry); err != nil {
 		return fmt.Errorf("entry report failed: %w", err)
-	}
-
-	ac.runtimeSt.OnboardingSent = true
-	if err := agent.SaveRuntimeState(ac.statePath, ac.runtimeSt); err != nil {
-		return fmt.Errorf("persist state failed: %w", err)
 	}
 
 	return nil
@@ -180,18 +182,23 @@ func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 	}
 
 	if err := ac.ag.SendCommandResult(decision.Result); err != nil {
+		reportClientLog(ac, "ERROR", "client.command", "event=command_result_submission_failed")
 		return fmt.Errorf("command result submission failed: %w", err)
 	}
-
-	reportClientLog(ac, "INFO", "client.command", fmt.Sprintf("command_id=%s type=%s status=%s reason=%s", decision.Result.CommandID, decision.Result.Type, decision.Result.Status, decision.Result.Reason))
+	reportClientLog(ac, "INFO", "client.command", "event=command_completed")
 
 	return nil
 }
 
+// reportClientLog submits operational metadata to the gateway and deliberately
+// discards delivery failures. Diagnostic delivery must not alter client
+// behavior, and no retry queue or local log file is permitted on the client.
 func reportClientLog(ac *appContext, level, component, message string) {
 	if ac == nil || ac.ag == nil {
 		return
 	}
+	// A logging failure is intentionally not persisted or returned to prevent
+	// recursive diagnostics and client-side data retention.
 	_ = ac.ag.SendLogEntry(agent.LogEntryPayload{
 		Level:     level,
 		Component: component,

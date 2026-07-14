@@ -16,20 +16,27 @@ func run() int {
 	if err != nil {
 		return 1
 	}
+	reportClientLog(ac, "INFO", "client.runtime", "event=runtime_started")
 
 	isNewAgent, err := stage1Auth(ac)
 	if err != nil {
+		reportClientLog(ac, "ERROR", "client.authentication", "event=authentication_failed")
 		shutdown(ac)
 		return 1
 	}
+	reportClientLog(ac, "INFO", "client.authentication", "event=authentication_succeeded")
 
 	if err := stage2Entry(ac, isNewAgent); err != nil {
+		reportClientLog(ac, "ERROR", "client.onboarding", "event=entry_report_failed")
 		shutdown(ac)
 		return 1
+	}
+	if isNewAgent {
+		reportClientLog(ac, "INFO", "client.onboarding", "event=entry_report_submitted")
 	}
 
 	if err := runRuntimeLoops(ac); err != nil {
-		reportClientLog(ac, "ERROR", "client.runtime", err.Error())
+		reportClientLog(ac, "ERROR", "client.runtime", "event=runtime_loop_failed")
 		shutdown(ac)
 		return 1
 	}
@@ -55,7 +62,7 @@ func runHeartbeatLoop(ac *appContext) error {
 
 	for range ticker.C {
 		if err := ac.ag.SendHeartbeat(); err != nil {
-			reportClientLog(ac, "ERROR", "client.heartbeat", err.Error())
+			reportClientLog(ac, "ERROR", "client.heartbeat", "event=heartbeat_failed")
 			return err
 		}
 	}
@@ -67,16 +74,17 @@ func runCommandLoop(ac *appContext) error {
 	for {
 		cmd, err := ac.ag.PollNextCommand()
 		if err != nil {
-			reportClientLog(ac, "ERROR", "client.command.poll", err.Error())
+			reportClientLog(ac, "ERROR", "client.command", "event=command_poll_failed")
 			return err
 		}
 
 		if cmd == nil {
 			continue
 		}
+		reportClientLog(ac, "INFO", "client.command", "event=command_received")
 
 		if err := processCommand(ac, cmd); err != nil {
-			reportClientLog(ac, "ERROR", "client.command.process", err.Error())
+			reportClientLog(ac, "ERROR", "client.command", "event=command_processing_failed")
 			return err
 		}
 	}

@@ -157,8 +157,9 @@ type CommandResultPayload struct {
 	Result                   json.RawMessage `json:"result,omitempty"`
 }
 
-// LogEntryPayload is client-authored diagnostic information submitted to the
-// gateway for dashboard visibility.
+// LogEntryPayload is client-authored operational metadata submitted directly
+// to the authenticated gateway. It must never contain telemetry payloads,
+// command payloads, terminal output, screenshots, credentials, or error text.
 type LogEntryPayload struct {
 	Level     string `json:"level"`
 	Message   string `json:"message"`
@@ -307,22 +308,23 @@ func (a *Agent) SendCommandResult(payload CommandResultPayload) error {
 	return nil
 }
 
-// SendLogEntry submits a bounded client diagnostic log to the gateway.
+// SendLogEntry submits an operational log record directly to the gateway. It
+// retains no record locally and leaves retry policy to the gateway connection.
 func (a *Agent) SendLogEntry(payload LogEntryPayload) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode client log entry: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, a.gatewayURL+"/ingest/logs", bytes.NewBuffer(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("build client log entry request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("submit client log entry: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

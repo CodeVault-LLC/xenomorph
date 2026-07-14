@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"os"
 	"time"
 
 	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
@@ -12,9 +11,6 @@ const (
 	commandResponseSize   int64         = 128 << 10
 	commandExpiry         time.Duration = 2 * time.Minute
 	commandClockSkew      time.Duration = 30 * time.Second
-	maxSeenCommandNonces  int           = 256
-	stateDirPermission    os.FileMode   = 0700
-	stateFilePermission   os.FileMode   = 0600
 	maxInstalledApps      int           = 200
 )
 

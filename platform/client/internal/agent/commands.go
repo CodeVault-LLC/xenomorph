@@ -43,40 +43,30 @@ type commandOutcome struct {
 }
 
 // CommandValidator verifies gateway command authenticity, audience binding,
-// expiry, and replay state before local execution. The gateway remains the
+// expiry, and process-lifetime replay state before local execution. The gateway remains the
 // authority for agent identity and policy; the audience value derived locally
 // is used only to reject commands signed for a different certificate.
 type CommandValidator struct {
-	mu          sync.Mutex
-	publicKey   *rsa.PublicKey
-	keyID       string
-	audience    string
-	seenNonces  map[string]struct{}
-	recordNonce func(string) error
-	now         func() time.Time
+	mu         sync.Mutex
+	publicKey  *rsa.PublicKey
+	keyID      string
+	audience   string
+	seenNonces map[string]struct{}
+	now        func() time.Time
 }
 
-// NewCommandValidator creates a validator backed by persistent replay state.
-func NewCommandValidator(publicKey *rsa.PublicKey, keyID, audience string, seenNonces []string, recordNonce func(string) error) (*CommandValidator, error) {
+// NewCommandValidator creates a validator with in-memory replay protection.
+// The nonce history is deliberately discarded when the client exits.
+func NewCommandValidator(publicKey *rsa.PublicKey, keyID, audience string) (*CommandValidator, error) {
 	if publicKey == nil || strings.TrimSpace(keyID) == "" || strings.TrimSpace(audience) == "" {
 		return nil, fmt.Errorf("command verification key, key ID, and audience are required")
 	}
-	if recordNonce == nil {
-		return nil, fmt.Errorf("command nonce recorder is required")
-	}
-	seen := make(map[string]struct{}, len(seenNonces))
-	for _, nonce := range seenNonces {
-		if nonce != "" {
-			seen[nonce] = struct{}{}
-		}
-	}
 	return &CommandValidator{
-		publicKey:   publicKey,
-		keyID:       keyID,
-		audience:    audience,
-		seenNonces:  seen,
-		recordNonce: recordNonce,
-		now:         func() time.Time { return time.Now().UTC() },
+		publicKey:  publicKey,
+		keyID:      keyID,
+		audience:   audience,
+		seenNonces: make(map[string]struct{}),
+		now:        func() time.Time { return time.Now().UTC() },
 	}, nil
 }
 
@@ -102,10 +92,7 @@ func handleCommand(ctx context.Context, cmd CommandEnvelope, validator *CommandV
 		},
 	}
 
-	if reason, err := validateCommand(cmd, validator); reason != "" || err != nil {
-		if err != nil {
-			return decision, err
-		}
+	if reason := validateCommand(cmd, validator); reason != "" {
 		decision.Result.Status = CommandStatusRejected
 		decision.Result.Reason = reason
 		return decision, nil
@@ -124,18 +111,18 @@ func handleCommand(ctx context.Context, cmd CommandEnvelope, validator *CommandV
 	return decision, nil
 }
 
-func validateCommand(cmd CommandEnvelope, validator *CommandValidator) (string, error) {
+func validateCommand(cmd CommandEnvelope, validator *CommandValidator) string {
 	if validator == nil {
-		return "command validator unavailable", nil
+		return "command validator unavailable"
 	}
 	if reason := validateCommandShape(cmd, validator); reason != "" {
-		return reason, nil
+		return reason
 	}
 	if reason := validateCommandWindow(cmd, validator.now()); reason != "" {
-		return reason, nil
+		return reason
 	}
 	if !hasValidCommandSignature(cmd, validator.publicKey) {
-		return "invalid command signature", nil
+		return "invalid command signature"
 	}
 	return validator.recordVerifiedNonce(cmd.Nonce)
 }
@@ -185,17 +172,14 @@ func validateCommandWindow(cmd CommandEnvelope, now time.Time) string {
 	return ""
 }
 
-func (validator *CommandValidator) recordVerifiedNonce(nonce string) (string, error) {
+func (validator *CommandValidator) recordVerifiedNonce(nonce string) string {
 	validator.mu.Lock()
 	defer validator.mu.Unlock()
 	if _, exists := validator.seenNonces[nonce]; exists {
-		return "command replay detected", nil
-	}
-	if err := validator.recordNonce(nonce); err != nil {
-		return "", fmt.Errorf("persist command replay state: %w", err)
+		return "command replay detected"
 	}
 	validator.seenNonces[nonce] = struct{}{}
-	return "", nil
+	return ""
 }
 
 func toAuthEnvelope(cmd CommandEnvelope) commandauth.Envelope {

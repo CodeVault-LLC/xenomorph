@@ -40,7 +40,7 @@ func signedTestCommand(t *testing.T, commandType CommandType, payload json.RawMe
 		t.Fatalf("Sign() error = %v", err)
 	}
 	cmd.Signature = authEnvelope.Signature
-	validator, err := NewCommandValidator(&privateKey.PublicKey, keyID, "agent-1", nil, func(string) error { return nil })
+	validator, err := NewCommandValidator(&privateKey.PublicKey, keyID, "agent-1")
 	if err != nil {
 		t.Fatalf("NewCommandValidator() error = %v", err)
 	}

@@ -6,6 +6,7 @@ MODULES := platform/client platform/services/gateway platform/shared
 TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 GO ?= go
+FIPS_MODULE ?= v1.0.0
 GOPATH ?= $(shell $(GO) env GOPATH)
 GOFMT ?= gofmt
 
@@ -34,6 +35,7 @@ help:
 	@printf '%s\n' "  make tidy          Normalize module metadata across every Go module"
 	@printf '%s\n' "  make tidy-check    Verify go mod tidy produces no changes"
 	@printf '%s\n' "  make build         Build native gateway and client binaries"
+	@printf '%s\n' "  make build FIPS_MODULE=v1.0.0  Build with the selected Go FIPS 140-3 module"
 	@printf '%s\n' "  make build-all     Cross-compile gateway and client for Linux, macOS, and Windows"
 	@printf '%s\n' "  make install-tools Install pinned static-analysis tools into GOPATH/bin"
 	@printf '%s\n' "  make ci            Run all repository CI checks"
@@ -55,15 +57,15 @@ fmt-check:
 
 test:
 	@set -euo pipefail; \
-	for module in $(MODULES); do cd $(ROOT)/$$module && $(GO) test ./...; done
+	for module in $(MODULES); do cd $(ROOT)/$$module && GOFIPS140=$(FIPS_MODULE) $(GO) test ./...; done
 
 test-race:
 	@set -euo pipefail; \
-	for module in $(MODULES); do cd $(ROOT)/$$module && $(GO) test -race ./...; done
+	for module in $(MODULES); do cd $(ROOT)/$$module && GOFIPS140=$(FIPS_MODULE) $(GO) test -race ./...; done
 
 vet:
 	@set -euo pipefail; \
-	for module in $(MODULES); do cd $(ROOT)/$$module && $(GO) vet ./...; done
+	for module in $(MODULES); do cd $(ROOT)/$$module && GOFIPS140=$(FIPS_MODULE) $(GO) vet ./...; done
 
 staticcheck:
 	@set -euo pipefail; \
@@ -82,7 +84,7 @@ gosec:
 
 tidy:
 	@set -euo pipefail; \
-	for module in $(MODULES); do cd $(ROOT)/$$module && $(GO) mod tidy; done
+	for module in $(MODULES); do cd $(ROOT)/$$module && GOFIPS140=$(FIPS_MODULE) $(GO) mod tidy; done
 
 tidy-check:
 	@set -euo pipefail; \
@@ -96,11 +98,11 @@ build: build-gateway build-client
 
 build-gateway:
 	@mkdir -p $(BIN_DIR)
-	@cd $(GATEWAY_DIR) && CGO_ENABLED=0 $(GO) build -trimpath -o $(BIN_DIR)/xenomorph-gateway ./cmd
+	@cd $(GATEWAY_DIR) && CGO_ENABLED=0 GOFIPS140=$(FIPS_MODULE) $(GO) build -trimpath -o $(BIN_DIR)/xenomorph-gateway ./cmd
 
 build-client:
 	@mkdir -p $(BIN_DIR)
-	@cd $(CLIENT_DIR) && CGO_ENABLED=0 $(GO) build -trimpath -o $(BIN_DIR)/xenomorph-client ./cmd
+	@cd $(CLIENT_DIR) && CGO_ENABLED=0 GOFIPS140=$(FIPS_MODULE) $(GO) build -trimpath -o $(BIN_DIR)/xenomorph-client ./cmd
 
 build-all:
 	@set -euo pipefail; \
@@ -108,15 +110,15 @@ build-all:
 		os=$${target%/*}; arch=$${target#*/}; extension=""; \
 		if [[ "$$os" == "windows" ]]; then extension=".exe"; fi; \
 		output=$(BIN_DIR)/$$os/$$arch; mkdir -p "$$output"; \
-		(cd $(GATEWAY_DIR) && CGO_ENABLED=0 GOOS="$$os" GOARCH="$$arch" $(GO) build -trimpath -o "$$output/xenomorph-gateway$$extension" ./cmd); \
-		(cd $(CLIENT_DIR) && CGO_ENABLED=0 GOOS="$$os" GOARCH="$$arch" $(GO) build -trimpath -o "$$output/xenomorph-client$$extension" ./cmd); \
+		(cd $(GATEWAY_DIR) && CGO_ENABLED=0 GOFIPS140=$(FIPS_MODULE) GOOS="$$os" GOARCH="$$arch" $(GO) build -trimpath -o "$$output/xenomorph-gateway$$extension" ./cmd); \
+		(cd $(CLIENT_DIR) && CGO_ENABLED=0 GOFIPS140=$(FIPS_MODULE) GOOS="$$os" GOARCH="$$arch" $(GO) build -trimpath -o "$$output/xenomorph-client$$extension" ./cmd); \
 	done
 
 run-gateway:
-	@cd $(GATEWAY_DIR) && $(GO) run ./cmd
+	@cd $(GATEWAY_DIR) && GOFIPS140=$(FIPS_MODULE) $(GO) run ./cmd
 
 run-client:
-	@cd $(CLIENT_DIR) && $(GO) run ./cmd
+	@cd $(CLIENT_DIR) && GOFIPS140=$(FIPS_MODULE) $(GO) run ./cmd
 
 clean:
 	@rm -rf $(BIN_DIR)

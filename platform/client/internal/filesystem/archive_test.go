@@ -91,6 +91,41 @@ func TestZIPArchiveRejectsExcessiveCompressionRatio(t *testing.T) {
 	}
 }
 
+func TestZIPArchiveRejectsCollidingEntryNames(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "colliding.zip")
+	file, err := os.Create(path) // #nosec G304 -- path is an isolated test fixture.
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	for _, name := range []string{"Report.txt", "report.txt"} {
+		entry, createErr := writer.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+		if createErr == nil {
+			_, createErr = entry.Write([]byte(name))
+		}
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	root, err := openRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeRootAfterRead(root)
+	request := testArchiveRequest(fileprotocol.ArchiveList)
+	request.ArchivePath = "colliding.zip"
+	if _, err := root.listZIP(context.Background(), request); err == nil {
+		t.Fatal("listZIP() error = nil, want collision rejection")
+	}
+}
+
 func TestZIPPreflightRejectsEntryCountBeforeParsing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "many.zip")
 	file, err := os.Create(path) // #nosec G304 -- path is an isolated test fixture.

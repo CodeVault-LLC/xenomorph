@@ -283,6 +283,7 @@ func (root *rootHandle) inspectZIP(ctx context.Context, request fileprotocol.Arc
 		return nil, nil, 0, fmt.Errorf("archive entry count exceeds limit")
 	}
 	var total int64
+	entryKinds := make(map[string]bool, len(reader.File))
 	for _, entry := range reader.File {
 		if err := ctx.Err(); err != nil {
 			_ = file.Close()
@@ -293,6 +294,12 @@ func (root *rootHandle) inspectZIP(ctx context.Context, request fileprotocol.Arc
 			_ = file.Close()
 			return nil, nil, 0, fmt.Errorf("archive contains an unsafe entry")
 		}
+		key := strings.ToLower(strings.Join(components, "/"))
+		if _, duplicate := entryKinds[key]; duplicate {
+			_ = file.Close()
+			return nil, nil, 0, fmt.Errorf("archive contains colliding entry names")
+		}
+		entryKinds[key] = entry.FileInfo().IsDir()
 		byteLimit := request.Limits.MaxExpandedBytes
 		if request.Action == fileprotocol.ArchiveExtract && request.Limits.MaxTemporaryBytes < byteLimit {
 			byteLimit = request.Limits.MaxTemporaryBytes
@@ -308,6 +315,15 @@ func (root *rootHandle) inspectZIP(ctx context.Context, request fileprotocol.Arc
 			return nil, nil, 0, fmt.Errorf("archive expansion exceeds limit")
 		}
 		total += uncompressed
+	}
+	for path := range entryKinds {
+		components := strings.Split(path, "/")
+		for index := 1; index < len(components); index++ {
+			if directory, exists := entryKinds[strings.Join(components[:index], "/")]; exists && !directory {
+				_ = file.Close()
+				return nil, nil, 0, fmt.Errorf("archive contains a file-directory collision")
+			}
+		}
 	}
 	return file, reader.File, total, nil
 }

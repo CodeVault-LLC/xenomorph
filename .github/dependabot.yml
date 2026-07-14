@@ -38,7 +38,7 @@ updates:
         patterns:
           - "*"
 
-  - package-ecosystem: npm
+  - package-ecosystem: bun
     directory: /platform/website
     schedule:
       interval: weekly

@@ -2,6 +2,8 @@
 
 - Owning component:
 - Roadmap item:
+- Workflow: large change / small change
+- Intended merge: manual squash / delegated merge
 
 ## Behavior
 

@@ -12,6 +12,32 @@ This repository implements an internal remote screening platform composed of an 
 4. Validate the touched slice immediately after the first substantive change.
 5. Stop only after the repository state is internally consistent and the requested outcome is complete.
 
+## AI Change Workflow
+
+Before editing, classify the request as a **large change** or **small change** and state the classification. When uncertain, use the large-change workflow. A task that begins small must be reclassified before it gains a second independently reviewable behavior change.
+
+### Large changes
+
+Use this workflow when the change spans components or public contracts, affects a trust boundary or migration, contains multiple independently testable behavior slices, or is expected to need multiple commits.
+
+1. Start from the current integration branch and create a correctly named work branch.
+2. Make the first meaningful, internally consistent commit, push the branch, and open a draft pull request. Do not create an empty commit solely to open a pull request.
+3. Continue in reviewable behavior slices. Each commit must compile, preserve repository consistency, use a Conventional Commit subject, and include its directly owned tests or documentation.
+4. Push commits without squashing or rewriting published history unless the user explicitly requests cleanup. Keep the pull-request description and validation evidence current.
+5. When feedback arrives before merge, continue on the same branch and pull request with new focused commits. Do not open a replacement pull request.
+6. Hand the completed pull request to the user for review and manual squash-merge. Do not merge it unless the user explicitly requests the merge.
+
+### Small changes
+
+Use this workflow only for one localized, coherent change that fits one commit and does not alter a trust boundary, public contract, migration, or release gate.
+
+1. Prefer a short correctly named branch, one commit, and a pull request when review or CI visibility has value.
+2. Commit directly to the current integration branch only when the user explicitly requests the direct path, the acting account may use the administrator bypass, the worktree contains no unrelated changes, and focused validation passes before the push.
+3. Use one Conventional Commit. Do not split mechanical and documentation updates that are inseparable from the behavior, and do not combine unrelated cleanup.
+4. If the task grows beyond one coherent commit, stop before committing, create a work branch, and continue under the large-change workflow.
+
+The detailed branch, commit, review, and follow-up rules are authoritative in `.docs/code-review.md`.
+
 ## Code Quality and Security Standard
 
 Before authoring or modifying code, contributors must read and follow `.docs/code-quality.md`. It defines the mandatory Google Go Style Guide rules, security requirements aligned with OWASP ASVS Level 2 and NIST SSDF, and performance rules for this repository. Code style, security controls, and performance constraints are not optional; they are enforced by the CI gates described in that document.

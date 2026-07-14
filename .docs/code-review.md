@@ -38,6 +38,31 @@ Naming contracts are:
 
 Generated files are changed only by their owning generator. A generated diff must be paired with the source contract change and a reproducible generation command.
 
+## Change Workflow Selection
+
+Every AI-assisted change is classified before editing. Classification is based on review structure and risk, not line count.
+
+### Large-change workflow
+
+A change is large when any of the following applies:
+
+- it crosses component ownership boundaries or changes a public, protocol, persistence, deployment, or trust-boundary contract;
+- it contains two or more behavior slices that can be implemented and validated independently;
+- it requires a migration, staged rollout, compatibility period, or coordinated documentation update; or
+- the user requests a multi-commit or feature-development workflow.
+
+The author branches from the current integration branch. After the first meaningful and internally consistent commit, the author pushes and opens a draft pull request; empty bootstrap commits are prohibited. Subsequent commits represent coherent human-reviewable behavior slices and leave the branch buildable. Tests and documentation travel with the behavior they prove rather than accumulating in a final cleanup commit.
+
+Published commits are not amended, squashed, force-pushed, or rebased merely to make the branch appear finished. The pull request is the continuing review record. Feedback received before merge is addressed on the same branch with new focused commits, and the pull-request description and validation evidence are updated. The completed pull request is handed to the user for manual squash-merge unless the user explicitly delegates merging.
+
+### Small-change workflow
+
+A change is small only when it is one localized behavior or documentation correction, fits one coherent commit, and does not change a trust boundary, public contract, migration, or release gate. A short branch with one commit and a pull request remains the default when CI or review visibility is useful.
+
+Direct integration-branch commits are an explicit administrator path, not the default. Automation may use it only when the user requests it, the diff contains no unrelated work, focused validation passes before commit and push, and the branch rule permits the acting administrator to bypass pull-request requirements. If a task grows to a second independently reviewable behavior slice, automation creates a work branch before committing and follows the large-change workflow.
+
+Both workflows use the same quality and security standard. “Small” reduces workflow overhead; it does not reduce validation, trust-boundary review, or documentation accuracy.
+
 ## Review Priority and Finding Severity
 
 Review in this order: trust-boundary correctness, authentication and authorization, command authenticity, secret handling, input and resource bounds, data loss and recovery, concurrency, public compatibility, test evidence, then maintainability and style.

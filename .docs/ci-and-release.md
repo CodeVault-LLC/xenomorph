@@ -14,12 +14,14 @@ CI runs on pull requests, pushes to `main` and the temporary `rewrite` integrati
 
 ## Integration Branch Protection
 
-The GitHub `rewrite` branch rule is enforced for administrators and contributors. It requires:
+The GitHub `rewrite` branch rule requires the following for contributors:
 
 - the `Go quality and cross-platform build` and `Website quality and production build` checks on a branch current with its base;
 - one code-owner approval, dismissal of stale approvals, and approval after the most recent push;
 - resolution of review conversations; and
 - rejection of force-pushes and branch deletion.
+
+Repository administrators may bypass the pull-request rule for the explicit small-change path in `.docs/code-review.md`. The bypass exists for a solo-maintainer workflow; it is not permission to route large changes around review or required local validation. Large changes always use a branch and pull request by repository policy.
 
 The default `main` branch remains outside the temporary rewrite-integration rule. Promotion to `main` is blocked by the Milestone 1 release decision and requires its own reviewed release-branch protection before merge.
 

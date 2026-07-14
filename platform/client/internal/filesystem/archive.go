@@ -246,7 +246,15 @@ func (root *rootHandle) listZIP(ctx context.Context, request fileprotocol.Archiv
 		if entry.FileInfo().IsDir() {
 			kind = fileprotocol.EntryDirectory
 		}
-		listed = append(listed, fileprotocol.ArchiveEntry{Path: strings.TrimSuffix(entry.Name, "/"), Kind: kind, UncompressedSize: int64(entry.UncompressedSize64), CompressedSize: int64(entry.CompressedSize64)})
+		uncompressed, err := boundedArchiveSize(entry.UncompressedSize64)
+		if err != nil {
+			return fileprotocol.ArchiveResult{}, err
+		}
+		compressed, err := boundedArchiveSize(entry.CompressedSize64)
+		if err != nil {
+			return fileprotocol.ArchiveResult{}, err
+		}
+		listed = append(listed, fileprotocol.ArchiveEntry{Path: strings.TrimSuffix(entry.Name, "/"), Kind: kind, UncompressedSize: uncompressed, CompressedSize: compressed})
 		nameBytes += len(entry.Name)
 	}
 	result := archiveResult(request, "completed", len(entries), total)
@@ -304,12 +312,16 @@ func (root *rootHandle) inspectZIP(ctx context.Context, request fileprotocol.Arc
 		if request.Action == fileprotocol.ArchiveExtract && request.Limits.MaxTemporaryBytes < byteLimit {
 			byteLimit = request.Limits.MaxTemporaryBytes
 		}
-		if entry.UncompressedSize64 > uint64(byteLimit) || entry.CompressedSize64 > uint64(request.Limits.MaxTemporaryBytes) {
+		uncompressed, sizeErr := boundedArchiveSize(entry.UncompressedSize64)
+		if sizeErr != nil || uncompressed > byteLimit {
 			_ = file.Close()
 			return nil, nil, 0, fmt.Errorf("archive entry size exceeds limit")
 		}
-		uncompressed := int64(entry.UncompressedSize64)
-		compressed := int64(entry.CompressedSize64)
+		compressed, sizeErr := boundedArchiveSize(entry.CompressedSize64)
+		if sizeErr != nil || compressed > request.Limits.MaxTemporaryBytes {
+			_ = file.Close()
+			return nil, nil, 0, fmt.Errorf("archive entry size exceeds limit")
+		}
 		if total > byteLimit-uncompressed || exceedsCompressionRatio(uncompressed, compressed, request.Limits.MaxCompressionRatio) {
 			_ = file.Close()
 			return nil, nil, 0, fmt.Errorf("archive expansion exceeds limit")
@@ -385,6 +397,14 @@ func exceedsCompressionRatio(uncompressed, compressed, limit int64) bool {
 	return uncompressed > compressed*limit
 }
 
+func boundedArchiveSize(value uint64) (int64, error) {
+	if value > 1<<30 {
+		return 0, fmt.Errorf("archive entry size exceeds limit")
+	}
+	// #nosec G115 -- value is bounded to 1 GiB immediately above.
+	return int64(value), nil
+}
+
 func (root *rootHandle) extractZIP(ctx context.Context, request fileprotocol.ArchiveRequest) (fileprotocol.ArchiveResult, error) {
 	archive, entries, total, err := root.inspectZIP(ctx, request)
 	if err != nil {
@@ -427,7 +447,8 @@ func (root *rootHandle) extractZIP(ctx context.Context, request fileprotocol.Arc
 		}
 		written, copyErr := io.CopyBuffer(stage.file, &archiveContextReader{ctx: ctx, reader: source}, make([]byte, archiveCopyBufferSize))
 		closeErr := source.Close()
-		if copyErr != nil || closeErr != nil || written != int64(entry.UncompressedSize64) {
+		expected, sizeErr := boundedArchiveSize(entry.UncompressedSize64)
+		if copyErr != nil || closeErr != nil || sizeErr != nil || written != expected {
 			stage.abort()
 			return fileprotocol.ArchiveResult{}, fmt.Errorf("extract archive entry: %w", errors.Join(copyErr, closeErr))
 		}

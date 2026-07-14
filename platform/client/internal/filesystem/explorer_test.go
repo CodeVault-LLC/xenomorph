@@ -1,6 +1,8 @@
 package filesystem
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +10,65 @@ import (
 
 	"github.com/codevault-llc/xenomorph/platform/shared/fileprotocol"
 )
+
+func TestSearchDirectoryFindsNestedEntriesWithoutFollowingLinks(t *testing.T) {
+	request := searchFixture(t)
+	result, err := SearchDirectory(context.Background(), request)
+	if err != nil {
+		t.Fatalf("SearchDirectory() error = %v", err)
+	}
+	if len(result.Entries) != 2 || result.ScannedEntries > request.MaxEntries || result.Truncated {
+		t.Fatalf("SearchDirectory() = %+v, want two bounded matches", result)
+	}
+}
+
+func TestSearchDirectoryReportsResultLimit(t *testing.T) {
+	request := searchFixture(t)
+	request.MaxResults = 1
+	result, err := SearchDirectory(context.Background(), request)
+	if err != nil {
+		t.Fatalf("SearchDirectory() error = %v", err)
+	}
+	if len(result.Entries) != 1 || !result.Truncated {
+		t.Fatalf("SearchDirectory() = %+v, want one truncated match", result)
+	}
+}
+
+func TestSearchDirectoryHonorsCancellation(t *testing.T) {
+	request := searchFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := SearchDirectory(ctx, request); err == nil {
+		t.Fatal("SearchDirectory() cancelled error = nil, want cancellation")
+	}
+}
+
+func searchFixture(t *testing.T) fileprotocol.DirectorySearchRequest {
+	t.Helper()
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatalf("os.Mkdir() error = %v", err)
+	}
+	for _, path := range []string{filepath.Join(root, "needle-one.txt"), filepath.Join(nested, "needle-two.txt")} {
+		if err := os.WriteFile(path, []byte("test"), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(%q) error = %v", path, err)
+		}
+	}
+	external := t.TempDir()
+	if err := os.WriteFile(filepath.Join(external, "needle-secret.txt"), []byte("secret"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() external error = %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "linked")); err != nil {
+		t.Fatalf("os.Symlink() error = %v", err)
+	}
+	rootID, relativePath := testFilesystemPath(t, root)
+	request := fileprotocol.DirectorySearchRequest{
+		ProtocolVersion: fileprotocol.Version, RootID: rootID, RelativePath: relativePath,
+		Query: "NEEDLE", MaxResults: 10, MaxEntries: 100, MaxDepth: 4,
+	}
+	return request
+}
 
 func TestListDirectoryPaginatesWithoutFollowingLinks(t *testing.T) {
 	root := directoryFixture(t)
@@ -34,6 +95,44 @@ func TestListDirectoryPaginatesWithoutFollowingLinks(t *testing.T) {
 	if !containsSymlink(entries, "link.txt") {
 		t.Fatal("symlink was not returned as a no-follow symlink entry")
 	}
+}
+
+func BenchmarkListDirectoryLarge(b *testing.B) {
+	root := b.TempDir()
+	const entries = 10_000
+	for index := 0; index < entries; index++ {
+		name := filepath.Join(root, fmt.Sprintf("entry-%05d.txt", index))
+		if err := os.WriteFile(name, nil, 0o600); err != nil {
+			b.Fatalf("os.WriteFile() error = %v", err)
+		}
+	}
+	rootID, relativePath := benchmarkFilesystemPath(b, root)
+	request := fileprotocol.DirectoryListRequest{
+		ProtocolVersion: fileprotocol.Version, RootID: rootID,
+		RelativePath: relativePath, PageSize: maxPageSize,
+	}
+	b.ResetTimer()
+	for range b.N {
+		if _, err := ListDirectory(request); err != nil {
+			b.Fatalf("ListDirectory() error = %v", err)
+		}
+	}
+}
+
+func benchmarkFilesystemPath(b *testing.B, path string) (string, string) {
+	b.Helper()
+	roots, err := filesystemRoots()
+	if err != nil {
+		b.Fatalf("filesystemRoots() error = %v", err)
+	}
+	for _, root := range roots {
+		relative, relativeErr := filepath.Rel(root.Path, path)
+		if relativeErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return root.ID, filepath.ToSlash(relative)
+		}
+	}
+	b.Fatalf("path %q is not beneath a discovered filesystem root", path)
+	return "", ""
 }
 
 func directoryFixture(t *testing.T) string {

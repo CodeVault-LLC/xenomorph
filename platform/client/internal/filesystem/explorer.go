@@ -5,6 +5,7 @@
 package filesystem
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -27,6 +28,10 @@ const (
 	maxCursorOffset   = 10_000_000
 	maxPageSize       = 500
 	maxPreviewBytes   = 1 << 20
+	maxSearchQuery    = 256
+	maxSearchResults  = 250
+	maxSearchEntries  = 10_000
+	maxSearchDepth    = 16
 	windowsOS         = "windows"
 	contentText       = "text"
 )
@@ -34,6 +39,11 @@ const (
 type cursor struct {
 	Offset     int    `json:"offset"`
 	SnapshotID string `json:"snapshot_id"`
+}
+
+type searchDirectory struct {
+	components []string
+	depth      int
 }
 
 type rootDefinition struct {
@@ -115,6 +125,115 @@ func ListDirectory(request fileprotocol.DirectoryListRequest) (fileprotocol.Dire
 		SnapshotID: snapshotID, Ordering: "native-stable-within-snapshot",
 		Entries: entries, NextCursor: nextCursor, HasMore: hasMore,
 	}, nil
+}
+
+// SearchDirectory performs a bounded, cancellable, no-follow name search.
+func SearchDirectory(ctx context.Context, request fileprotocol.DirectorySearchRequest) (fileprotocol.DirectorySearchResult, error) {
+	components, err := validateSearchRequest(request)
+	if err != nil {
+		return fileprotocol.DirectorySearchResult{}, err
+	}
+	definition, err := resolveFilesystemRoot(request.RootID)
+	if err != nil {
+		return fileprotocol.DirectorySearchResult{}, err
+	}
+	root, err := openRoot(definition.Path)
+	if err != nil {
+		return fileprotocol.DirectorySearchResult{}, fmt.Errorf("open filesystem root: %w", err)
+	}
+	defer closeRootAfterRead(root)
+	state := searchState{request: request, query: strings.ToLower(request.Query)}
+	state.result = fileprotocol.DirectorySearchResult{
+		ProtocolVersion: fileprotocol.Version, RootID: request.RootID,
+		RelativePath: request.RelativePath, Query: request.Query,
+		Entries: make([]fileprotocol.SearchEntry, 0, request.MaxResults),
+	}
+	state.queue = []searchDirectory{{components: components}}
+	for len(state.queue) > 0 && !state.limitReached() {
+		if err := ctx.Err(); err != nil {
+			return fileprotocol.DirectorySearchResult{}, fmt.Errorf("search cancelled: %w", err)
+		}
+		current := state.dequeue()
+		state.scanDirectory(root, current)
+	}
+	state.result.Truncated = len(state.queue) > 0 || state.limitReached()
+	return state.result, nil
+}
+
+type searchState struct {
+	request fileprotocol.DirectorySearchRequest
+	query   string
+	queue   []searchDirectory
+	result  fileprotocol.DirectorySearchResult
+}
+
+func (state *searchState) limitReached() bool {
+	return state.result.ScannedEntries >= state.request.MaxEntries || len(state.result.Entries) >= state.request.MaxResults
+}
+
+func (state *searchState) dequeue() searchDirectory {
+	current := state.queue[0]
+	state.queue = state.queue[1:]
+	return current
+}
+
+func (state *searchState) scanDirectory(root *rootHandle, current searchDirectory) {
+	directory, snapshotID, err := root.openDirectory(current.components)
+	if err != nil {
+		return
+	}
+	defer closeFileAfterRead(directory)
+	for !state.limitReached() {
+		names, readErr := directory.Readdirnames(maxPageSize)
+		for _, name := range names {
+			state.inspectEntry(root, current, snapshotID, name)
+			if state.limitReached() {
+				return
+			}
+		}
+		if readErr != nil {
+			return
+		}
+	}
+}
+
+func (state *searchState) inspectEntry(root *rootHandle, current searchDirectory, snapshotID, name string) {
+	state.result.ScannedEntries++
+	components := append(append([]string(nil), current.components...), name)
+	info, err := root.statNoFollow(components)
+	if err != nil {
+		return
+	}
+	entry := entryFromInfo(snapshotID, info)
+	if strings.Contains(strings.ToLower(entry.DisplayName), state.query) {
+		state.result.Entries = append(state.result.Entries, fileprotocol.SearchEntry{RelativePath: strings.Join(components, "/"), Entry: entry})
+	}
+	if entry.Kind == fileprotocol.EntryDirectory && current.depth < state.request.MaxDepth {
+		state.queue = append(state.queue, searchDirectory{components: components, depth: current.depth + 1})
+	}
+}
+
+func validateSearchRequest(request fileprotocol.DirectorySearchRequest) ([]string, error) {
+	if request.ProtocolVersion != fileprotocol.Version || strings.TrimSpace(request.RootID) == "" {
+		return nil, fmt.Errorf("invalid directory search request")
+	}
+	if !validSearchQuery(request.Query) {
+		return nil, fmt.Errorf("directory search query is outside limit")
+	}
+	if !validSearchBounds(request) {
+		return nil, fmt.Errorf("directory search bounds are outside limit")
+	}
+	return validateRelativePath(request.RelativePath)
+}
+
+func validSearchQuery(query string) bool {
+	return strings.TrimSpace(query) == query && len(query) >= 2 && len(query) <= maxSearchQuery && utf8.ValidString(query)
+}
+
+func validSearchBounds(request fileprotocol.DirectorySearchRequest) bool {
+	return request.MaxResults > 0 && request.MaxResults <= maxSearchResults &&
+		request.MaxEntries > 0 && request.MaxEntries <= maxSearchEntries &&
+		request.MaxDepth >= 0 && request.MaxDepth <= maxSearchDepth
 }
 
 func validateDirectoryRequest(request fileprotocol.DirectoryListRequest) ([]string, error) {

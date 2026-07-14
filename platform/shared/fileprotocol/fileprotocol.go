@@ -10,13 +10,15 @@ import (
 )
 
 // Version is the current file workspace protocol version.
-const Version = 4
+const Version = 5
 
 const (
 	// CommandRootsList requests filesystem root and capability observations.
 	CommandRootsList = "files.roots.list"
 	// CommandDirectoryList requests one bounded directory page.
 	CommandDirectoryList = "files.directory.list"
+	// CommandDirectorySearch requests one bounded, cancellable subtree search.
+	CommandDirectorySearch = "files.directory.search"
 	// CommandMetadataGet requests metadata without following the target link.
 	CommandMetadataGet = "files.metadata.get"
 	// CommandPreviewRead requests a bounded regular-file byte range.
@@ -151,6 +153,35 @@ type DirectoryPage struct {
 	Entries         []FileEntry `json:"entries"`
 	NextCursor      string      `json:"next_cursor,omitempty"`
 	HasMore         bool        `json:"has_more"`
+}
+
+// DirectorySearchRequest asks for a bounded name search below one directory.
+type DirectorySearchRequest struct {
+	ProtocolVersion int    `json:"protocol_version"`
+	RootID          string `json:"root_id"`
+	RelativePath    string `json:"relative_path"`
+	Query           string `json:"query"`
+	MaxResults      int    `json:"max_results"`
+	MaxEntries      int    `json:"max_entries"`
+	MaxDepth        int    `json:"max_depth"`
+}
+
+// SearchEntry binds a client-authored entry observation to its normalized
+// root-relative location.
+type SearchEntry struct {
+	RelativePath string    `json:"relative_path"`
+	Entry        FileEntry `json:"entry"`
+}
+
+// DirectorySearchResult contains bounded client-authored search observations.
+type DirectorySearchResult struct {
+	ProtocolVersion int           `json:"protocol_version"`
+	RootID          string        `json:"root_id"`
+	RelativePath    string        `json:"relative_path"`
+	Query           string        `json:"query"`
+	Entries         []SearchEntry `json:"entries"`
+	ScannedEntries  int           `json:"scanned_entries"`
+	Truncated       bool          `json:"truncated"`
 }
 
 // MetadataGetRequest asks for no-follow metadata under an agent-reported root.

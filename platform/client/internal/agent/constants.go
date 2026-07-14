@@ -39,6 +39,8 @@ const (
 	CommandTypeFilesRootsList CommandType = fileprotocol.CommandRootsList
 	// CommandTypeFilesDirectoryList requests a bounded directory page.
 	CommandTypeFilesDirectoryList CommandType = fileprotocol.CommandDirectoryList
+	// CommandTypeFilesDirectorySearch requests a bounded directory search.
+	CommandTypeFilesDirectorySearch CommandType = fileprotocol.CommandDirectorySearch
 	// CommandTypeFilesMetadataGet requests no-follow entry metadata.
 	CommandTypeFilesMetadataGet CommandType = fileprotocol.CommandMetadataGet
 	// CommandTypeFilesPreviewRead requests a bounded regular-file byte range.

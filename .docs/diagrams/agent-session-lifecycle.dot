@@ -1,0 +1,139 @@
+// Agent session lifecycle — SysML Activity Diagram with Partitions (Swimlanes).
+//
+// Compliant with NASA-HDBK-1009A / SysML allocation guidelines:
+// - Uses vertical activity partitions (swimlanes) to group actions by responsibility.
+// - Organizes the flow into a clean rectangular grid.
+// - Maintains SysML control nodes and decision diamonds.
+//
+// Palette: JPL SMAP Science Data System architecture.
+//
+// Render:  dot -Tpng agent-swimlanes.dot -o agent-swimlanes.png
+digraph agent_activity_swimlanes {
+    rankdir = TB;
+    splines = ortho;
+    nodesep = 0.4;
+    ranksep = 0.5;
+    bgcolor = "#FFFFFF";
+
+    label = "act Agent Session Lifecycle [SysML Activity Diagram with Partitions]";
+    labelloc = "t";
+    fontname = "Helvetica-Bold";
+    fontsize = 15;
+    fontcolor = "#232022";
+
+    // Global Node Settings
+    node [fontname = "Helvetica", fontsize = 10, style = "rounded,filled",
+          fillcolor = "#E1E7F5", color = "#232022", fontcolor = "#232022", penwidth = 1.2,
+          shape = rect, margin = "0.18,0.12"];
+          
+    // Global Edge Settings
+    edge [fontname = "Helvetica", fontsize = 9, color = "#232022",
+          fontcolor = "#232022", penwidth = 1.1, arrowsize = 0.75];
+
+    // =========================================================================
+    // PARTITION 1: AGENT CLIENT (Left Column)
+    // =========================================================================
+    subgraph cluster_partition_agent {
+        label = "«activity partition»\nAgent Client";
+        fontname = "Helvetica-Bold";
+        fontsize = 11;
+        fontcolor = "#0066A6";
+        color = "#232022";
+        penwidth = 1.5;
+        style = "rect";
+        margin = 18;
+
+        start [shape = circle, label = "", style = filled, fillcolor = "#232022", width = 0.2, fixedsize = true];
+        stop [shape = doublecircle, label = "", style = "filled,bold", fillcolor = "#232022", color = "#FFFFFF", penwidth = 1.8, width = 0.22, fixedsize = true];
+
+        load_certs [label = "Load Certificates\n& TLS Configuration"];
+        establish_tls [label = "Negotiate TLS 1.3\nTransport Connection"];
+        send_heartbeat [label = "Transmit Heartbeat\nPayload"];
+        
+        // Active Loop
+        poll_work [label = "Poll for Work\nPayload", fillcolor = "#D2CBAB"];
+        verify_sig [label = "Verify Signature\n& Integrity", fillcolor = "#D2CBAB"];
+        execute_cmd [label = "Execute Action in\nSandbox Container", fillcolor = "#D2CBAB"];
+        submit_results [label = "Submit Output\nPayload", fillcolor = "#D2CBAB"];
+        
+        terminate_conn [label = "Close Connection\n& Terminate Session", fillcolor = "#3F66A5", fontcolor = "#FFFFFF"];
+    }
+
+    // =========================================================================
+    // PARTITION 2: mTLS GATEWAY (Middle Column)
+    // =========================================================================
+    subgraph cluster_partition_gateway {
+        label = "«activity partition»\nmTLS Gateway";
+        fontname = "Helvetica-Bold";
+        fontsize = 11;
+        fontcolor = "#0066A6";
+        color = "#232022";
+        penwidth = 1.5;
+        style = "rect";
+        margin = 18;
+
+        verify_mtls [label = "Validate Client Cert\n& Accept mTLS", fillcolor = "#F9F6F1"];
+        decide_auth [shape = diamond, label = "", fillcolor = "#F9F6F1", width = 0.35, height = 0.35, fixedsize = true];
+        evaluate_attestation [label = "Evaluate Attestation\nRules", fillcolor = "#F9F6F1"];
+        decide_status [shape = diamond, label = "", fillcolor = "#D2CBAB", width = 0.35, height = 0.35, fixedsize = true];
+    }
+
+    // =========================================================================
+    // PARTITION 3: ATTESTATION SERVICE (Right Column)
+    // =========================================================================
+    subgraph cluster_partition_attestation {
+        label = "«activity partition»\nAttestation Service";
+        fontname = "Helvetica-Bold";
+        fontsize = 11;
+        fontcolor = "#0066A6";
+        color = "#232022";
+        penwidth = 1.5;
+        style = "rect";
+        margin = 18;
+
+        perform_attestation [label = "Process & Verify\nHardware Attestation", fillcolor = "#F9F6F1"];
+        decide_attestation [shape = diamond, label = "", fillcolor = "#F9F6F1", width = 0.35, height = 0.35, fixedsize = true];
+    }
+
+    // =========================================================================
+    // CONTROL FLOWS (Arrows passing between partitions)
+    // =========================================================================
+    
+    // Phase 1: Connection & mTLS Verification
+    start -> load_certs;
+    load_certs -> establish_tls;
+    establish_tls -> verify_mtls [xlabel = "  connect"];
+    verify_mtls -> send_heartbeat [xlabel = "  channel ready"];
+    send_heartbeat -> decide_auth [xlabel = "  POST /heartbeat"];
+
+    // Phase 2: Gateway Authentication Logic
+    decide_auth -> terminate_conn [xlabel = " [rejected]", color="#96281B", fontcolor="#96281B"];
+    decide_auth -> evaluate_attestation [xlabel = " [accepted]"];
+
+    // Phase 3: Attestation Branch (Interacting with the Attestation Service)
+    evaluate_attestation -> perform_attestation [xlabel = " [required]"];
+    evaluate_attestation -> decide_attestation [xlabel = " [skipped]"];
+    perform_attestation -> decide_attestation [xlabel = " submit"];
+
+    // Phase 4: Attestation Validation Logic
+    decide_attestation -> terminate_conn [xlabel = " [invalid]", color="#96281B", fontcolor="#96281B"];
+    decide_attestation -> poll_work [xlabel = " [valid]"];
+
+    // Phase 5: Active Sandbox Loop
+    poll_work -> verify_sig;
+    verify_sig -> execute_cmd;
+    execute_cmd -> submit_results;
+    submit_results -> decide_status [xlabel = " payload"];
+
+    // Check active state, loops back to poll within Agent Partition
+    decide_status -> poll_work [xlabel = " [active]", color = "#0066A6", fontcolor = "#0066A6", tailport = "w", headport = "e"];
+    decide_status -> terminate_conn [xlabel = " [inactive]"];
+
+    // Termination
+    terminate_conn -> stop;
+
+    // Layout alignment helpers to lock columns side-by-side
+    { rank = same; load_certs; verify_mtls; }
+    { rank = same; send_heartbeat; decide_auth; }
+    { rank = same; poll_work; decide_status; }
+}

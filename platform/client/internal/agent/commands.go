@@ -24,6 +24,8 @@ var allowedCommandTypes = map[CommandType]struct{}{
 	CommandTypeFilesDirectoryList:    {},
 	CommandTypeFilesDirectorySearch:  {},
 	CommandTypeFilesMetadataGet:      {},
+	CommandTypeFilesMetadataSet:      {},
+	CommandTypeFilesArchiveExecute:   {},
 	CommandTypeFilesPreviewRead:      {},
 	CommandTypeFilesOperationExecute: {},
 	CommandTypeFilesTransferPrepare:  {},

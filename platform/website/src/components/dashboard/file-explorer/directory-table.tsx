@@ -1,8 +1,11 @@
 import {
+  Archive,
   Clock3,
   Copy,
   Ellipsis,
   FilePenLine,
+  FolderInput,
+  ListTree,
   Move,
   ScissorsLineDashed,
   Trash2,
@@ -39,19 +42,25 @@ export function DirectoryTable({
   selectedEntryIDs,
   canMutate,
   canDelete,
+  canSelect,
+  canArchive,
   onOpen,
   onSelectionChange,
   onSelectionRange,
   onAction,
+  onArchiveAction,
 }: {
   entries: FileEntry[]
   selectedEntryIDs: Set<string>
   canMutate: boolean
   canDelete: boolean
+  canSelect: boolean
+  canArchive: boolean
   onOpen: (entry: FileEntry) => void
   onSelectionChange: (entry: FileEntry, selected: boolean) => void
   onSelectionRange: (entries: FileEntry[], selected: boolean) => void
   onAction: (verb: MutationVerb, entry: FileEntry) => void
+  onArchiveAction: (action: "list" | "extract", entry: FileEntry) => void
 }) {
   const rowHeight = 60
   const viewportHeight = 520
@@ -84,7 +93,7 @@ export function DirectoryTable({
               <Checkbox
                 aria-label="Select all visible entries"
                 checked={allSelected}
-                disabled={!canDelete || selectableEntries.length === 0}
+                disabled={!canSelect || selectableEntries.length === 0}
                 onCheckedChange={(checked) => {
                   for (const entry of selectableEntries) {
                     onSelectionChange(entry, checked)
@@ -124,7 +133,7 @@ export function DirectoryTable({
                   <Checkbox
                     aria-label={`Select ${entry.display_name}`}
                     checked={selectedEntryIDs.has(entry.entry_id)}
-                    disabled={!canDelete || !entry.operation_name}
+                    disabled={!canSelect || !entry.operation_name}
                     onClick={(event) => {
                       shiftSelectionRef.current = event.shiftKey
                     }}
@@ -179,11 +188,14 @@ export function DirectoryTable({
                 </TableCell>
                 <TableCell>{formatModifiedAt(entry.modified_at)}</TableCell>
                 <TableCell>
-                  {canMutate && entry.operation_name ? (
+                  {(canMutate || canArchive) && entry.operation_name ? (
                     <EntryActions
                       entry={entry}
+                      canMutate={canMutate}
                       canDelete={canDelete}
+                      canArchive={canArchive}
                       onAction={onAction}
+                      onArchiveAction={onArchiveAction}
                     />
                   ) : null}
                 </TableCell>
@@ -207,12 +219,18 @@ export function DirectoryTable({
 
 function EntryActions({
   entry,
+  canMutate,
   canDelete,
+  canArchive,
   onAction,
+  onArchiveAction,
 }: {
   entry: FileEntry
+  canMutate: boolean
   canDelete: boolean
+  canArchive: boolean
   onAction: (verb: MutationVerb, entry: FileEntry) => void
+  onArchiveAction: (action: "list" | "extract", entry: FileEntry) => void
 }) {
   return (
     <DropdownMenu>
@@ -228,34 +246,58 @@ function EntryActions({
         <Ellipsis />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => onAction("move", entry)}>
-            <Move /> Move or rename
-          </DropdownMenuItem>
-          {entry.kind === "file" ? (
-            <>
-              <DropdownMenuItem onClick={() => onAction("copy", entry)}>
-                <Copy /> Copy
+        {canMutate ? (
+          <DropdownMenuGroup>
+            <DropdownMenuItem onClick={() => onAction("move", entry)}>
+              <Move /> Move or rename
+            </DropdownMenuItem>
+            {entry.kind === "file" ? (
+              <>
+                <DropdownMenuItem onClick={() => onAction("copy", entry)}>
+                  <Copy /> Copy
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onAction("duplicate", entry)}>
+                  <FilePenLine /> Duplicate
+                </DropdownMenuItem>
+              </>
+            ) : null}
+            <DropdownMenuItem onClick={() => onAction("touch", entry)}>
+              <Clock3 /> Update modified time
+            </DropdownMenuItem>
+            {entry.kind === "file" ? (
+              <>
+                <DropdownMenuItem onClick={() => onAction("append", entry)}>
+                  <FilePenLine /> Append text
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onAction("truncate", entry)}>
+                  <ScissorsLineDashed /> Change file size
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </DropdownMenuGroup>
+        ) : null}
+        {canArchive && isZIPEntry(entry) ? (
+          <>
+            {canMutate ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={() => onArchiveAction("list", entry)}>
+                <ListTree /> Inspect archive
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onAction("duplicate", entry)}>
-                <FilePenLine /> Duplicate
+              <DropdownMenuItem
+                onClick={() => onArchiveAction("extract", entry)}
+              >
+                <FolderInput /> Extract safely
               </DropdownMenuItem>
-            </>
-          ) : null}
-          <DropdownMenuItem onClick={() => onAction("touch", entry)}>
-            <Clock3 /> Update modified time
-          </DropdownMenuItem>
-          {entry.kind === "file" ? (
-            <>
-              <DropdownMenuItem onClick={() => onAction("append", entry)}>
-                <FilePenLine /> Append text
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onAction("truncate", entry)}>
-                <ScissorsLineDashed /> Change file size
-              </DropdownMenuItem>
-            </>
-          ) : null}
-        </DropdownMenuGroup>
+            </DropdownMenuGroup>
+          </>
+        ) : null}
+        {canArchive && entry.kind !== "file" ? (
+          <DropdownMenuGroup>
+            <DropdownMenuItem disabled>
+              <Archive /> Select to add to archive
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        ) : null}
         {canDelete ? (
           <>
             <DropdownMenuSeparator />
@@ -271,5 +313,12 @@ function EntryActions({
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function isZIPEntry(entry: FileEntry) {
+  return (
+    entry.kind === "file" &&
+    entry.display_name.toLocaleLowerCase().endsWith(".zip")
   )
 }

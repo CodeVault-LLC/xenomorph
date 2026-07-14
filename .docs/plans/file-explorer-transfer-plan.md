@@ -2,7 +2,7 @@
 
 ## Purpose and Scope
 
-This plan defines a gateway-mediated remote file workspace for internal support operations. The implemented workspace provides a responsive explorer, durable individual transfers, preconditioned mutations, and explicit permanent deletion. The product does not provide managed trash or restore. Metadata writes and archive operations are not enabled by the current implementation.
+This plan defines a gateway-mediated remote file workspace for internal support operations. The implemented workspace provides a responsive explorer, durable individual transfers, preconditioned mutations, explicit permanent deletion, capability-gated metadata updates, and bounded ZIP operations. The product does not provide managed trash or restore.
 
 The feature is not a direct browser-to-agent file channel, a client trust mechanism, a malware-scanning service, or a means to bypass the gateway. The website and file API have no browser authentication, browser authorization, role check, credential, root grant, or per-agent root policy. The gateway remains the sole agent-identity, command-authenticity, audit, durable-operation, and command-dispatch boundary. The agent performs operations locally only after receiving a gateway-authored, integrity-protected, expiring command over the mutually authenticated channel. Every filesystem fact returned by the agent, including roots, paths, names, metadata, content hashes, capabilities, and operation outcomes, is client-authored evidence and must not be used as identity or authorization evidence.
 
@@ -10,9 +10,9 @@ The first implementation must target Windows, macOS, and Linux. It must provide 
 
 ## Current Implementation Status
 
-Phase 0 command-authenticity controls, the implemented subset of Phase 1, Phase 2 individual transfers, and Phase 3 safe mutations are present. The website discovers roots automatically, lists directories with cursor pagination, reads metadata, renders bounded previews, uploads and downloads individual files, and reconciles durable progress in a transfer drawer. It exposes create, move/rename, copy, duplicate, touch, truncate, append, single and bulk permanent deletion, dry-run review, and per-item results. The gateway provides encrypted staged upload/download chunks, scoped leases, durable acknowledgements, resume/abort control, gateway-normalized operator paths, and preconditioned mutation dispatch. Deletion creates no gateway recovery record or agent-side staging copy.
+Phase 0 command-authenticity controls, the implemented subset of Phase 1, Phase 2 individual transfers, Phase 3 safe mutations, and the Phase 4 implementation are present. The website discovers roots automatically, lists directories with cursor pagination, reads metadata, renders bounded previews, uploads and downloads individual files, and reconciles durable progress in a transfer drawer. It exposes create, move/rename, copy, duplicate, touch, truncate, append, single and bulk permanent deletion, dry-run review, explicit modified-time and POSIX-mode updates where available, and ZIP creation, bounded listing, and extraction. Linux metadata inspection uses `statx` for filesystem-reported birth time, renders bounded POSIX ACL summaries with numeric principals, and lists bounded extended-attribute names without reading their values. The gateway provides encrypted staged upload/download chunks, scoped leases, durable acknowledgements, resume/abort control, gateway-normalized operator paths, fixed signed archive limits, and preconditioned mutation dispatch. Deletion creates no gateway recovery record or agent-side staging copy.
 
-Phase 1 is not complete because bounded search, DOM virtualization, large-directory performance evidence, and its full cross-platform acceptance gate remain absent. Phase 4 is prepared only through explicit unavailable metadata-write and archive capability fields and an archive-format allowlist field; no Phase 4 command is enabled. Phase 5 metrics, operational controls, chaos/load/recovery/accessibility evidence, and internal-user documentation remain absent. No release may describe the file workspace as complete until these residual gates pass.
+Phase 1 retains its full cross-platform acceptance gate. Phase 4 code and Linux-native tests are present, including native Linux birth-time, POSIX ACL, and extended-attribute coverage; its acceptance gate remains open until native Windows and macOS metadata/archive integration evidence is recorded. A Linux filesystem that does not expose birth time, POSIX ACLs, or extended attributes reports that field as unavailable, and an operating-system permission failure reports it as denied. Windows currently reports metadata writes as unavailable instead of applying a path-based fallback. ZIP is the only enabled archive format; ZIP64, links, special entries, unsafe names, colliding paths, and over-limit archives are rejected. Phase 5 metrics, operational controls, chaos/load/recovery/accessibility evidence, and internal-user documentation remain absent. No release may describe the file workspace as complete until these residual gates pass.
 
 ## Existing-System Fit
 
@@ -175,7 +175,7 @@ Gate: malicious path, symlink/reparse race, cross-volume move, collision, permis
 
 ### Phase 4: Metadata and archives
 
-Status: not implemented.
+Status: implemented; cross-platform acceptance evidence pending.
 
 Implement normalized metadata read/write, platform capability gating, archive creation/list/extraction, and all archive safety limits. Add UI explanations for unsupported and denied fields.
 

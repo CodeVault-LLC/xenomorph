@@ -38,9 +38,20 @@ func runFileCommand(ctx context.Context, commandType CommandType, payload json.R
 	case CommandTypeFilesDirectorySearch:
 		return runDirectorySearch(ctx, payload)
 	case CommandTypeFilesMetadataGet:
-		return runMetadataGet(payload)
+		return runMetadataGet(ctx, payload)
+	case CommandTypeFilesMetadataSet:
+		return runMetadataSet(payload)
+	case CommandTypeFilesArchiveExecute:
+		return runArchive(ctx, payload)
 	case CommandTypeFilesPreviewRead:
 		return runPreviewRead(payload)
+	default:
+		return runFileMutationCommand(ctx, commandType, payload, plane)
+	}
+}
+
+func runFileMutationCommand(ctx context.Context, commandType CommandType, payload json.RawMessage, plane clientfs.TransferPlane) (any, error) {
+	switch commandType {
 	case CommandTypeFilesOperationExecute:
 		return runMutation(payload)
 	case CommandTypeFilesTransferPrepare, CommandTypeFilesTransferResume:
@@ -73,12 +84,26 @@ func runDirectorySearch(ctx context.Context, payload json.RawMessage) (any, erro
 	}
 	return clientfs.SearchDirectory(ctx, request)
 }
-func runMetadataGet(payload json.RawMessage) (any, error) {
+func runMetadataGet(ctx context.Context, payload json.RawMessage) (any, error) {
 	var request fileprotocol.MetadataGetRequest
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
-	return clientfs.GetMetadata(request)
+	return clientfs.GetMetadata(ctx, request)
+}
+func runMetadataSet(payload json.RawMessage) (any, error) {
+	var request fileprotocol.MetadataSetRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return clientfs.SetMetadata(request)
+}
+func runArchive(ctx context.Context, payload json.RawMessage) (any, error) {
+	var request fileprotocol.ArchiveRequest
+	if err := decodeFileRequest(payload, &request); err != nil {
+		return nil, err
+	}
+	return clientfs.ExecuteArchive(ctx, request)
 }
 func runPreviewRead(payload json.RawMessage) (any, error) {
 	var request fileprotocol.PreviewReadRequest

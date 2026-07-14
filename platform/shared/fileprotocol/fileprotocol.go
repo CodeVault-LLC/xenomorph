@@ -10,7 +10,7 @@ import (
 )
 
 // Version is the current file workspace protocol version.
-const Version = 5
+const Version = 6
 
 const (
 	// CommandRootsList requests filesystem root and capability observations.
@@ -21,6 +21,10 @@ const (
 	CommandDirectorySearch = "files.directory.search"
 	// CommandMetadataGet requests metadata without following the target link.
 	CommandMetadataGet = "files.metadata.get"
+	// CommandMetadataSet requests explicit, capability-gated metadata deltas.
+	CommandMetadataSet = "files.metadata.set"
+	// CommandArchiveExecute requests one bounded archive operation.
+	CommandArchiveExecute = "files.archive.execute"
 	// CommandPreviewRead requests a bounded regular-file byte range.
 	CommandPreviewRead = "files.preview.read"
 	// CommandOperationExecute requests a bounded, preconditioned mutation.
@@ -201,6 +205,120 @@ type MetadataResult struct {
 	ModifiedAt      time.Time             `json:"modified_at"`
 	Mode            uint32                `json:"mode"`
 	OptionalFields  map[string]FieldValue `json:"optional_fields"`
+}
+
+// MetadataDelta contains only operator-authored fields explicitly requested
+// for update. Nil fields are not modified.
+type MetadataDelta struct {
+	ModifiedAt *time.Time `json:"modified_at,omitempty"`
+	POSIXMode  *uint32    `json:"posix_mode,omitempty"`
+}
+
+// MetadataSetRequest asks the agent to apply bounded metadata deltas without
+// following the target link.
+type MetadataSetRequest struct {
+	ProtocolVersion int           `json:"protocol_version"`
+	OperationID     string        `json:"operation_id"`
+	RootID          string        `json:"root_id"`
+	RelativePath    string        `json:"relative_path"`
+	Preconditions   Preconditions `json:"preconditions"`
+	Delta           MetadataDelta `json:"delta"`
+}
+
+// MetadataApplyState is the allowlisted outcome of one requested field update.
+type MetadataApplyState string
+
+const (
+	// MetadataApplied indicates the native adapter applied the requested value.
+	MetadataApplied MetadataApplyState = "applied"
+	// MetadataUnavailable indicates the native adapter cannot update the field.
+	MetadataUnavailable MetadataApplyState = "unavailable"
+	// MetadataDenied indicates the operating system denied the update.
+	MetadataDenied MetadataApplyState = "denied"
+	// MetadataFailed indicates the update failed without being reported as applied.
+	MetadataFailed MetadataApplyState = "failed"
+)
+
+// MetadataFieldResult reports exactly what happened to one requested field.
+type MetadataFieldResult struct {
+	Field      string             `json:"field"`
+	State      MetadataApplyState `json:"state"`
+	ErrorClass string             `json:"error_class,omitempty"`
+}
+
+// MetadataSetResult is client-authored evidence for an explicit metadata write.
+type MetadataSetResult struct {
+	ProtocolVersion int                   `json:"protocol_version"`
+	OperationID     string                `json:"operation_id"`
+	Fields          []MetadataFieldResult `json:"fields"`
+}
+
+// ArchiveAction identifies an allowlisted archive operation.
+type ArchiveAction string
+
+const (
+	// ArchiveCreate creates an archive from explicit root-relative sources.
+	ArchiveCreate ArchiveAction = "create"
+	// ArchiveList inspects archive entries without extracting them.
+	ArchiveList ArchiveAction = "list"
+	// ArchiveExtract extracts safe regular files and directories.
+	ArchiveExtract ArchiveAction = "extract"
+)
+
+// ArchiveFormat identifies an allowlisted archive representation.
+type ArchiveFormat string
+
+const (
+	// ArchiveZIP is the ZIP container format handled by the native agent.
+	ArchiveZIP ArchiveFormat = "zip"
+)
+
+// ArchiveLimits are gateway-authored, signed resource ceilings. The agent also
+// applies its own fixed maxima and never treats larger values as authority.
+type ArchiveLimits struct {
+	MaxEntries          int           `json:"max_entries"`
+	MaxDepth            int           `json:"max_depth"`
+	MaxExpandedBytes    int64         `json:"max_expanded_bytes"`
+	MaxTemporaryBytes   int64         `json:"max_temporary_bytes"`
+	MaxCompressionRatio int64         `json:"max_compression_ratio"`
+	MaxRuntime          time.Duration `json:"max_runtime"`
+	MaxListedEntries    int           `json:"max_listed_entries"`
+	MaxListedNameBytes  int           `json:"max_listed_name_bytes"`
+}
+
+// ArchiveRequest contains operator-authored root-relative operands and
+// gateway-authored execution bounds.
+type ArchiveRequest struct {
+	ProtocolVersion int              `json:"protocol_version"`
+	OperationID     string           `json:"operation_id"`
+	RootID          string           `json:"root_id"`
+	Action          ArchiveAction    `json:"action"`
+	Format          ArchiveFormat    `json:"format"`
+	ArchivePath     string           `json:"archive_path"`
+	DestinationPath string           `json:"destination_path,omitempty"`
+	SourcePaths     []string         `json:"source_paths,omitempty"`
+	Conflict        ConflictStrategy `json:"conflict_strategy"`
+	Preconditions   Preconditions    `json:"preconditions"`
+	Limits          ArchiveLimits    `json:"limits"`
+}
+
+// ArchiveEntry is a bounded client-authored observation from an archive list.
+type ArchiveEntry struct {
+	Path             string    `json:"path"`
+	Kind             EntryKind `json:"kind"`
+	UncompressedSize int64     `json:"uncompressed_size"`
+	CompressedSize   int64     `json:"compressed_size"`
+}
+
+// ArchiveResult contains bounded client-authored archive evidence.
+type ArchiveResult struct {
+	ProtocolVersion  int            `json:"protocol_version"`
+	OperationID      string         `json:"operation_id"`
+	State            string         `json:"state"`
+	Entries          []ArchiveEntry `json:"entries,omitempty"`
+	EntriesProcessed int            `json:"entries_processed"`
+	BytesProcessed   int64          `json:"bytes_processed"`
+	Truncated        bool           `json:"truncated,omitempty"`
 }
 
 // FieldValue explicitly represents an optional platform metadata field.

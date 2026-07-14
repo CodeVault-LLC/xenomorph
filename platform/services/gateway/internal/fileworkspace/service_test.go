@@ -120,6 +120,50 @@ func TestDispatchBoundsDirectorySearch(t *testing.T) {
 	}
 }
 
+func TestDispatchBoundsMetadataDelta(t *testing.T) {
+	t.Parallel()
+	service, queue := newTestService(t)
+	mode := uint32(0o640)
+	modified := time.Now().UTC().Add(-time.Hour)
+	request := &fileprotocol.MetadataSetRequest{RelativePath: "reports/result.txt", Delta: fileprotocol.MetadataDelta{POSIXMode: &mode, ModifiedAt: &modified}}
+	operation, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandMetadataSet, "trace-1", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.ProtocolVersion != fileprotocol.Version || request.OperationID != operation.OperationID || queue.Dequeue("agent-1") == nil {
+		t.Fatalf("prepared metadata request = %+v, want bound queued command", request)
+	}
+	empty := &fileprotocol.MetadataSetRequest{RelativePath: "result.txt"}
+	if _, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandMetadataSet, "trace-1", empty); err == nil {
+		t.Fatal("Dispatch() error = nil, want empty delta rejection")
+	}
+	tooWide := uint32(0o10000)
+	empty.Delta.POSIXMode = &tooWide
+	if _, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandMetadataSet, "trace-1", empty); err == nil {
+		t.Fatal("Dispatch() error = nil, want mode bound rejection")
+	}
+}
+
+func TestDispatchAuthorsArchiveSafetyLimits(t *testing.T) {
+	t.Parallel()
+	service, queue := newTestService(t)
+	request := &fileprotocol.ArchiveRequest{
+		Action: fileprotocol.ArchiveCreate, Format: fileprotocol.ArchiveZIP,
+		ArchivePath: "bundle.zip", SourcePaths: []string{"reports"}, Conflict: fileprotocol.ConflictFail,
+	}
+	operation, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandArchiveExecute, "trace-1", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.OperationID != operation.OperationID || request.Limits.MaxEntries != maxArchiveEntries || request.Limits.MaxRuntime != maxArchiveRuntime || queue.Dequeue("agent-1") == nil {
+		t.Fatalf("prepared archive request = %+v, want fixed signed limits", request)
+	}
+	request.Format = "tar"
+	if _, err := service.Dispatch("agent-1", "operator-1", "root-1", fileprotocol.CommandArchiveExecute, "trace-1", request); err == nil {
+		t.Fatal("Dispatch() error = nil, want archive format rejection")
+	}
+}
+
 func TestCompleteEnforcesAuthenticatedAgentScope(t *testing.T) {
 	t.Parallel()
 	service, _ := newTestService(t)

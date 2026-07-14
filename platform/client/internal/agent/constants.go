@@ -43,6 +43,10 @@ const (
 	CommandTypeFilesDirectorySearch CommandType = fileprotocol.CommandDirectorySearch
 	// CommandTypeFilesMetadataGet requests no-follow entry metadata.
 	CommandTypeFilesMetadataGet CommandType = fileprotocol.CommandMetadataGet
+	// CommandTypeFilesMetadataSet requests explicit metadata deltas.
+	CommandTypeFilesMetadataSet CommandType = fileprotocol.CommandMetadataSet
+	// CommandTypeFilesArchiveExecute requests a bounded archive operation.
+	CommandTypeFilesArchiveExecute CommandType = fileprotocol.CommandArchiveExecute
 	// CommandTypeFilesPreviewRead requests a bounded regular-file byte range.
 	CommandTypeFilesPreviewRead CommandType = fileprotocol.CommandPreviewRead
 	// CommandTypeFilesOperationExecute requests a preconditioned mutation.

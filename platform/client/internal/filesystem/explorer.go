@@ -285,7 +285,10 @@ func entriesFromNames(root *rootHandle, components []string, snapshotID string, 
 }
 
 // GetMetadata returns normalized no-follow metadata for one entry.
-func GetMetadata(request fileprotocol.MetadataGetRequest) (fileprotocol.MetadataResult, error) {
+func GetMetadata(ctx context.Context, request fileprotocol.MetadataGetRequest) (fileprotocol.MetadataResult, error) {
+	if err := ctx.Err(); err != nil {
+		return fileprotocol.MetadataResult{}, err
+	}
 	if request.ProtocolVersion != fileprotocol.Version {
 		return fileprotocol.MetadataResult{}, fmt.Errorf("unsupported file protocol version")
 	}
@@ -306,15 +309,15 @@ func GetMetadata(request fileprotocol.MetadataGetRequest) (fileprotocol.Metadata
 	if err != nil {
 		return fileprotocol.MetadataResult{}, fmt.Errorf("read metadata: %w", err)
 	}
-	unavailable := fileprotocol.FieldValue{State: fileprotocol.CapabilityUnavailable}
+	if err := ctx.Err(); err != nil {
+		return fileprotocol.MetadataResult{}, err
+	}
+	optionalFields := root.platformMetadataFields(ctx, components, info)
 	return fileprotocol.MetadataResult{
 		ProtocolVersion: fileprotocol.Version, RootID: request.RootID,
 		RelativePath: request.RelativePath, Kind: kindFromMode(info.Mode()),
 		Size: info.Size(), ModifiedAt: info.ModTime().UTC(), Mode: uint32(info.Mode()),
-		OptionalFields: map[string]fileprotocol.FieldValue{
-			"owner": unavailable, "acl": unavailable, "birth_time": unavailable,
-			"extended_attributes": unavailable,
-		},
+		OptionalFields: optionalFields,
 	}, nil
 }
 
@@ -540,13 +543,17 @@ func platformCapabilities() fileprotocol.RootCapabilities {
 		POSIXMode: unavailable, Owner: unavailable, ACL: unavailable,
 		ExtendedAttributes: unavailable, SparseFiles: unavailable,
 		SafeHandleRelativeIO: available,
-		MetadataWrite:        unavailable, ArchiveCreate: unavailable,
-		ArchiveList: unavailable, ArchiveExtract: unavailable,
-		ArchiveFormats: []string{},
+		MetadataWrite:        metadataWriteCapability(), ArchiveCreate: available,
+		ArchiveList: available, ArchiveExtract: available,
+		ArchiveFormats: []string{string(fileprotocol.ArchiveZIP)},
 	}
 	if runtime.GOOS != windowsOS {
 		capabilities.CaseSensitive = available
 		capabilities.POSIXMode = available
+	}
+	if runtime.GOOS == "linux" {
+		capabilities.ACL = available
+		capabilities.ExtendedAttributes = available
 	}
 	if runtime.GOOS == windowsOS {
 		capabilities.SafeHandleRelativeIO = unavailable

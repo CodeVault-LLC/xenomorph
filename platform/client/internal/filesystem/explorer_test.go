@@ -198,7 +198,7 @@ func TestReadPreviewIsBoundedAndRejectsSymlink(t *testing.T) {
 
 func TestUnknownFilesystemRootIsRejected(t *testing.T) {
 	request := fileprotocol.MetadataGetRequest{ProtocolVersion: fileprotocol.Version, RootID: "unknown-root"}
-	if _, err := GetMetadata(request); err == nil {
+	if _, err := GetMetadata(context.Background(), request); err == nil {
 		t.Fatal("GetMetadata() error = nil, want unknown root rejection")
 	}
 }

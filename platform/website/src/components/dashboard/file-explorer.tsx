@@ -1,12 +1,17 @@
 import { type RefObject, useEffect, useRef, useState } from "react"
 
 import { DetailsInspector } from "@/components/dashboard/file-explorer/details-inspector"
+import {
+  ArchiveDialog,
+  type ArchiveIntent,
+} from "@/components/dashboard/file-explorer/archive-dialog"
 import { FileBrowserCard } from "@/components/dashboard/file-explorer/file-browser-card"
 import { FileViewer } from "@/components/dashboard/file-explorer/file-viewer"
 import {
   MutationDialog,
   type MutationIntent,
 } from "@/components/dashboard/file-explorer/mutation-dialog"
+import { MetadataDialog } from "@/components/dashboard/file-explorer/metadata-dialog"
 import {
   errorMessage,
   isAbortError,
@@ -60,6 +65,8 @@ export function FileExplorer({ agentID }: { agentID: string }) {
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [downloadPending, setDownloadPending] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [metadataOpen, setMetadataOpen] = useState(false)
+  const [archiveIntent, setArchiveIntent] = useState<ArchiveIntent>()
   const [mutationIntent, setMutationIntent] = useState<MutationIntent>()
   const [selectedEntryIDs, setSelectedEntryIDs] = useState<Set<string>>(
     new Set()
@@ -91,6 +98,8 @@ export function FileExplorer({ agentID }: { agentID: string }) {
       setDetailsLoading(false)
       setDownloadPending(false)
       setUploadOpen(false)
+      setMetadataOpen(false)
+      setArchiveIntent(undefined)
       setMutationIntent(undefined)
       setSelectedEntryIDs(new Set())
       setWorkspaceError("")
@@ -452,6 +461,49 @@ export function FileExplorer({ agentID }: { agentID: string }) {
     }
   }
 
+  const requestArchiveCreate = () => {
+    const sources = (page?.entries ?? [])
+      .filter(
+        (entry) => selectedEntryIDs.has(entry.entry_id) && entry.operation_name
+      )
+      .map((entry) => joinPath(relativePath, entry.operation_name ?? ""))
+    if (sources.length > 0) {
+      setArchiveIntent({ action: "create", directory: relativePath, sources })
+    }
+  }
+
+  const requestArchiveAction = (
+    action: "list" | "extract",
+    entry: FileEntry
+  ) => {
+    if (!entry.operation_name) return
+    setArchiveIntent({
+      action,
+      directory: relativePath,
+      archivePath: joinPath(relativePath, entry.operation_name),
+    })
+  }
+
+  const refreshSelectedMetadata = () => {
+    if (!root || !selectedPath) return
+    const controller = replaceRequest(detailsRequestRef)
+    setDetailsLoading(true)
+    setDetailsError("")
+    getFileMetadata(agentID, root.root_id, selectedPath, controller.signal)
+      .then((nextMetadata) => {
+        if (detailsRequestRef.current === controller) setMetadata(nextMetadata)
+      })
+      .catch((cause: unknown) => {
+        if (!isAbortError(cause) && detailsRequestRef.current === controller) {
+          setDetailsError(errorMessage(cause))
+        }
+      })
+      .finally(() => {
+        if (detailsRequestRef.current === controller) setDetailsLoading(false)
+      })
+    refreshDirectory()
+  }
+
   const mutationCompleted = (result: MutationResult) => {
     if (result.items.some((item) => item.state === "completed")) {
       setSelectedEntryIDs(new Set())
@@ -513,11 +565,22 @@ export function FileExplorer({ agentID }: { agentID: string }) {
               root?.allowed_verbs.includes("mutate") === true &&
               root.capabilities.permanent_delete === "available"
             }
+            canArchiveCreate={
+              root?.capabilities.archive_create === "available" &&
+              root.capabilities.archive_formats.includes("zip")
+            }
+            canArchiveRead={
+              root?.capabilities.archive_list === "available" &&
+              root.capabilities.archive_extract === "available" &&
+              root.capabilities.archive_formats.includes("zip")
+            }
             selectedEntryIDs={selectedEntryIDs}
             cursorIndex={cursorIndex}
             onUpload={() => setUploadOpen(true)}
             onCreate={requestCreate}
             onBulkDelete={requestBulkDelete}
+            onArchiveCreate={requestArchiveCreate}
+            onArchiveAction={requestArchiveAction}
             onSearchQueryChange={setSearchQuery}
             onSearch={submitSearch}
             onClearSearch={clearSearch}
@@ -540,6 +603,8 @@ export function FileExplorer({ agentID }: { agentID: string }) {
             selectedPath={selectedPath}
             loading={detailsLoading}
             error={detailsError}
+            capabilities={root?.capabilities}
+            onEdit={() => setMetadataOpen(true)}
           />
           <TransferDrawer
             key={agentID}
@@ -594,6 +659,32 @@ export function FileExplorer({ agentID }: { agentID: string }) {
             }}
             onComplete={mutationCompleted}
           />
+          {archiveIntent ? (
+            <ArchiveDialog
+              intent={archiveIntent}
+              agentID={agentID}
+              rootID={root.root_id}
+              onOpenChange={(open) => {
+                if (!open) setArchiveIntent(undefined)
+              }}
+              onComplete={() => {
+                setSelectedEntryIDs(new Set())
+                refreshDirectory()
+              }}
+            />
+          ) : null}
+          {metadata && selectedPath && metadataOpen ? (
+            <MetadataDialog
+              open={metadataOpen}
+              agentID={agentID}
+              rootID={root.root_id}
+              path={selectedPath}
+              metadata={metadata}
+              capabilities={root.capabilities}
+              onOpenChange={setMetadataOpen}
+              onComplete={refreshSelectedMetadata}
+            />
+          ) : null}
         </>
       ) : null}
     </>

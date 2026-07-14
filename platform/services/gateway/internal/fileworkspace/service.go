@@ -13,18 +13,27 @@ import (
 )
 
 const (
-	operationExpiry     = 2 * time.Minute
-	maxRootIDBytes      = 128
-	maxDirectoryPage    = 500
-	maxSearchQueryBytes = 256
-	maxSearchResults    = 250
-	maxSearchEntries    = 10_000
-	maxSearchDepth      = 16
-	maxPreviewReadBytes = 1 << 20
-	maxMutationItems    = 100
-	maxAppendBytes      = 1 << 20
-	maxRelativePath     = 4096
-	maxPathComponents   = 256
+	operationExpiry       = 2 * time.Minute
+	maxRootIDBytes        = 128
+	maxDirectoryPage      = 500
+	maxSearchQueryBytes   = 256
+	maxSearchResults      = 250
+	maxSearchEntries      = 10_000
+	maxSearchDepth        = 16
+	maxPreviewReadBytes   = 1 << 20
+	maxMutationItems      = 100
+	maxAppendBytes        = 1 << 20
+	maxRelativePath       = 4096
+	maxPathComponents     = 256
+	maxArchiveSources     = 100
+	maxArchiveEntries     = 10_000
+	maxArchiveDepth       = 64
+	maxArchiveBytes       = 1 << 30
+	maxArchiveRatio       = 100
+	maxArchiveRuntime     = 30 * time.Second
+	maxArchiveListItems   = 250
+	maxArchiveNameBytes   = 32 << 10
+	maxMetadataFutureSkew = 24 * time.Hour
 )
 
 // Service validates and dispatches durable file workspace operations.
@@ -86,6 +95,12 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 	if mutation, ok := request.(*fileprotocol.MutationRequest); ok {
 		mutation.OperationID = operationID
 	}
+	if metadata, ok := request.(*fileprotocol.MetadataSetRequest); ok {
+		metadata.OperationID = operationID
+	}
+	if archive, ok := request.(*fileprotocol.ArchiveRequest); ok {
+		archive.OperationID = operationID
+	}
 	if err := prepareRequest(commandType, request, rootID); err != nil {
 		return Operation{}, err
 	}
@@ -116,7 +131,7 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 }
 
 func fileCommandReason(commandType string) string {
-	if commandType == fileprotocol.CommandOperationExecute {
+	if commandType == fileprotocol.CommandOperationExecute || commandType == fileprotocol.CommandMetadataSet || commandType == fileprotocol.CommandArchiveExecute {
 		return "Preconditioned file workspace mutation"
 	}
 	return "Read-only file workspace operation"
@@ -360,6 +375,10 @@ func prepareRequest(commandType string, request any, rootID string) error {
 		return prepareDirectorySearchRequest(commandType, rootID, typed)
 	case *fileprotocol.MetadataGetRequest:
 		return prepareMetadataRequest(commandType, rootID, typed)
+	case *fileprotocol.MetadataSetRequest:
+		return prepareMetadataSetRequest(commandType, rootID, typed)
+	case *fileprotocol.ArchiveRequest:
+		return prepareArchiveRequest(commandType, rootID, typed)
 	case *fileprotocol.PreviewReadRequest:
 		return preparePreviewRequest(commandType, rootID, typed)
 	case *fileprotocol.MutationRequest:
@@ -408,6 +427,79 @@ func prepareMetadataRequest(commandType, rootID string, request *fileprotocol.Me
 	}
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
 	return nil
+}
+func prepareMetadataSetRequest(commandType, rootID string, request *fileprotocol.MetadataSetRequest) error {
+	if commandType != fileprotocol.CommandMetadataSet || request.Delta.ModifiedAt == nil && request.Delta.POSIXMode == nil {
+		return fmt.Errorf("invalid metadata update request")
+	}
+	if err := validateOperatorRelativePath(request.RelativePath); err != nil {
+		return fmt.Errorf("metadata path is invalid")
+	}
+	if request.Delta.ModifiedAt != nil {
+		minimum, maximum := time.Unix(0, 0).UTC(), time.Now().UTC().Add(maxMetadataFutureSkew)
+		if request.Delta.ModifiedAt.Before(minimum) || request.Delta.ModifiedAt.After(maximum) {
+			return fmt.Errorf("metadata timestamp is outside limit")
+		}
+	}
+	if request.Delta.POSIXMode != nil && *request.Delta.POSIXMode > 0o7777 {
+		return fmt.Errorf("POSIX mode is outside limit")
+	}
+	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+	return nil
+}
+func prepareArchiveRequest(commandType, rootID string, request *fileprotocol.ArchiveRequest) error {
+	if commandType != fileprotocol.CommandArchiveExecute || request.Format != fileprotocol.ArchiveZIP || !validArchiveAction(request.Action) {
+		return fmt.Errorf("invalid archive request")
+	}
+	if err := validateOperatorRelativePath(request.ArchivePath); err != nil {
+		return fmt.Errorf("archive path is invalid")
+	}
+	if err := validateArchiveOperands(request); err != nil {
+		return err
+	}
+	if request.Action != fileprotocol.ArchiveList && !validArchiveConflict(request.Conflict) {
+		return fmt.Errorf("archive conflict strategy is invalid")
+	}
+	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+	request.Limits = fileprotocol.ArchiveLimits{
+		MaxEntries: maxArchiveEntries, MaxDepth: maxArchiveDepth,
+		MaxExpandedBytes: maxArchiveBytes, MaxTemporaryBytes: maxArchiveBytes,
+		MaxCompressionRatio: maxArchiveRatio, MaxRuntime: maxArchiveRuntime,
+		MaxListedEntries: maxArchiveListItems, MaxListedNameBytes: maxArchiveNameBytes,
+	}
+	return nil
+}
+
+func validArchiveAction(action fileprotocol.ArchiveAction) bool {
+	return action == fileprotocol.ArchiveCreate || action == fileprotocol.ArchiveList || action == fileprotocol.ArchiveExtract
+}
+
+func validateArchiveOperands(request *fileprotocol.ArchiveRequest) error {
+	if request.Action == fileprotocol.ArchiveCreate {
+		return validateArchiveSources(request.SourcePaths)
+	}
+	if request.Action == fileprotocol.ArchiveExtract {
+		if err := validateOperatorRelativePath(request.DestinationPath); err != nil {
+			return fmt.Errorf("archive destination is invalid")
+		}
+	}
+	return nil
+}
+
+func validateArchiveSources(sources []string) error {
+	if len(sources) == 0 || len(sources) > maxArchiveSources {
+		return fmt.Errorf("archive source count exceeds limit")
+	}
+	for _, source := range sources {
+		if err := validateOperatorRelativePath(source); err != nil {
+			return fmt.Errorf("archive source path is invalid")
+		}
+	}
+	return nil
+}
+
+func validArchiveConflict(conflict fileprotocol.ConflictStrategy) bool {
+	return conflict == fileprotocol.ConflictFail || conflict == fileprotocol.ConflictSkip || conflict == fileprotocol.ConflictRenameNew
 }
 func preparePreviewRequest(commandType, rootID string, request *fileprotocol.PreviewReadRequest) error {
 	if commandType != fileprotocol.CommandPreviewRead || request.Offset < 0 || request.Length <= 0 || request.Length > maxPreviewReadBytes {

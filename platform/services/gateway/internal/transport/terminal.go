@@ -12,6 +12,10 @@ import (
 const (
 	maxTerminalSessionsPerAgent = 12
 	maxTerminalEntriesPerAgent  = 300
+	maxTerminalLabelBytes       = 80
+	terminalShellPowerShell     = "powershell"
+	terminalShellZsh            = "zsh"
+	terminalShellBash           = "bash"
 )
 
 // TerminalSession is the dashboard read model for a browser-created terminal
@@ -56,6 +60,7 @@ type TerminalStore struct {
 	entries  map[string][]TerminalEntry
 }
 
+// NewTerminalStore creates an empty bounded terminal read model.
 func NewTerminalStore() *TerminalStore {
 	return &TerminalStore{
 		sessions: make(map[string][]TerminalSession),
@@ -63,12 +68,13 @@ func NewTerminalStore() *TerminalStore {
 	}
 }
 
+// CreateSession creates gateway-authored session identity for operator-authored terminal preferences.
 func (s *TerminalStore) CreateSession(agentID, label, shell, workingDirectory string) TerminalSession {
 	now := time.Now().UTC()
 	session := TerminalSession{
 		AgentID:          agentID,
 		SessionID:        uuid.New().String(),
-		Label:            clampText(strings.TrimSpace(label), 80),
+		Label:            clampText(strings.TrimSpace(label), maxTerminalLabelBytes),
 		Shell:            normalizeTerminalShell(shell),
 		WorkingDirectory: clampText(strings.TrimSpace(workingDirectory), maxPathLen),
 		CreatedAt:        now,
@@ -81,7 +87,8 @@ func (s *TerminalStore) CreateSession(agentID, label, shell, workingDirectory st
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sessions := append(s.sessions[agentID], session)
+	sessions := s.sessions[agentID]
+	sessions = append(sessions, session)
 	if overflow := len(sessions) - maxTerminalSessionsPerAgent; overflow > 0 {
 		sessions = append([]TerminalSession(nil), sessions[overflow:]...)
 	}
@@ -89,6 +96,7 @@ func (s *TerminalStore) CreateSession(agentID, label, shell, workingDirectory st
 	return session
 }
 
+// ListSessions returns bounded sessions for one gateway-authenticated agent.
 func (s *TerminalStore) ListSessions(agentID string) []TerminalSession {
 	if s == nil || agentID == "" {
 		return nil
@@ -104,6 +112,7 @@ func (s *TerminalStore) ListSessions(agentID string) []TerminalSession {
 	return sessions
 }
 
+// Session returns one session only when it belongs to the requested agent.
 func (s *TerminalStore) Session(agentID, sessionID string) (TerminalSession, bool) {
 	if s == nil || agentID == "" || sessionID == "" {
 		return TerminalSession{}, false
@@ -120,6 +129,7 @@ func (s *TerminalStore) Session(agentID, sessionID string) (TerminalSession, boo
 	return TerminalSession{}, false
 }
 
+// DeleteSession removes one agent-scoped session and its in-memory entries.
 func (s *TerminalStore) DeleteSession(agentID, sessionID string) bool {
 	if s == nil || agentID == "" || sessionID == "" {
 		return false
@@ -154,6 +164,7 @@ func (s *TerminalStore) DeleteSession(agentID, sessionID string) bool {
 	return true
 }
 
+// AppendQueued records a bounded gateway-authored command submission.
 func (s *TerminalStore) AppendQueued(entry TerminalEntry) {
 	if s == nil || entry.AgentID == "" || entry.SessionID == "" || entry.CommandID == "" {
 		return
@@ -168,7 +179,8 @@ func (s *TerminalStore) AppendQueued(entry TerminalEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	entries := append(s.entries[entry.AgentID], entry)
+	entries := s.entries[entry.AgentID]
+	entries = append(entries, entry)
 	if overflow := len(entries) - maxTerminalEntriesPerAgent; overflow > 0 {
 		entries = append([]TerminalEntry(nil), entries[overflow:]...)
 	}
@@ -176,6 +188,7 @@ func (s *TerminalStore) AppendQueued(entry TerminalEntry) {
 	s.touchSessionLocked(entry.AgentID, entry.SessionID, entry.CommandID, entry.Shell, entry.WorkingDirectory, entry.SubmittedAt)
 }
 
+// Complete binds an authenticated agent result to an existing gateway command ID.
 func (s *TerminalStore) Complete(agentID, commandID string, result TerminalEntry) bool {
 	if s == nil || agentID == "" || commandID == "" {
 		return false
@@ -208,6 +221,7 @@ func (s *TerminalStore) Complete(agentID, commandID string, result TerminalEntry
 	return false
 }
 
+// ListEntries returns bounded entries for one agent-scoped terminal session.
 func (s *TerminalStore) ListEntries(agentID, sessionID string, limit int) []TerminalEntry {
 	if s == nil || agentID == "" || sessionID == "" {
 		return nil
@@ -255,20 +269,20 @@ func (s *TerminalStore) touchSessionLocked(agentID, sessionID, commandID, shell,
 
 func normalizeTerminalShell(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "powershell", "powershell.exe", "windows powershell":
-		return "powershell"
+	case terminalShellPowerShell, "powershell.exe", "windows powershell":
+		return terminalShellPowerShell
 	case "pwsh", "powershell core":
 		return "pwsh"
 	case "cmd", "cmd.exe":
 		return "cmd"
-	case "zsh":
-		return "zsh"
-	case "bash":
-		return "bash"
+	case terminalShellZsh:
+		return terminalShellZsh
+	case terminalShellBash:
+		return terminalShellBash
 	case "sh":
 		return "sh"
 	default:
-		return "bash"
+		return terminalShellBash
 	}
 }
 
@@ -276,11 +290,11 @@ func defaultTerminalShell(osVersion string) string {
 	normalized := strings.ToLower(osVersion)
 	switch {
 	case strings.Contains(normalized, "windows"):
-		return "powershell"
+		return terminalShellPowerShell
 	case strings.Contains(normalized, "darwin"), strings.Contains(normalized, "mac"):
-		return "zsh"
+		return terminalShellZsh
 	default:
-		return "bash"
+		return terminalShellBash
 	}
 }
 

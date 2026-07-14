@@ -1,0 +1,10 @@
+# The gateway is the system trust boundary. Changes require repository-owner review.
+* @lukasolsen
+
+# Component ownership keeps specialist review visible as the repository grows.
+/platform/client/ @lukasolsen
+/platform/services/gateway/ @lukasolsen
+/platform/shared/ @lukasolsen
+/platform/website/ @lukasolsen
+/.github/ @lukasolsen
+/.docs/ @lukasolsen

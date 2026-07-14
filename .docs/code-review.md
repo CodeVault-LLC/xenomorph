@@ -107,3 +107,5 @@ A pull request is ready for approval only when it includes:
 - remaining risks, deferred work, and platform coverage.
 
 Release-gate changes require two-person review, including a reviewer responsible for the gateway trust boundary. A change cannot merge while a Blocker or High finding remains unresolved.
+
+The repository pull-request template collects this evidence. `CODEOWNERS` routes all changes to the current repository owner and records component paths explicitly; it does not replace specialist review or the two-person release-gate requirement.

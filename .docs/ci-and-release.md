@@ -2,7 +2,7 @@
 
 ## Ownership
 
-The root `Makefile` owns reproducible developer commands. `.github/workflows/ci.yml` owns pull-request and `main` branch verification. Neither file currently owns artifact publication, signing, deployment, rollback, or update distribution. Those release functions do not yet exist.
+The root `Makefile` owns reproducible developer commands. `.github/workflows/ci.yml` owns pull-request, `main`, and `rewrite` verification. `.github/CODEOWNERS` owns review routing, and `.github/pull_request_template.md` owns the required change-evidence shape. Neither the repository nor workflow currently owns artifact publication, signing, deployment, rollback, or update distribution. Those release functions do not yet exist.
 
 ## Current CI Gates
 
@@ -11,6 +11,17 @@ The Go job installs pinned analysis tools and runs `make ci-go`. That target ver
 The website job installs pinned Bun `1.3.9` dependencies from `bun.lock` and runs `make ci-web`. That target checks Prettier formatting, ESLint, TypeScript, and a Vite production build. Bun is the only supported website package manager.
 
 CI runs on pull requests, pushes to `main` and the temporary `rewrite` integration branch, and manual dispatch.
+
+## Integration Branch Protection
+
+The GitHub `rewrite` branch rule is enforced for administrators and contributors. It requires:
+
+- the `Go quality and cross-platform build` and `Website quality and production build` checks on a branch current with its base;
+- one code-owner approval, dismissal of stale approvals, and approval after the most recent push;
+- resolution of review conversations; and
+- rejection of force-pushes and branch deletion.
+
+The default `main` branch remains outside the temporary rewrite-integration rule. Promotion to `main` is blocked by the Milestone 1 release decision and requires its own reviewed release-branch protection before merge.
 
 Cross-compilation proves compilation only. It does not prove filesystem safety, process behavior, screen capture, terminal execution, packaging, installation, or upgrade behavior on a target operating system.
 

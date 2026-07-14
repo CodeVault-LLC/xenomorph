@@ -22,7 +22,13 @@ const (
 // and subscription for the gateway flows through this type.
 type NATS struct {
 	Conn *nats.Conn
-	JS   nats.JetStreamContext
+	js   jetStream
+}
+
+type jetStream interface {
+	Publish(subject string, data []byte, options ...nats.PubOpt) (*nats.PubAck, error)
+	StreamInfo(stream string, options ...nats.JSOpt) (*nats.StreamInfo, error)
+	AddStream(config *nats.StreamConfig, options ...nats.JSOpt) (*nats.StreamInfo, error)
 }
 
 // New connects to the NATS server at url and initializes the JetStream
@@ -44,14 +50,16 @@ func New(url string) (*NATS, error) {
 
 	js, err := nc.JetStream()
 	if err != nil {
+		nc.Close()
 		return nil, fmt.Errorf("JetStream context initialization failed: %w", err)
 	}
 
 	if err := ensureSystemEventsStream(js); err != nil {
+		nc.Close()
 		return nil, err
 	}
 
-	return &NATS{Conn: nc, JS: js}, nil
+	return &NATS{Conn: nc, js: js}, nil
 }
 
 // Close shuts down the NATS connection. Safe to call multiple times.
@@ -62,20 +70,25 @@ func (n *NATS) Close() {
 }
 
 // Publish marshals msg as protobuf and publishes it to the given subject
-// via JetStream PublishAsync. Returns an error when marshalling fails or
-// when the JetStream publish fails.
+// via JetStream and waits for the server acknowledgement. Returns an error
+// when marshalling fails or durable publication is not acknowledged.
 //
 // The subject must be in the "sys.in." namespace to match the SYSTEM_EVENTS
 // stream. Subjects outside this namespace are not captured by the stream and
 // will not be persisted.
 func (n *NATS) Publish(subject string, msg proto.Message) error {
+	if n == nil || n.js == nil {
+		return fmt.Errorf("JetStream context is nil; call New before Publish")
+	}
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("protobuf marshal failed: %w", err)
 	}
 
-	_, err = n.JS.PublishAsync(subject, data)
-	return err
+	if _, err := n.js.Publish(subject, data); err != nil {
+		return fmt.Errorf("JetStream publish failed: %w", err)
+	}
+	return nil
 }
 
 // Subscribe registers a core NATS subscription (not JetStream pull-based) on
@@ -96,7 +109,10 @@ func (n *NATS) Subscribe(subject string, handler nats.MsgHandler) (*nats.Subscri
 // ensureSystemEventsStream creates the SYSTEM_EVENTS stream when it does not
 // exist. The stream covers the "sys.in.>" subject namespace and uses file
 // storage for persistence.
-func ensureSystemEventsStream(js nats.JetStreamContext) error {
+func ensureSystemEventsStream(js jetStream) error {
+	if js == nil {
+		return fmt.Errorf("JetStream context is nil")
+	}
 	_, err := js.StreamInfo(systemEventsStream)
 	if err == nil {
 		return nil

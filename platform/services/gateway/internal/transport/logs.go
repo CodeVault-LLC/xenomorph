@@ -48,7 +48,8 @@ func (s *AgentLogStore) Append(entry AgentLogEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	entries := append(s.entries[entry.AgentID], entry)
+	entries := s.entries[entry.AgentID]
+	entries = append(entries, entry)
 	if overflow := len(entries) - s.limit; overflow > 0 {
 		entries = append([]AgentLogEntry(nil), entries[overflow:]...)
 	}

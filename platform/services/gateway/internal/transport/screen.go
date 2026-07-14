@@ -32,12 +32,14 @@ type ScreenSessions struct {
 	viewers map[string]int
 }
 
+// NewScreenSessions creates an empty in-memory viewer counter.
 func NewScreenSessions() *ScreenSessions {
 	return &ScreenSessions{
 		viewers: make(map[string]int),
 	}
 }
 
+// BeginViewer increments the agent and global viewer counts.
 func (s *ScreenSessions) BeginViewer(agentID string) (agentViewers int, totalViewers int) {
 	if s == nil {
 		return 0, 0
@@ -50,6 +52,7 @@ func (s *ScreenSessions) BeginViewer(agentID string) (agentViewers int, totalVie
 	return s.viewers[agentID], s.total
 }
 
+// EndViewer decrements counts without allowing them to become negative.
 func (s *ScreenSessions) EndViewer(agentID string) (agentViewers int, totalViewers int) {
 	if s == nil {
 		return 0, 0
@@ -72,6 +75,7 @@ func (s *ScreenSessions) EndViewer(agentID string) (agentViewers int, totalViewe
 	return s.viewers[agentID], s.total
 }
 
+// NewScreenStore creates an empty latest-frame store.
 func NewScreenStore() *ScreenStore {
 	return &ScreenStore{
 		notify: make(chan struct{}),
@@ -79,6 +83,7 @@ func NewScreenStore() *ScreenStore {
 	}
 }
 
+// Save replaces the latest client-authored frame for an agent and wakes waiters.
 func (s *ScreenStore) Save(agentID string, frame ScreenFrame) {
 	if s == nil {
 		return
@@ -91,6 +96,7 @@ func (s *ScreenStore) Save(agentID string, frame ScreenFrame) {
 	s.notify = make(chan struct{})
 }
 
+// Latest returns the most recent client-authored frame for an agent.
 func (s *ScreenStore) Latest(agentID string) (ScreenFrame, bool) {
 	if s == nil {
 		return ScreenFrame{}, false
@@ -102,6 +108,7 @@ func (s *ScreenStore) Latest(agentID string) (ScreenFrame, bool) {
 	return frame, ok
 }
 
+// WaitLatestAfter waits until a newer frame is stored or the context ends.
 func (s *ScreenStore) WaitLatestAfter(ctx context.Context, agentID string, after time.Time) (ScreenFrame, bool) {
 	if s == nil {
 		return ScreenFrame{}, false

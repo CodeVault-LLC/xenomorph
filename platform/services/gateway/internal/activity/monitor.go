@@ -5,6 +5,7 @@ package activity
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -13,6 +14,15 @@ import (
 	"time"
 
 	pb "github.com/codevault-llc/xenomorph/platform/shared/proto/gen/go/platform/v1"
+)
+
+const (
+	applicationCategoryCapacity = 8
+	storageDeviceMaxBytes       = 160
+	storageFilesystemMaxBytes   = 32
+	storageMountpointMaxBytes   = 260
+	storageModelMaxBytes        = 160
+	storageTypeSolidState       = "solid-state"
 )
 
 // Monitor derives online/offline presence from authenticated heartbeat traffic.
@@ -58,8 +68,8 @@ func clampTelemetryText(value string, limit int) string {
 
 func normalizeStorageType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "solid-state":
-		return "solid-state"
+	case storageTypeSolidState:
+		return storageTypeSolidState
 	case "rotational":
 		return "rotational"
 	case "fixed", "removable", "network", "optical":
@@ -71,7 +81,7 @@ func normalizeStorageType(value string) string {
 
 func normalizeApplicationTypes(values []*pb.ApplicationTypeUsage) []ApplicationTypeUsage {
 	const maxDetectedApplications uint32 = 200
-	counts := make(map[string]uint32, 8)
+	counts := make(map[string]uint32, applicationCategoryCapacity)
 	total := uint32(0)
 	for _, value := range values {
 		if total >= maxDetectedApplications || value == nil || !allowedApplicationCategory(value.GetCategory()) {
@@ -240,6 +250,12 @@ func NewMonitor(offlineAfter time.Duration) *Monitor {
 // Returns an error when envelope or envelope.Security is nil or when the
 // agent ID is empty.
 func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelope) error {
+	if ctx == nil {
+		return errors.New("heartbeat context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("heartbeat context ended: %w", err)
+	}
 	if envelope == nil {
 		return fmt.Errorf("heartbeat envelope is nil")
 	}
@@ -305,10 +321,10 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 		usedStorageBytes = hb.GetUsedStorageBytes()
 		storageUsage = clampTelemetryRatio(hb.GetStorageUsage())
 		storageInodeUsage = clampTelemetryRatio(hb.GetStorageInodeUsage())
-		storageDevice = clampTelemetryText(hb.GetStorageDevice(), 160)
-		storageFilesystem = clampTelemetryText(hb.GetStorageFilesystem(), 32)
-		storageMountpoint = clampTelemetryText(hb.GetStorageMountpoint(), 260)
-		storageModel = clampTelemetryText(hb.GetStorageModel(), 160)
+		storageDevice = clampTelemetryText(hb.GetStorageDevice(), storageDeviceMaxBytes)
+		storageFilesystem = clampTelemetryText(hb.GetStorageFilesystem(), storageFilesystemMaxBytes)
+		storageMountpoint = clampTelemetryText(hb.GetStorageMountpoint(), storageMountpointMaxBytes)
+		storageModel = clampTelemetryText(hb.GetStorageModel(), storageModelMaxBytes)
 		storageType = normalizeStorageType(hb.GetStorageType())
 		storageReadOnly = hb.GetStorageReadOnly()
 		applicationTypes = normalizeApplicationTypes(hb.GetApplicationTypes())

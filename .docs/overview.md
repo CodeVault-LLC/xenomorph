@@ -14,7 +14,7 @@ The repository is not release-ready. `.docs/project-status.md` is the authoritat
 | Gateway | Agent authentication, certificate-derived agent ID, server-authored event/command identifiers, command signing and dispatch, validation, audit coordination, broker publication | Truth of client telemetry/results, local filesystem interpretation, current human-operator authentication | Verified client certificate for agent identity; gateway cryptographic state for command authorship |
 | Website | Presentation, navigation, accessibility, and collection of operator intent | Agent identity, command authenticity, filesystem truth, server-side authorization | Gateway responses for system state; browser input remains operator-authored |
 | Shared protocol | Versioned Go/protobuf and command/file structures | Runtime authorization, persistence, or transport | Reviewed source contracts and generated artifacts |
-| NATS JetStream | Durable storage/delivery of gateway-published events | Agent or operator identity, command issuance, payload truth | Gateway broker identity and subject policy once secured; current development connection lacks this production control |
+| NATS JetStream | Acknowledged durable storage/delivery of gateway-published protobuf events | Agent or operator identity, command issuance, payload truth | Gateway broker identity and subject policy once secured; current development connection lacks this production control |
 
 ## Runtime Flows
 
@@ -24,7 +24,7 @@ The gateway creates signed, audience-bound, expiring commands. The agent verifie
 
 The website calls the gateway dashboard listener for administrative workflows. Browser requests are operator-authored. The current runtime has no authenticated human operator or authorization middleware, so that listener is a release-blocking administrative trust gap even when bound to loopback or protected by TLS.
 
-The gateway publishes protobuf events to NATS JetStream. The current broker client accepts a URL without configured TLS credentials or subject authorization. Production broker protection remains a release blocker.
+The gateway publishes protobuf events synchronously to NATS JetStream and returns success only after the broker acknowledgement. The current broker client accepts a URL without configured TLS credentials or subject authorization. Production broker protection remains a release blocker.
 
 ## Persistence and Recovery Boundary
 

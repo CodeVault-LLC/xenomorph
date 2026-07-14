@@ -10,15 +10,15 @@ Work is ordered by dependency and trust. A later phase may be developed in paral
 
 ## Phase 0: Governance and Build Baseline
 
-Status: **in progress**.
+Status: **complete**.
 
-- Maintain one authoritative status, roadmap, review standard, CI/build contract, and current architecture description.
-- Use the root Makefile for Go and website validation. Use Bun as the sole website package manager.
-- Protect `rewrite` as the temporary rewrite integration branch and adopt the branch/commit/file rules in `.docs/code-review.md` for new work.
-- Add repository ownership and protected-branch settings, required reviews, and required CI checks in GitHub.
-- Resolve the current 35 golangci-lint findings without weakening the configured linters; add missing key-service and broker tests.
+- `.docs/project-status.md`, this roadmap, `.docs/code-review.md`, `.docs/ci-and-release.md`, and `.docs/overview.md` own distinct status, planning, review, build, and architecture contracts.
+- The root Makefile validates all Go modules and the website. Bun and `platform/website/bun.lock` remain the sole website package-manager contract.
+- `rewrite` is the protected temporary integration branch. GitHub requires a current branch, one fresh code-owner approval, resolved conversations, and both named CI jobs; force-push and deletion are disabled, including for administrators.
+- `.github/CODEOWNERS` assigns repository and component ownership. The pull-request template requires ownership, trust classification, compatibility, validation, and residual-risk evidence from `.docs/code-review.md`.
+- All previously reported golangci-lint findings and the two subsequently exposed shared-module findings are resolved without disabling a linter. Key-service tests cover provider rejection, fail-closed lifecycle, DEK operation/failure, command signing, and protected key storage. Broker tests cover stream provisioning, unavailable state, protobuf publication, and synchronous JetStream acknowledgement failure.
 
-Gate: documentation does not contradict the runtime; both `make ci-go` and `make ci-web` pass; required checks are enforced on the integration path.
+Gate evidence: `make ci-go` and `make ci-web` pass locally on 2026-07-14. GitHub branch-protection verification on the same date reports the two required checks `Go quality and cross-platform build` and `Website quality and production build` on `rewrite`.
 
 ## Phase 1: Close the Gateway Trust Boundary
 
@@ -27,7 +27,7 @@ Status: **not started; release blocking**.
 - Add authenticated operator identity and server-side authorization to every dashboard HTTP and WebSocket route.
 - Bind terminal, screen, file, and administrative audit events to authenticated operator, agent, trace, request, and result identifiers.
 - Add session expiry, revocation, cross-site request defenses, rate limits, and negative authorization tests.
-- Configure NATS with independent mutual-TLS identity, subject authorization, secure JetStream administration, synchronous/durably acknowledged publication, and bounded failure behavior.
+- Configure NATS with independent mutual-TLS identity, subject authorization, secure JetStream administration, and bounded reconnect and publication failure behavior. Gateway publication already waits for the JetStream acknowledgement.
 - Remove tracked development private keys from current source and history, rotate them, externalize enrollment and runtime secrets, and document incident handling for exposed development credentials.
 
 Gate: threat-model review and integration tests prove unauthenticated, unauthorized, cross-agent, cross-origin, forged, expired, replayed, and broker-bypass actions fail closed.

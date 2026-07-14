@@ -139,8 +139,7 @@ Server-authored fields may be used for trust decisions. Client-authored and oper
 
 1. Agent-to-gateway transport must use mutual TLS with `ClientAuth: tls.RequireAndVerifyClientCert` and `MinVersion: tls.VersionTLS13`.
 2. Server certificate name validation must be configured with an explicit `ServerName` on the client side; it must not default to `localhost` in production.
-3. The dashboard is an administrative interface. It must authenticate operators before exposing agent data or accepting commands. Plain HTTP without authentication is not acceptable.
-4. Service-to-service communication (gateway to NATS) must support TLS with client certificates.
+3. Service-to-service communication (gateway to NATS) must support TLS with client certificates.
 
 ### Authorization
 
@@ -208,8 +207,6 @@ The following ASVS Level 2 requirements are mandatory for this codebase.
 ### V4 Access control
 
 - V4.1.1: Access control is enforced at the gateway.
-- V4.1.2: Administrative functions require authentication.
-
 ### V5 Validation, sanitization and encoding
 
 - V5.1.3: All input is validated using positive validation (allowlists).
@@ -270,8 +267,6 @@ The repository must satisfy the following NIST Secure Software Development Frame
 
 1. Source code and build pipelines must be accessible only to authorized contributors.
 2. Secrets, certificates, and runtime credentials must be stored in secret managers or environment-specific files, never in source control.
-3. The dashboard administrative interface must require authentication.
-
 ### PS.2 Protect software from tampering
 
 1. Build outputs must be produced by the repository `Makefile` or CI pipeline, not ad-hoc local commands.

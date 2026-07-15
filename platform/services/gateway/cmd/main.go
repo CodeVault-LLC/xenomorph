@@ -17,7 +17,7 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
 )
 
-const maximumConcurrentGatewayServices = 3
+const maximumConcurrentGatewayServices = 2
 
 func run() error {
 	if err := sdk.InitLogger(""); err != nil {
@@ -71,7 +71,7 @@ func serveGateway(ctx context.Context, cancel context.CancelFunc, cfg config.Gat
 	}
 
 	serviceFailures := make(chan error, maximumConcurrentGatewayServices)
-	startHTTPServers(ctx, cfg, srv, serviceFailures)
+	startDashboardService(ctx, cfg, srv, serviceFailures)
 	startAgentQUICService(ctx, cfg, quicListener, serviceFailures)
 
 	return waitForShutdown(cancel, serviceFailures)

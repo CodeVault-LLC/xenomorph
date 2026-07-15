@@ -71,7 +71,6 @@ var logEventRegistry = map[string]wire.LogEvent{
 	"command_processing_failed":        wire.LogEventCommandProcessingFailed,
 	"command_result_submission_failed": wire.LogEventCommandResultFailed,
 	"runtime_loop_failed":              wire.LogEventRuntimeLoopFailed,
-	"quic_network_fallback":            wire.LogEventQUICNetworkFallback,
 }
 
 func heartbeatFromAgent(payload agent.HeartbeatPayload) wire.Heartbeat {

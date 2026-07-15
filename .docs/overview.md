@@ -4,7 +4,7 @@
 
 Xenomorph is an internal remote screening and support platform for controlled, explicitly authorized environments. The platform consists of an agent, gateway, shared protocol, administrative website, and NATS JetStream dependency. It collects telemetry and supports gateway-mediated command, terminal, screen, log, filesystem, and transfer workflows.
 
-The repository is not release-ready. `.docs/project-status.md` is the authoritative readiness decision. The QUIC agent transport is implemented for controlled evaluation but remains disabled by default and is not a production approval.
+The repository is not release-ready. `.docs/project-status.md` is the authoritative readiness decision. QUIC is the required runtime agent transport, but that selection is not itself a production deployment approval.
 
 ## Component Ownership
 
@@ -18,7 +18,7 @@ The repository is not release-ready. `.docs/project-status.md` is the authoritat
 
 ## Runtime Flows
 
-Agent traffic reaches the gateway over TLS 1.3 mutual TLS. The compatibility plane uses HTTPS/WebSocket; the disabled-by-default candidate plane uses raw QUIC v1 with ALPN `xenomorph-agent/1`, bounded reliable streams, and XBP/1. The gateway derives the agent ID from the verified certificate fingerprint before application dispatch. It creates trusted envelope metadata and treats hello fields, heartbeat, entry, log, terminal, screen, filesystem, transfer, and command-result content as client-authored payload.
+Agent traffic reaches the gateway exclusively over raw QUIC v1 with TLS 1.3 mutual authentication, ALPN `xenomorph-agent/1`, bounded reliable streams, and XBP/1. The runtime starts no agent HTTPS/WebSocket listener and the client has no HTTP fallback. The gateway derives the agent ID from the verified certificate fingerprint before application dispatch. It creates trusted envelope metadata and treats hello fields, heartbeat, entry, log, terminal, screen, filesystem, transfer, and command-result content as client-authored payload.
 
 The gateway creates signed, audience-bound, expiring commands. The agent verifies the dedicated command public key, command type, key ID, audience, time window, and replay nonce, then durably reserves replay state before local execution. Results return through the authenticated agent channel but remain client-authored observations. The QUIC command lane pushes the existing JSON-signed envelope; binary command signatures are not approved.
 

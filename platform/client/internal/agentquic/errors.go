@@ -3,7 +3,7 @@ package agentquic
 import "errors"
 
 var (
-	// ErrSecurityFailure means retry or HTTP fallback would create a downgrade path.
+	// ErrSecurityFailure means reconnect supervision must fail closed.
 	ErrSecurityFailure = errors.New("QUIC security negotiation failed")
 	// ErrDeliveryUncertain means bytes may have crossed the application commit boundary.
 	ErrDeliveryUncertain = errors.New("QUIC message delivery is uncertain")

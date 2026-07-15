@@ -7,8 +7,8 @@ Status date: 2026-07-15.
 | Area | Repository evidence | Decision state |
 | --- | --- | --- |
 | Protocol | Canonical schema/history, deterministic generator, generated reference, bounded primitives/frames, semantic validation, replay window, independently encoded golden frame/metadata for every message, negative tests, and fuzz targets. | Implemented; XBP production selection remains conditional. |
-| Gateway | QUIC v1/TLS 1.3 mTLS listener, admission limits, certificate identity, negotiation, replacement fence, lanes, drain, acknowledgements, metrics, qlog gate, durable journals, broker translation, transfer/media adapters. | Disabled by default. |
-| Client | Immutable configuration, strict TLS dialer, supervisor/backoff, control/event/command lanes, explicit fallback, replay ledger, transfer/media adapters, fixed logs. | Selected only by explicit client mode. |
+| Gateway | QUIC v1/TLS 1.3 mTLS listener, admission limits, certificate identity, negotiation, replacement fence, lanes, drain, acknowledgements, metrics, qlog gate, durable journals, broker translation, transfer/media adapters. | Required agent ingress runtime. |
+| Client | Immutable configuration, strict TLS dialer, supervisor/backoff, control/event/command lanes, replay ledger, transfer/media adapters, fixed logs. | QUIC required; no fallback transport. |
 | Trust tests | Real UDP integration covers successful mTLS/heartbeat commit, missing/untrusted/expired/not-yet-valid client credentials, wrong name, wrong ALPN, unsupported QUIC version, unsupported application version, and no unauthenticated ingress. | Local automated evidence. |
 | Recovery tests | Command, operation, replay-ledger, and transfer tests cover duplicate/conflict and crash recovery states. | Local automated evidence; full process/OS chaos matrix pending. |
 | Quality gates | The complete `make ci-go`, `gosec`, `go vet`, `staticcheck`, deterministic generation, race tests, and cross-builds pass locally on 2026-07-15. | Repeat the complete gate from the committed reviewed revision. |
@@ -48,10 +48,8 @@ by the QUIC implementation.
 
 | Gateway | Client mode | Agent plane | Supported now |
 | --- | --- | --- | --- |
-| Dual-stack gateway, QUIC off | `http` | Existing HTTPS/WebSocket/HTTP transfer | Yes, compatibility baseline. |
-| Dual-stack gateway, QUIC on in controlled environment | `quic` | QUIC/XBP required | Implemented, not production-approved. |
-| Dual-stack gateway, QUIC on | `quic-first` with future expiry | QUIC/XBP; ordinary network failure may use HTTPS | Implemented rollout mode, not fleet policy. |
-| QUIC-only gateway | any | Old routes removed | No; requires Phase 8 removal release. |
+| QUIC gateway | current client | QUIC/XBP required | Implemented; production evidence remains incomplete. |
+| QUIC gateway | prior HTTP-only client | Legacy HTTPS/WebSocket/HTTP transfer | Unsupported; no agent HTTPS listener is started. |
 | Multiple active gateway instances | `quic` | Shared session ownership | No; distributed fencing is not implemented. |
 
 XBP major 1 supports minor 0 only. The current and previous approved protocol
@@ -82,6 +80,6 @@ Required external or environment-dependent evidence remains:
   protocol, and product approvals; and
 - closure of all repository Milestone 1 Blocker and High findings.
 
-No production listener, QUIC-only cohort, XBP selection, binary command
-signature, datagram experiment, multi-instance gateway, or old-route removal is
-approved until its applicable evidence is recorded and reviewed.
+No production deployment, XBP production selection, binary command signature,
+datagram experiment, or multi-instance gateway is approved until its applicable
+evidence is recorded and reviewed.

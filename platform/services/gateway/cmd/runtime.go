@@ -72,12 +72,7 @@ func samePath(first, second string) bool {
 	return firstErr == nil && secondErr == nil && firstAbsolute == secondAbsolute
 }
 
-func startHTTPServers(ctx context.Context, cfg config.GatewayConfig, server *transport.Server, failures chan<- error) {
-	go func() {
-		if err := server.Run(cfg.ListenAddr, cfg.CertPath); err != nil {
-			failures <- fmt.Errorf("agent HTTPS listener: %w", err)
-		}
-	}()
+func startDashboardService(ctx context.Context, cfg config.GatewayConfig, server *transport.Server, failures chan<- error) {
 	go func() {
 		slog.Info("dashboard API server starting", "addr", cfg.DashboardAddr)
 
@@ -88,10 +83,6 @@ func startHTTPServers(ctx context.Context, cfg config.GatewayConfig, server *tra
 }
 
 func buildAgentQUICListener(cfg config.GatewayConfig, server *transport.Server, queue *command.Queue, signer command.Signer) (*agentquic.Listener, error) {
-	if !cfg.AgentQUICEnabled {
-		return nil, nil
-	}
-
 	listener, err := agentquic.NewListener(cfg.AgentQUIC, server, queue, signer.KeyID())
 	if err != nil {
 		return nil, fmt.Errorf("agent QUIC listener setup: %w", err)

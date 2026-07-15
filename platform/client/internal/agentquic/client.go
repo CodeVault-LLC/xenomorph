@@ -54,7 +54,7 @@ type Client struct {
 
 // New validates the exact TLS profile and constructs a stopped supervisor.
 func New(config clientconfig.Config, tlsConfig *tls.Config, audience, commandKeyID string) (*Client, error) {
-	if err := config.Validate(time.Now().UTC()); err != nil {
+	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("create QUIC client: %w", err)
 	}
 
@@ -142,7 +142,7 @@ func (client *Client) Authenticate() (agent.DeviceAuthResult, error) {
 
 // SendHeartbeat sends one bounded telemetry sample and waits for broker publication.
 func (client *Client) SendHeartbeat() error {
-	ctx, cancel := context.WithTimeout(context.Background(), client.config.HTTPTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), client.config.OperationTimeout)
 	defer cancel()
 
 	session, err := client.waitSession(ctx)
@@ -164,7 +164,7 @@ func (client *Client) SendHeartbeat() error {
 
 // SubmitAttestation sends endpoint inventory under a stable client operation identifier.
 func (client *Client) SubmitAttestation(payload agent.EndpointAttestation) error {
-	ctx, cancel := context.WithTimeout(context.Background(), client.config.HTTPTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), client.config.OperationTimeout)
 	defer cancel()
 
 	session, err := client.waitSession(ctx)
@@ -189,7 +189,7 @@ func (client *Client) SubmitAttestation(payload agent.EndpointAttestation) error
 
 // SendLogEntry sends fixed-code diagnostic metadata without retrying on failure.
 func (client *Client) SendLogEntry(payload agent.LogEntryPayload) error {
-	ctx, cancel := context.WithTimeout(context.Background(), client.config.HTTPTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), client.config.OperationTimeout)
 	defer cancel()
 
 	session, err := client.waitSession(ctx)
@@ -233,7 +233,7 @@ func (client *Client) PollNextCommand() (*agent.CommandEnvelope, error) {
 
 // SendCommandResult submits a terminal client-authored result under the command ID.
 func (client *Client) SendCommandResult(payload agent.CommandResultPayload) error {
-	ctx, cancel := context.WithTimeout(context.Background(), client.config.HTTPTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), client.config.OperationTimeout)
 	defer cancel()
 
 	session, err := client.waitSession(ctx)
@@ -422,12 +422,6 @@ func isSecurityFailure(err error) bool {
 
 	return errors.As(err, &certificateError) || errors.As(err, &hostnameError) ||
 		errors.As(err, &authorityError) || errors.As(err, &versionError) || cryptoError || errors.Is(err, ErrSecurityFailure)
-}
-
-// IsSecurityFailure reports failures for which retrying another transport
-// would weaken authenticated transport policy.
-func IsSecurityFailure(err error) bool {
-	return isSecurityFailure(err)
 }
 
 func waitBackoff(ctx context.Context, duration time.Duration) bool {

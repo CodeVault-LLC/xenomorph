@@ -9,6 +9,7 @@ WEBSITE_DIR := $(ROOT)/platform/website
 GO ?= go
 BUN ?= bun
 FIPS_MODULE ?= v1.0.0
+CRYPTO_ALLOWED_ENVIRONMENTS ?= $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 GOPATH ?= $(shell $(GO) env GOPATH)
 GOFMT ?= gofmt
 
@@ -126,7 +127,7 @@ build-all:
 	done
 
 run-gateway:
-	@cd $(GATEWAY_DIR) && GOFIPS140=$(FIPS_MODULE) $(GO) run ./cmd
+	@cd $(GATEWAY_DIR) && CRYPTO_ALLOWED_ENVIRONMENTS=$(CRYPTO_ALLOWED_ENVIRONMENTS) GOFIPS140=$(FIPS_MODULE) $(GO) run ./cmd
 
 run-client:
 	@cd $(CLIENT_DIR) && GOFIPS140=$(FIPS_MODULE) $(GO) run ./cmd

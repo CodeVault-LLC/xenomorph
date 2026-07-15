@@ -8,7 +8,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -34,11 +33,7 @@ type controlTransport interface {
 }
 
 type appContext struct {
-	httpClient        *http.Client
-	gatewayURL        string
-	tlsConfig         *tls.Config
 	transport         controlTransport
-	httpAgent         *agent.Agent
 	quicClient        *agentquic.Client
 	streamer          *screenStreamer
 	validator         *agent.CommandValidator
@@ -61,20 +56,12 @@ func setupApp() (*appContext, error) {
 		return nil, err
 	}
 
-	httpClient := newHTTPClient(runtimeConfig.HTTPTimeout, tlsConfig)
-	httpAgent := agent.New(httpClient, runtimeConfig.GatewayURL)
-
 	audience, err := sharedidentity.AgentIDFromCertificate(clientCertificate)
 	if err != nil {
 		return nil, fmt.Errorf("derive command audience: %w", err)
 	}
 
 	ac := &appContext{
-		httpClient:        httpClient,
-		gatewayURL:        runtimeConfig.GatewayURL,
-		tlsConfig:         tlsConfig,
-		httpAgent:         httpAgent,
-		streamer:          newScreenStreamer(runtimeConfig.GatewayURL, tlsConfig),
 		heartbeatInterval: runtimeConfig.HeartbeatInterval,
 	}
 
@@ -84,11 +71,11 @@ func setupApp() (*appContext, error) {
 	}
 
 	ac.validator = validator
-	if err := selectControlTransport(ac, runtimeConfig, audience); err != nil {
+	if err := setupQUICTransport(ac, runtimeConfig, tlsConfig, audience); err != nil {
 		return nil, err
 	}
 
-	ac.streamer.quicClient = ac.quicClient
+	ac.streamer = newScreenStreamer(ac.quicClient)
 
 	return ac, nil
 }
@@ -127,13 +114,6 @@ func loadClientTLS(runtimeConfig clientconfig.Config) (*tls.Config, *x509.Certif
 	return tlsConfig, clientCertificate, nil
 }
 
-func newHTTPClient(timeout time.Duration, tlsConfig *tls.Config) *http.Client {
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: &http.Transport{TLSClientConfig: tlsConfig.Clone()},
-	}
-}
-
 func newCommandValidator(runtimeConfig clientconfig.Config, audience string) (*agent.CommandValidator, error) {
 	verificationKey, keyID, err := loadCommandVerificationKey(runtimeConfig.CommandVerificationKeyFile)
 	if err != nil {
@@ -148,15 +128,13 @@ func newCommandValidator(runtimeConfig clientconfig.Config, audience string) (*a
 	return agent.NewCommandValidatorWithReplayLedger(verificationKey, keyID, audience, replayLedger)
 }
 
-func selectControlTransport(ac *appContext, runtimeConfig clientconfig.Config, audience string) error {
-	if runtimeConfig.TransportMode == clientconfig.TransportHTTP {
-		ac.transport = ac.httpAgent
-		ac.transferPlane = ac.httpAgent
-
-		return nil
-	}
-
-	quicClient, err := agentquic.New(runtimeConfig, ac.tlsConfig, audience, ac.validator.KeyID())
+func setupQUICTransport(
+	ac *appContext,
+	runtimeConfig clientconfig.Config,
+	tlsConfig *tls.Config,
+	audience string,
+) error {
+	quicClient, err := agentquic.New(runtimeConfig, tlsConfig, audience, ac.validator.KeyID())
 	if err != nil {
 		return err
 	}
@@ -166,47 +144,14 @@ func selectControlTransport(ac *appContext, runtimeConfig clientconfig.Config, a
 
 	cancel()
 
-	if err == nil {
-		ac.quicClient = quicClient
-		ac.transport = quicClient
-		ac.transferPlane = quicClient
-
-		return nil
-	}
-
-	quicClient.Close()
-
-	if runtimeConfig.TransportMode != clientconfig.TransportQUICFirst ||
-		agentquic.IsSecurityFailure(err) || !runtimeConfig.HTTPFallbackUntil.After(time.Now().UTC()) {
+	if err != nil {
+		quicClient.Close()
 		return fmt.Errorf("establish required QUIC transport: %w", err)
 	}
 
-	ac.transport = ac.httpAgent
-	ac.transferPlane = ac.httpAgent
-	_ = ac.httpAgent.SendLogEntry(agent.LogEntryPayload{
-		Level: "WARN", Component: "client.runtime", Message: "event=quic_network_fallback",
-	})
-
-	return nil
-}
-
-// removeLegacyRuntimeState removes the pre-stateless client state file. The
-// client never recreates this file; failure leaves data at rest and blocks
-// startup until the condition is remediated.
-func removeLegacyRuntimeState() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("resolve home directory for legacy state cleanup: %w", err)
-	}
-
-	return removeLegacyRuntimeStateAt(homeDir)
-}
-
-func removeLegacyRuntimeStateAt(homeDir string) error {
-	statePath := filepath.Join(homeDir, ".xenomorph", "agent-state.json")
-	if err := os.Remove(statePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove legacy runtime state: %w", err)
-	}
+	ac.quicClient = quicClient
+	ac.transport = quicClient
+	ac.transferPlane = quicClient
 
 	return nil
 }
@@ -315,6 +260,27 @@ func reportClientLog(ac *appContext, level, component, message string) {
 		Component: component,
 		Message:   message,
 	})
+}
+
+// removeLegacyRuntimeState removes the pre-stateless client state file. The
+// client never recreates this file; failure leaves data at rest and blocks
+// startup until the condition is remediated.
+func removeLegacyRuntimeState() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home directory for legacy state cleanup: %w", err)
+	}
+
+	return removeLegacyRuntimeStateAt(homeDir)
+}
+
+func removeLegacyRuntimeStateAt(homeDir string) error {
+	statePath := filepath.Join(homeDir, ".xenomorph", "agent-state.json")
+	if err := os.Remove(statePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove legacy runtime state: %w", err)
+	}
+
+	return nil
 }
 
 func shutdown(ac *appContext) {

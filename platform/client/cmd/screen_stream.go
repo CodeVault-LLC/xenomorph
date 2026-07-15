@@ -3,19 +3,15 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/jpeg"
 	_ "image/png"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 
 	"github.com/codevault-llc/xenomorph/platform/client/internal/agent"
 	"github.com/codevault-llc/xenomorph/platform/client/internal/agentquic"
@@ -38,19 +34,14 @@ type screenStreamPayload struct {
 }
 
 type screenStreamer struct {
-	gatewayURL string
-	tlsConfig  *tls.Config
 	quicClient *agentquic.Client
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
-func newScreenStreamer(gatewayURL string, tlsConfig *tls.Config) *screenStreamer {
-	return &screenStreamer{
-		gatewayURL: gatewayURL,
-		tlsConfig:  tlsConfig,
-	}
+func newScreenStreamer(quicClient *agentquic.Client) *screenStreamer {
+	return &screenStreamer{quicClient: quicClient}
 }
 
 func (s *screenStreamer) Start(payload json.RawMessage) error {
@@ -96,23 +87,7 @@ func (s *screenStreamer) Stop() {
 }
 
 func (s *screenStreamer) run(ctx context.Context, config screenStreamPayload, fps int, quality int) {
-	if s.quicClient != nil {
-		s.runQUIC(ctx, config, fps, quality)
-		return
-	}
-
-	for ctx.Err() == nil {
-		conn, err := s.dial(ctx)
-		if err != nil {
-			waitBeforeReconnect(ctx)
-			continue
-		}
-
-		s.writeFrames(ctx, conn, fps, quality)
-		_ = conn.Close()
-
-		waitBeforeReconnect(ctx)
-	}
+	s.runQUIC(ctx, config, fps, quality)
 }
 
 func (s *screenStreamer) runQUIC(ctx context.Context, config screenStreamPayload, fps int, quality int) {
@@ -220,57 +195,6 @@ func (s *screenStreamer) writeQUICFrames(ctx context.Context, media *agentquic.M
 	}
 }
 
-func (s *screenStreamer) writeFrames(ctx context.Context, conn *websocket.Conn, fps int, quality int) {
-	ticker := time.NewTicker(time.Second / time.Duration(fps))
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			frame, err := captureScreenJPEG(quality)
-			if err != nil {
-				continue
-			}
-
-			if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
-				return
-			}
-		}
-	}
-}
-
-func (s *screenStreamer) dial(ctx context.Context) (*websocket.Conn, error) {
-	u, err := url.Parse(s.gatewayURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse gateway url: %w", err)
-	}
-
-	switch u.Scheme {
-	case "https":
-		u.Scheme = "wss"
-	case "http":
-		u.Scheme = "ws"
-	default:
-		return nil, fmt.Errorf("unsupported gateway scheme %q", u.Scheme)
-	}
-
-	u.Path = strings.TrimRight(u.Path, "/") + "/screen/media"
-	q := u.Query()
-	q.Set("content_type", "image/jpeg")
-	u.RawQuery = q.Encode()
-
-	dialer := websocket.Dialer{TLSClientConfig: s.tlsConfig}
-
-	conn, resp, err := dialer.DialContext(ctx, u.String(), nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-
-	return conn, err
-}
-
 func clampScreenFPS(value int) int {
 	if value <= 0 {
 		return defaultScreenStreamFPS
@@ -293,11 +217,6 @@ func clampJPEGQuality(value int) int {
 	}
 
 	return value
-}
-
-func captureScreenJPEG(quality int) ([]byte, error) {
-	frame, err := captureScreenJPEGFrame(quality)
-	return frame.data, err
 }
 
 type encodedScreenFrame struct {

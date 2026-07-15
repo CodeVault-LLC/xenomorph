@@ -2,9 +2,18 @@
 
 Status date: 2026-07-15.
 
-Status: **proposed architecture; implementation is not authorized by this document**.
+Status: **repository implementation complete; QUIC is the required agent
+runtime transport; production deployment evidence remains incomplete**.
 
 Decision class: **large, trust-boundary and cross-component change**.
+
+Implementation note: references below to HTTP/WebSocket agent routes,
+dual-stack rollout, fallback, and later route removal describe the pre-cutover
+baseline and the staged migration design. The current application starts no
+agent HTTPS/WebSocket listener, the client contains no fallback transport, and
+all agent heartbeat, attestation, log, command, transfer, and media traffic uses
+QUIC. Dashboard HTTPS and gateway-to-NATS protobuf remain intentionally outside
+the agent transport replacement.
 
 Owning components: `platform/client`, `platform/services/gateway`, and
 `platform/shared`. The administrative website and the gateway-to-NATS event
@@ -1245,6 +1254,10 @@ stays bounded; dashboard viewers see explicit reconnect/stale states; loss does
 not corrupt or misassociate frames.
 
 ### Phase 8: Fleet canary, cutover, and removal
+
+The repository cutover and old agent-route removal are complete. Fleet canary,
+environment qualification, and production approval remain deployment-owned
+evidence gates.
 
 Roll out by allowlisted agent cohorts:
 

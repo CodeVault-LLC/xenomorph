@@ -2,8 +2,8 @@
 
 Status date: 2026-07-15.
 
-Status: implemented behind disabled-by-default gateway and explicit client
-transport gates. Production enablement is not approved.
+Status: implemented as the required agent transport. Production deployment is
+not approved without the evidence recorded in the release record.
 
 ## Ownership and boundary
 
@@ -90,9 +90,10 @@ recover in-flight states as `outcome_unknown`.
 ## Compatibility
 
 The dashboard remains HTTPS-only. NATS subjects and protobuf `EventEnvelope`
-shapes remain unchanged. HTTP agent, WebSocket media, and HTTP transfer routes
-remain compatibility paths for `http` mode and time-limited fallback. A session
-uses one authoritative transport; it does not dual-publish a logical event.
+shapes remain unchanged. The application does not start an agent HTTPS listener
+and the client contains no HTTP/WebSocket fallback transport. All heartbeat,
+attestation, log, command, transfer, and media traffic uses the authenticated
+QUIC session.
 
 ALPN major versions are incompatible. Minor version is selected once per
 session. Message revisions are exact. Registry IDs are append-only and
@@ -101,13 +102,14 @@ migrate independently.
 
 ## Configuration
 
-The gateway listener is off unless `AGENT_QUIC_ENABLED=true`.
+The gateway always starts the QUIC agent listener. Failure to bind UDP, load
+credentials, or initialize transport state fails gateway startup.
 
 | Gateway setting | Default | Contract |
 | --- | ---: | --- |
 | `AGENT_QUIC_ADDR` | `:8444` | UDP bind address; separate from HTTPS/dashboard listeners. |
 | `AGENT_QUIC_SERVER_CERT_FILE`, `AGENT_QUIC_SERVER_KEY_FILE`, `AGENT_QUIC_CLIENT_CA_FILE` | certificate-path files | External TLS identity and enrollment roots. |
-| `AGENT_QUIC_STATELESS_RESET_KEY_FILE`, `AGENT_QUIC_TOKEN_KEY_FILE` | state-path secret files | Exactly 32 nonzero bytes encoded as hex; file mode excludes group/other. |
+| `AGENT_QUIC_STATELESS_RESET_KEY_FILE`, `AGENT_QUIC_TOKEN_KEY_FILE` | state-path secret files | Loaded when present; otherwise independently generated with the approved CSPRNG and atomically persisted as owner-only files. Each contains exactly 32 nonzero bytes encoded as hex. |
 | `AGENT_QUIC_REQUIRE_RETRY` | `false` | Enables source-address validation for the reviewed deployment threat model. |
 | `AGENT_QUIC_HANDSHAKE_TIMEOUT`, `AGENT_QUIC_IDLE_TIMEOUT` | `5s`, `45s` | Handshake and maximum idle bounds. |
 | `AGENT_QUIC_KEEPALIVE`, `AGENT_QUIC_HEARTBEAT_INTERVAL` | `10s`, `15s` | Keepalive is transport liveness; heartbeat is application telemetry. |
@@ -123,14 +125,14 @@ The gateway listener is off unless `AGENT_QUIC_ENABLED=true`.
 | `AGENT_QUIC_DIAGNOSTICS_ENABLED`, `AGENT_QUIC_DIAGNOSTIC_PATH` | `false`, state-path `qlog` | Explicit owner-only diagnostic capture. |
 | `AGENT_QUIC_DIAGNOSTIC_FILE_LIMIT`, `AGENT_QUIC_DIAGNOSTIC_BYTE_LIMIT` | `8`, `64 MiB` | Aggregate retained-file and byte ceilings, including existing qlog files. |
 
-Client transport selection is `AGENT_TRANSPORT_MODE=http|quic|quic-first`.
-`quic` never falls back. `quic-first` requires a future RFC 3339
-`AGENT_HTTP_FALLBACK_UNTIL`; only ordinary network unavailability may use it.
-The QUIC endpoint, TLS name, credentials, CA, command key, ledger/key paths,
-heartbeat, HTTP timeout, QUIC timeouts/keepalive, and reconnect backoff are
-externalized through the `AGENT_*` settings defined in
-`platform/client/internal/config/config.go`. Production rejects `localhost` as
-the TLS name.
+The client always requires QUIC. `AGENT_QUIC_ENDPOINT` defaults to
+`localhost:8444`; `AGENT_OPERATION_TIMEOUT` defaults to `10s`. TLS name,
+credentials, CA, command key, ledger/key paths, heartbeat, QUIC
+timeouts/keepalive, and reconnect backoff are externalized through the
+`AGENT_*` settings defined in `platform/client/internal/config/config.go`.
+Production rejects `localhost` as the TLS name.
+Legacy `AGENT_TRANSPORT_MODE`, `AGENT_GATEWAY_URL`, `AGENT_HTTP_TIMEOUT`, and
+`AGENT_HTTP_FALLBACK_UNTIL` settings are rejected rather than ignored.
 
 ## Generated protocol workflow
 

@@ -8,18 +8,18 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/shared/wire"
 )
 
-func TestLogEntryUsesFixedRegistryIncludingFallbackAudit(t *testing.T) {
+func TestLogEntryUsesFixedRegistry(t *testing.T) {
 	t.Parallel()
 
 	entry, err := logEntryFromAgent(agent.LogEntryPayload{
-		Level: "WARN", Component: "client.runtime", Message: "event=quic_network_fallback",
+		Level: "INFO", Component: "client.runtime", Message: "event=runtime_started",
 	})
 	if err != nil {
-		t.Fatalf("encode fallback audit event: %v", err)
+		t.Fatalf("encode runtime audit event: %v", err)
 	}
 
-	if entry.Level != uint64(wire.LogLevelWarn) || entry.Component != uint64(wire.LogComponentRuntime) ||
-		entry.EventCode != uint64(wire.LogEventQUICNetworkFallback) || entry.Detail != "" {
+	if entry.Level != uint64(wire.LogLevelInfo) || entry.Component != uint64(wire.LogComponentRuntime) ||
+		entry.EventCode != uint64(wire.LogEventRuntimeStarted) || entry.Detail != "" {
 		t.Fatalf("unexpected fixed log entry: %#v", entry)
 	}
 

@@ -17,7 +17,6 @@ import (
 
 const (
 	defaultNATSURL                 string        = "nats://localhost:4222"
-	defaultGatewayAddr             string        = ":8443"
 	defaultGatewayCertPath         string        = "../../infrastructure/certs"
 	defaultDashboardAddr           string        = "127.0.0.1:8080"
 	defaultOfflineAfter            time.Duration = 30 * time.Second
@@ -62,7 +61,6 @@ const (
 // allowlist; other fields have safe development defaults.
 type GatewayConfig struct {
 	NATSURL               string
-	ListenAddr            string
 	CertPath              string
 	DashboardAddr         string
 	ActivityOfflineAfter  time.Duration
@@ -77,7 +75,6 @@ type GatewayConfig struct {
 	CryptoCertificate     string
 	CryptoSecurityPolicy  string
 	CryptoEnvironments    []string
-	AgentQUICEnabled      bool
 	AgentQUIC             agentquic.Config
 }
 
@@ -93,7 +90,6 @@ type GatewayConfig struct {
 //
 // String variables:
 //   - NATS_URL (default: nats://localhost:4222)
-//   - GATEWAY_ADDR (default: :8443)
 //   - GATEWAY_CERT_PATH (default: ../../infrastructure/certs)
 //   - DASHBOARD_ADDR (default: 127.0.0.1:8080)
 //   - GATEWAY_STATE_PATH (default: ./data)
@@ -120,14 +116,13 @@ func LoadFromEnv() (GatewayConfig, error) {
 	certPath := stringFromEnv("GATEWAY_CERT_PATH", defaultGatewayCertPath)
 	statePath := stringFromEnv("GATEWAY_STATE_PATH", defaultStatePath)
 
-	agentQUIC, agentQUICEnabled, err := loadAgentQUICConfig(certPath, statePath)
+	agentQUIC, err := loadAgentQUICConfig(certPath, statePath)
 	if err != nil {
 		return GatewayConfig{}, err
 	}
 
 	cfg := GatewayConfig{
 		NATSURL:               stringFromEnv("NATS_URL", defaultNATSURL),
-		ListenAddr:            stringFromEnv("GATEWAY_ADDR", defaultGatewayAddr),
 		CertPath:              certPath,
 		DashboardAddr:         stringFromEnv("DASHBOARD_ADDR", defaultDashboardAddr),
 		ActivityOfflineAfter:  offlineAfter,
@@ -142,7 +137,6 @@ func LoadFromEnv() (GatewayConfig, error) {
 		CryptoCertificate:     stringFromEnv("CRYPTO_PROVIDER_CERTIFICATE", defaultCMVPCertificate),
 		CryptoSecurityPolicy:  stringFromEnv("CRYPTO_SECURITY_POLICY", defaultSecurityPolicy),
 		CryptoEnvironments:    listFromEnv("CRYPTO_ALLOWED_ENVIRONMENTS", nil),
-		AgentQUICEnabled:      agentQUICEnabled,
 		AgentQUIC:             agentQUIC,
 	}
 
@@ -161,20 +155,15 @@ func LoadFromEnv() (GatewayConfig, error) {
 	return cfg, nil
 }
 
-func loadAgentQUICConfig(certPath, statePath string) (agentquic.Config, bool, error) {
-	enabled, err := boolFromEnv("AGENT_QUIC_ENABLED", false)
-	if err != nil {
-		return agentquic.Config{}, false, err
-	}
-
+func loadAgentQUICConfig(certPath, statePath string) (agentquic.Config, error) {
 	retry, err := boolFromEnv("AGENT_QUIC_REQUIRE_RETRY", false)
 	if err != nil {
-		return agentquic.Config{}, false, err
+		return agentquic.Config{}, err
 	}
 
 	diagnostics, err := boolFromEnv("AGENT_QUIC_DIAGNOSTICS_ENABLED", false)
 	if err != nil {
-		return agentquic.Config{}, false, err
+		return agentquic.Config{}, err
 	}
 
 	config := agentquic.Config{
@@ -189,14 +178,14 @@ func loadAgentQUICConfig(certPath, statePath string) (agentquic.Config, bool, er
 		TransportDiagnosticDirectory: stringFromEnv("AGENT_QUIC_DIAGNOSTIC_PATH", filepath.Join(statePath, "qlog")),
 	}
 	if err := loadAgentQUICTimeouts(&config); err != nil {
-		return agentquic.Config{}, false, err
+		return agentquic.Config{}, err
 	}
 
 	if err := loadAgentQUICLimits(&config); err != nil {
-		return agentquic.Config{}, false, err
+		return agentquic.Config{}, err
 	}
 
-	return config, enabled, nil
+	return config, nil
 }
 
 func loadAgentQUICTimeouts(config *agentquic.Config) error {

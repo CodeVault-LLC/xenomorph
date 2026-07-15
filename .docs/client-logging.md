@@ -45,7 +45,6 @@ or message strings.
 | `client.command` | `ERROR` | `command_processing_failed` | Processing failed before completion. |
 | `client.command` | `ERROR` | `command_result_submission_failed` | Terminal result submission failed. |
 | `client.runtime` | `ERROR` | `runtime_loop_failed` | A runtime lane exited with error. |
-| `client.runtime` | `WARN` | `quic_network_fallback` | An explicit, unexpired `quic-first` policy used HTTP after an ordinary network failure. |
 
 Fallback is not emitted for certificate, server-name, ALPN/version,
 command-key, or enforced-protocol failure because those conditions stop startup

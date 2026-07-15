@@ -2,7 +2,7 @@
 
 Status date: 2026-07-15.
 
-Status: **accepted for disabled-by-default implementation and controlled evaluation; not approved for production enablement or fleet cutover**.
+Status: **accepted as the required agent runtime transport; production deployment remains subject to the recorded evidence gates**.
 
 Owners: architecture, gateway security, client runtime, and shared protocol.
 
@@ -34,11 +34,10 @@ boundary while the transport changes.
   schema, registry, generator, bounded codecs, vectors, and fuzz targets are
   repository-owned. Production use remains conditional on the codec evidence
   gate in `.docs/quic-agent-transport-evidence.md`.
-- Keep the gateway QUIC listener disabled by default. Keep HTTP/WebSocket agent
-  routes during a bounded compatibility window.
-- Permit HTTP fallback only in explicit `quic-first` client mode with a future
-  expiry. Never fall back after certificate, server-name, ALPN/version,
-  command-key, or minimum-protocol failure.
+- Start the gateway QUIC listener as the only agent ingress service. Do not
+  start the legacy agent HTTPS/WebSocket listener.
+- Require QUIC on the client. No runtime mode, automatic HTTP fallback, or
+  downgrade policy exists.
 - Support many agents on one gateway instance. Multi-instance ownership is not
   supported until a shared session lease, command claim, operation journal, and
   connection-ID routing design are approved.

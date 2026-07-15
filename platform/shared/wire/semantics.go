@@ -157,7 +157,8 @@ const (
 	LogEventCommandResultFailed
 	// LogEventRuntimeLoopFailed reports termination of a runtime lane.
 	LogEventRuntimeLoopFailed
-	// LogEventQUICNetworkFallback reports an authorized, expiring network-only fallback.
+	// LogEventQUICNetworkFallback is retained as an assigned legacy registry ID.
+	// Current clients never emit it because no fallback transport exists.
 	LogEventQUICNetworkFallback
 )
 

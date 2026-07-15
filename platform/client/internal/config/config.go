@@ -1,12 +1,10 @@
-// Package config owns immutable agent runtime configuration loaded at startup.
-// It does not own gateway identity, transport authentication, or fallback
-// decisions after a security failure; those remain enforced by the transport.
+// Package config owns immutable QUIC agent runtime configuration loaded at
+// startup. It does not own gateway identity or transport authentication.
 package config
 
 import (
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,10 +13,9 @@ import (
 
 const (
 	defaultCertificatePath = "../infrastructure/certs"
-	defaultGatewayURL      = "https://localhost:8443"
 	defaultQUICEndpoint    = "localhost:8444"
 	defaultHeartbeat       = 15 * time.Second
-	defaultHTTPTimeout     = 10 * time.Second
+	defaultOperation       = 10 * time.Second
 	defaultHandshake       = 5 * time.Second
 	defaultIdleTimeout     = 45 * time.Second
 	defaultKeepAlive       = 10 * time.Second
@@ -27,24 +24,10 @@ const (
 	maximumHeartbeat       = 30 * time.Second
 )
 
-// TransportMode controls the explicit rollout authority for agent message families.
-type TransportMode string
-
-const (
-	// TransportHTTP uses only the bounded legacy HTTPS agent plane.
-	TransportHTTP TransportMode = "http"
-	// TransportQUIC requires QUIC and never downgrades to HTTPS.
-	TransportQUIC TransportMode = "quic"
-	// TransportQUICFirst permits an expiring network-only HTTPS rollout fallback.
-	TransportQUICFirst TransportMode = "quic-first"
-)
-
 // Config is the immutable client transport, credential, cadence, and state contract.
 type Config struct {
 	Environment                 string
 	ImplementationVersion       string
-	TransportMode               TransportMode
-	GatewayURL                  string
 	QUICEndpoint                string
 	ServerName                  string
 	ClientCertificateFile       string
@@ -54,17 +37,20 @@ type Config struct {
 	ReplayLedgerFile            string
 	ReplayAuthenticationKeyFile string
 	HeartbeatInterval           time.Duration
-	HTTPTimeout                 time.Duration
+	OperationTimeout            time.Duration
 	QUICHandshakeTimeout        time.Duration
 	QUICIdleTimeout             time.Duration
 	QUICKeepAlive               time.Duration
 	ReconnectMinimumBackoff     time.Duration
 	ReconnectMaximumBackoff     time.Duration
-	HTTPFallbackUntil           time.Time
 }
 
 // Load reads and validates agent configuration from environment variables.
 func Load() (Config, error) {
+	if err := rejectLegacyTransportConfiguration(); err != nil {
+		return Config{}, err
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return Config{}, fmt.Errorf("load client config: resolve home directory: %w", err)
@@ -72,13 +58,9 @@ func Load() (Config, error) {
 
 	certificatePath := stringFromEnv("AGENT_CERT_PATH", defaultCertificatePath)
 	statePath := stringFromEnv("AGENT_STATE_PATH", filepath.Join(home, ".xenomorph"))
-	mode := TransportMode(stringFromEnv("AGENT_TRANSPORT_MODE", string(TransportHTTP)))
-
 	config := Config{
 		Environment:                 stringFromEnv("AGENT_ENVIRONMENT", "development"),
 		ImplementationVersion:       stringFromEnv("AGENT_IMPLEMENTATION_VERSION", "development"),
-		TransportMode:               mode,
-		GatewayURL:                  stringFromEnv("AGENT_GATEWAY_URL", defaultGatewayURL),
 		QUICEndpoint:                stringFromEnv("AGENT_QUIC_ENDPOINT", defaultQUICEndpoint),
 		ServerName:                  stringFromEnv("AGENT_TLS_SERVER_NAME", "localhost"),
 		ClientCertificateFile:       stringFromEnv("AGENT_CLIENT_CERT_FILE", filepath.Join(certificatePath, "client.crt")),
@@ -88,34 +70,41 @@ func Load() (Config, error) {
 		ReplayLedgerFile:            stringFromEnv("AGENT_REPLAY_LEDGER_FILE", filepath.Join(statePath, "command-replay-ledger.json")),
 		ReplayAuthenticationKeyFile: stringFromEnv("AGENT_REPLAY_AUTH_KEY_FILE", filepath.Join(statePath, "command-replay.key")),
 	}
+
 	if err := loadDurations(&config); err != nil {
 		return Config{}, err
 	}
 
-	if raw := strings.TrimSpace(os.Getenv("AGENT_HTTP_FALLBACK_UNTIL")); raw != "" {
-		fallbackUntil, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
-			return Config{}, fmt.Errorf("AGENT_HTTP_FALLBACK_UNTIL: invalid RFC3339 time %q: %w", raw, err)
-		}
-
-		config.HTTPFallbackUntil = fallbackUntil.UTC()
-	}
-
-	if err := config.Validate(time.Now().UTC()); err != nil {
+	if err := config.Validate(); err != nil {
 		return Config{}, err
 	}
 
 	return config, nil
 }
 
+func rejectLegacyTransportConfiguration() error {
+	legacyKeys := []string{
+		"AGENT_TRANSPORT_MODE",
+		"AGENT_GATEWAY_URL",
+		"AGENT_HTTP_TIMEOUT",
+		"AGENT_HTTP_FALLBACK_UNTIL",
+	}
+	for _, key := range legacyKeys {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return fmt.Errorf("load client config: %s is no longer supported; the agent transport is QUIC-only", key)
+		}
+	}
+
+	return nil
+}
+
 // Validate enforces secure transport and bounded retry policy.
-func (config Config) Validate(now time.Time) error {
+func (config Config) Validate() error {
 	validators := []func() error{
-		config.validateModeAndVersion,
+		config.validateVersion,
 		config.validateEndpoints,
 		config.validatePaths,
 		config.validateTiming,
-		func() error { return config.validateFallback(now) },
 	}
 	for _, validate := range validators {
 		if err := validate(); err != nil {
@@ -126,11 +115,7 @@ func (config Config) Validate(now time.Time) error {
 	return nil
 }
 
-func (config Config) validateModeAndVersion() error {
-	if config.TransportMode != TransportHTTP && config.TransportMode != TransportQUIC && config.TransportMode != TransportQUICFirst {
-		return fmt.Errorf("validate client config: unsupported transport mode %q", config.TransportMode)
-	}
-
+func (config Config) validateVersion() error {
 	if version := strings.TrimSpace(config.ImplementationVersion); version == "" || len(version) > 64 {
 		return fmt.Errorf("validate client config: implementation version must contain 1 to 64 bytes")
 	}
@@ -139,11 +124,6 @@ func (config Config) validateModeAndVersion() error {
 }
 
 func (config Config) validateEndpoints() error {
-	gatewayURL, err := url.Parse(config.GatewayURL)
-	if err != nil || gatewayURL.Scheme != "https" || gatewayURL.Host == "" || gatewayURL.User != nil {
-		return fmt.Errorf("validate client config: gateway URL must be an HTTPS origin without user information")
-	}
-
 	if _, _, err := net.SplitHostPort(config.QUICEndpoint); err != nil {
 		return fmt.Errorf("validate client config: QUIC endpoint requires host and port: %w", err)
 	}
@@ -182,8 +162,8 @@ func (config Config) validateTiming() error {
 		return fmt.Errorf("validate client config: heartbeat interval must be between 10s and 30s")
 	}
 
-	if config.HTTPTimeout <= 0 || config.QUICHandshakeTimeout < time.Second || config.QUICIdleTimeout <= config.HeartbeatInterval {
-		return fmt.Errorf("validate client config: HTTP, handshake, or idle timeout is invalid")
+	if config.OperationTimeout <= 0 || config.QUICHandshakeTimeout < time.Second || config.QUICIdleTimeout <= config.HeartbeatInterval {
+		return fmt.Errorf("validate client config: operation, handshake, or idle timeout is invalid")
 	}
 
 	if config.QUICKeepAlive <= 0 || config.QUICKeepAlive >= config.QUICIdleTimeout/2 {
@@ -197,14 +177,6 @@ func (config Config) validateTiming() error {
 	return nil
 }
 
-func (config Config) validateFallback(now time.Time) error {
-	if config.TransportMode == TransportQUICFirst && (config.HTTPFallbackUntil.IsZero() || !config.HTTPFallbackUntil.After(now)) {
-		return fmt.Errorf("validate client config: quic-first requires a future HTTP fallback expiry")
-	}
-
-	return nil
-}
-
 func loadDurations(config *Config) error {
 	values := []struct {
 		key      string
@@ -212,7 +184,7 @@ func loadDurations(config *Config) error {
 		target   *time.Duration
 	}{
 		{key: "AGENT_HEARTBEAT_INTERVAL", fallback: defaultHeartbeat, target: &config.HeartbeatInterval},
-		{key: "AGENT_HTTP_TIMEOUT", fallback: defaultHTTPTimeout, target: &config.HTTPTimeout},
+		{key: "AGENT_OPERATION_TIMEOUT", fallback: defaultOperation, target: &config.OperationTimeout},
 		{key: "AGENT_QUIC_HANDSHAKE_TIMEOUT", fallback: defaultHandshake, target: &config.QUICHandshakeTimeout},
 		{key: "AGENT_QUIC_IDLE_TIMEOUT", fallback: defaultIdleTimeout, target: &config.QUICIdleTimeout},
 		{key: "AGENT_QUIC_KEEPALIVE", fallback: defaultKeepAlive, target: &config.QUICKeepAlive},

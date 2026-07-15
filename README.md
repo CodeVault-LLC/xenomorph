@@ -72,7 +72,14 @@ Terminal 2:
 make run-client
 ```
 
-The gateway and client currently use local-development endpoints and certificate paths. These defaults are not a production contract. The gateway also requires a compatible FIPS module and an explicit allowed operating environment. Consult the current configuration source and project status before running the development stack.
+The agent plane uses QUIC exclusively. Start the local NATS dependency first
+with `docker compose -f platform/infrastructure/docker-compose.yml up -d nats`.
+`make run-gateway` supplies the current Go operating environment to the
+development cryptographic-provider allowlist, creates persistent owner-only
+QUIC reset/token keys when absent, and listens on UDP `:8444`. Then
+`make run-client` connects with the development certificates. The dashboard
+remains HTTPS on `127.0.0.1:8080`; no agent HTTPS, WebSocket, or HTTP fallback
+listener is started. These defaults are not a production credential contract.
 
 ### Gateway Activity Configuration
 

@@ -48,23 +48,22 @@ func TestNewRequiresStrictTLSProfile(t *testing.T) {
 func TestSecurityFailureClassification(t *testing.T) {
 	t.Parallel()
 
-	if !IsSecurityFailure(ErrSecurityFailure) || !IsSecurityFailure(x509.UnknownAuthorityError{}) ||
-		!IsSecurityFailure(&quic.TransportError{ErrorCode: minimumQUICCryptoErrorCode}) {
+	if !isSecurityFailure(ErrSecurityFailure) || !isSecurityFailure(x509.UnknownAuthorityError{}) ||
+		!isSecurityFailure(&quic.TransportError{ErrorCode: minimumQUICCryptoErrorCode}) {
 		t.Fatal("security failure was not classified as downgrade-prohibited")
 	}
 
-	if IsSecurityFailure(errors.New("network unreachable")) {
+	if isSecurityFailure(errors.New("network unreachable")) {
 		t.Fatal("ordinary network failure was classified as a security failure")
 	}
 }
 
 func validClientConfig() clientconfig.Config {
 	return clientconfig.Config{
-		Environment: "test", ImplementationVersion: "test", TransportMode: clientconfig.TransportQUIC,
-		GatewayURL: "https://gateway.internal:8443", QUICEndpoint: "gateway.internal:8444",
+		Environment: "test", ImplementationVersion: "test", QUICEndpoint: "gateway.internal:8444",
 		ServerName: "gateway.internal", ClientCertificateFile: "client.crt", ClientPrivateKeyFile: "client.key",
 		CAFile: "ca.crt", CommandVerificationKeyFile: "command.pub", ReplayLedgerFile: "ledger.json",
-		ReplayAuthenticationKeyFile: "ledger.key", HeartbeatInterval: 15 * time.Second, HTTPTimeout: 10 * time.Second,
+		ReplayAuthenticationKeyFile: "ledger.key", HeartbeatInterval: 15 * time.Second, OperationTimeout: 10 * time.Second,
 		QUICHandshakeTimeout: 5 * time.Second, QUICIdleTimeout: 45 * time.Second, QUICKeepAlive: 10 * time.Second,
 		ReconnectMinimumBackoff: time.Second, ReconnectMaximumBackoff: time.Minute,
 	}

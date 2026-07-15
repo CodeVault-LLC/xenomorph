@@ -609,7 +609,6 @@ func logRegistryValues(entry wire.LogEntry) (string, string, string, bool) {
 		4: "attestation_submitted", 5: "attestation_failed", 6: "heartbeat_failed",
 		7: "command_received", 8: "command_completed", 9: "command_transport_failed",
 		10: "command_processing_failed", 11: "command_result_submission_failed", 12: "runtime_loop_failed",
-		13: "quic_network_fallback",
 	}
 	level, levelOK := levels[entry.Level]
 	component, componentOK := components[entry.Component]

@@ -79,6 +79,7 @@ func linuxOSVersion() string {
 			}
 
 			value = strings.Trim(value, `"`)
+
 			switch key {
 			case "PRETTY_NAME":
 				name = value

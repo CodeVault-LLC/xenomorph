@@ -1,20 +1,28 @@
 package agentquic
 
 import (
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	quic "github.com/quic-go/quic-go"
 
+	"github.com/codevault-llc/xenomorph/platform/shared/atomicfile"
 	"github.com/codevault-llc/xenomorph/platform/shared/wire"
 )
 
-const secretKeyBytes = 32
+const (
+	secretKeyBytes      = 32
+	secretDirectoryMode = 0o700
+	secretFileMode      = 0o600
+)
 
 func buildServerTLSConfig(config Config, _ *handshakeAdmission, metrics *Metrics) (*tls.Config, error) {
 	certificate, err := tls.LoadX509KeyPair(config.ServerCertificateFile, config.ServerPrivateKeyFile)
@@ -87,12 +95,12 @@ func validatePeerCertificateState(state tls.ConnectionState, config Config) erro
 }
 
 func loadTransportKeys(config Config) (*quic.StatelessResetKey, *quic.TokenGeneratorKey, error) {
-	resetBytes, err := loadSecretKey(config.StatelessResetKeyFile)
+	resetBytes, err := loadOrCreateSecretKey(config.StatelessResetKeyFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load stateless reset key: %w", err)
 	}
 
-	tokenBytes, err := loadSecretKey(config.TokenGeneratorKeyFile)
+	tokenBytes, err := loadOrCreateSecretKey(config.TokenGeneratorKeyFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load token generator key: %w", err)
 	}
@@ -101,6 +109,37 @@ func loadTransportKeys(config Config) (*quic.StatelessResetKey, *quic.TokenGener
 	tokenKey := quic.TokenGeneratorKey(tokenBytes)
 
 	return &resetKey, &tokenKey, nil
+}
+
+func loadOrCreateSecretKey(path string) ([secretKeyBytes]byte, error) {
+	existing, err := loadSecretKey(path)
+	if err == nil {
+		return existing, nil
+	}
+
+	if !errors.Is(err, fs.ErrNotExist) {
+		return [secretKeyBytes]byte{}, err
+	}
+
+	var generated [secretKeyBytes]byte
+	if _, err := rand.Read(generated[:]); err != nil {
+		return [secretKeyBytes]byte{}, fmt.Errorf("generate transport secret key: %w", err)
+	}
+
+	encoded := make([]byte, hex.EncodedLen(len(generated))+1)
+	hex.Encode(encoded, generated[:])
+	encoded[len(encoded)-1] = '\n'
+
+	defer func() {
+		clear(generated[:])
+		clear(encoded)
+	}()
+
+	if err := atomicfile.Create(path, encoded, secretDirectoryMode, secretFileMode); err != nil && !errors.Is(err, fs.ErrExist) {
+		return [secretKeyBytes]byte{}, fmt.Errorf("persist transport secret key: %w", err)
+	}
+
+	return loadSecretKey(path)
 }
 
 func loadSecretKey(path string) ([secretKeyBytes]byte, error) {

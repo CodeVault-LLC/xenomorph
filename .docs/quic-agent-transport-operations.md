@@ -2,8 +2,8 @@
 
 Status date: 2026-07-15.
 
-This runbook describes the disabled-by-default implementation. It does not
-authorize a production listener.
+This runbook describes the required runtime agent transport. It does not by
+itself authorize a production deployment.
 
 ## Deployment and firewall boundary
 
@@ -27,16 +27,17 @@ ownership failure domain.
 
 1. Provision externally issued server/client certificates and a client CA;
    remove development credentials from the deployment.
-2. Create independent random 32-byte reset and token keys, hex encode them, and
-   store them in owner-only files. Back up and rotate them under the deployment
+2. Configure persistent reset/token key paths. On first startup the gateway
+   independently generates each 32-byte key with the approved CSPRNG and
+   atomically stores it owner-only. Back up and rotate them under the deployment
    secret policy; do not derive them from TLS or command keys.
 3. Confirm the UDP firewall, NAT idle duration, MTU, receive-buffer policy, and
    kernel drop counters on the actual gateway OS.
 4. Set explicit session, handshake, prefix, stream, window, frame, transfer, and
    diagnostic limits from the approved capacity profile.
-5. Keep `AGENT_QUIC_ENABLED=false` until the release and environment have the
-   approvals recorded in `.docs/quic-agent-transport-evidence.md`.
-6. Enable one allowlisted non-production cohort. Do not dual-publish logical
+5. Confirm the release and environment have the approvals recorded in
+   `.docs/quic-agent-transport-evidence.md` before deploying it to production.
+6. Deploy one allowlisted non-production cohort. Do not dual-publish logical
    events and do not infer readiness from the dashboard TCP health endpoint.
 
 ## Monitoring and alerts
@@ -75,7 +76,7 @@ Do not kill the process merely because the TCP dashboard drained.
 
 ## Incident response
 
-- For certificate or ALPN failures, do not enable HTTP fallback. Verify the
+- For certificate or ALPN failures, verify the
   enrollment chain, validity, DNS name, command key ID, clock, and configured
   protocol without recording certificate bodies or private material.
 - For a reconnect storm, stop cohort expansion, preserve current durable state,
@@ -94,11 +95,9 @@ Do not kill the process merely because the TCP dashboard drained.
 
 ## Upgrade, rollback, and recovery
 
-Deploy mixed versions only within the recorded compatibility matrix. Change
-new-session preference by cohort; never repeat a committed operation during
+Deploy mixed protocol versions only within the recorded compatibility matrix;
+all supported versions use QUIC. Never repeat a committed operation during
 rollback. A rollback release must read all forward-written journal/ledger state.
-HTTP fallback needs an expiry and audit signal and remains prohibited for
-security failures.
 
 Back up gateway command, operation, and file-workspace state plus independently
 managed reset/token keys according to the state-path recovery policy. The client

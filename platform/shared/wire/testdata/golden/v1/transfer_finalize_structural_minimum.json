@@ -1,0 +1,25 @@
+{
+  "message": "TransferFinalize",
+  "stream": "transfer",
+  "message_type": 771,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "expected_chunk_count",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "total_size",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "whole_object_digest",
+      "encoding": "opaque32",
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

@@ -30,6 +30,7 @@ func TestParseLinkSpeedMbps(t *testing.T) {
 func TestPCIDeviceName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pci.ids")
 	data := "10de  NVIDIA Corporation\n\t2208  GA102 [GeForce RTX 3080 Ti]\n"
+
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatalf("write pci ids fixture: %v", err)
 	}

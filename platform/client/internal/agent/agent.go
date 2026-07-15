@@ -2,14 +2,7 @@
 package agent
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strconv"
 	"time"
 )
 
@@ -47,77 +40,6 @@ type HeartbeatPayload struct {
 	NetworkSSID           string                 `json:"network_ssid"`
 }
 
-// PutChunk uploads one checksum-bound chunk through the mTLS gateway plane.
-func (a *Agent) PutChunk(ctx context.Context, transferID, token string, index int, data []byte) error {
-	endpoint := a.transferChunkURL(transferID, index)
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("build transfer chunk upload: %w", err)
-	}
-	request.Header.Set("Authorization", "Bearer "+token)
-	request.Header.Set("Content-Type", "application/octet-stream")
-	response, err := a.client.Do(request)
-	if err != nil {
-		return fmt.Errorf("upload transfer chunk: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("upload transfer chunk rejected: status %d", response.StatusCode)
-	}
-	return nil
-}
-
-// GetChunk downloads one checksum-bound chunk through the mTLS gateway plane.
-func (a *Agent) GetChunk(ctx context.Context, transferID, token string, index int, expectedSize int64) ([]byte, error) {
-	if expectedSize <= 0 || expectedSize > 4<<20 {
-		return nil, fmt.Errorf("transfer chunk size is outside limit")
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.transferChunkURL(transferID, index), nil)
-	if err != nil {
-		return nil, fmt.Errorf("build transfer chunk download: %w", err)
-	}
-	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := a.client.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("download transfer chunk: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download transfer chunk rejected: status %d", response.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, expectedSize+1))
-	if err != nil {
-		return nil, fmt.Errorf("read transfer chunk: %w", err)
-	}
-	if int64(len(data)) != expectedSize {
-		return nil, fmt.Errorf("transfer chunk size mismatch")
-	}
-	return data, nil
-}
-
-// Finalize asks the gateway to verify the complete staged transfer object.
-func (a *Agent) Finalize(ctx context.Context, transferID, token string) error {
-	endpoint := a.gatewayURL + "/files/transfers/" + url.PathEscape(transferID) + "/finalize"
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("build transfer finalization: %w", err)
-	}
-	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := a.client.Do(request)
-	if err != nil {
-		return fmt.Errorf("finalize transfer: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("transfer finalization rejected: status %d", response.StatusCode)
-	}
-	return nil
-}
-
-func (a *Agent) transferChunkURL(transferID string, index int) string {
-	return a.gatewayURL + "/files/transfers/" + url.PathEscape(transferID) + "/chunks/" + strconv.Itoa(index)
-}
-
 // DeviceAuthResult contains the gateway response to device authentication.
 type DeviceAuthResult struct {
 	EventID             string
@@ -138,6 +60,9 @@ type CommandEnvelope struct {
 	Reason          string          `json:"reason"`
 	KeyID           string          `json:"key_id"`
 	Signature       string          `json:"signature"`
+	// AcknowledgePersistence is transport-owned and excluded from the signed
+	// envelope. The validator invokes it only after durable replay reservation.
+	AcknowledgePersistence func() error `json:"-"`
 }
 
 // CommandResultPayload is sent to the gateway after command execution.
@@ -164,173 +89,4 @@ type LogEntryPayload struct {
 	Level     string `json:"level"`
 	Message   string `json:"message"`
 	Component string `json:"component"`
-}
-
-// Agent manages communication with the gateway server.
-type Agent struct {
-	client     *http.Client
-	gatewayURL string
-}
-
-// New creates an Agent with the given HTTP client and gateway URL.
-func New(client *http.Client, gatewayURL string) *Agent {
-	return &Agent{
-		client:     client,
-		gatewayURL: gatewayURL,
-	}
-}
-
-// SendHeartbeat submits a heartbeat to the gateway by reusing the auth flow.
-func (a *Agent) SendHeartbeat() error {
-	_, err := a.Authenticate()
-	return err
-}
-
-// Authenticate performs device authentication with the gateway over mTLS.
-func (a *Agent) Authenticate() (DeviceAuthResult, error) {
-	payload := BuildHeartbeatPayload(nil)
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return DeviceAuthResult{}, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, a.gatewayURL+"/ingest/heartbeat", bytes.NewBuffer(data))
-	if err != nil {
-		return DeviceAuthResult{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return DeviceAuthResult{}, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != 202 && resp.StatusCode != 200 {
-		return DeviceAuthResult{}, fmt.Errorf("gateway rejected heartbeat: status %d", resp.StatusCode)
-	}
-
-	var ack struct {
-		EventID             string `json:"event_id"`
-		RequiresAttestation bool   `json:"requires_attestation"`
-	}
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, heartbeatResponseSize))
-	if readErr != nil {
-		return DeviceAuthResult{}, fmt.Errorf("read heartbeat response: %w", readErr)
-	}
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &ack); err != nil {
-			return DeviceAuthResult{}, fmt.Errorf("decode heartbeat response: %w", err)
-		}
-	}
-
-	return DeviceAuthResult{EventID: ack.EventID, RequiresAttestation: ack.RequiresAttestation}, nil
-}
-
-// SubmitAttestation submits the endpoint attestation payload to the gateway.
-func (a *Agent) SubmitAttestation(payload EndpointAttestation) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, a.gatewayURL+"/ingest/attestation", bytes.NewBuffer(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("gateway rejected entry report: status %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-// PollNextCommand fetches the next pending command from the gateway queue.
-func (a *Agent) PollNextCommand() (*CommandEnvelope, error) {
-	req, err := http.NewRequest(http.MethodGet, a.gatewayURL+"/commands/next", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode == http.StatusNoContent {
-		return nil, nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("command poll failed: status %d", resp.StatusCode)
-	}
-
-	var cmd CommandEnvelope
-	if err := json.NewDecoder(io.LimitReader(resp.Body, commandResponseSize)).Decode(&cmd); err != nil {
-		return nil, fmt.Errorf("decode command payload: %w", err)
-	}
-
-	return &cmd, nil
-}
-
-// SendCommandResult submits the command execution result to the gateway.
-func (a *Agent) SendCommandResult(payload CommandResultPayload) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, a.gatewayURL+"/commands/result", bytes.NewBuffer(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("command result rejected: status %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-// SendLogEntry submits an operational log record directly to the gateway. It
-// retains no record locally and leaves retry policy to the gateway connection.
-func (a *Agent) SendLogEntry(payload LogEntryPayload) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("encode client log entry: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, a.gatewayURL+"/ingest/logs", bytes.NewBuffer(data))
-	if err != nil {
-		return fmt.Errorf("build client log entry request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("submit client log entry: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("log entry rejected: status %d", resp.StatusCode)
-	}
-
-	return nil
 }

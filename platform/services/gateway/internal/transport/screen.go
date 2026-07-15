@@ -27,15 +27,26 @@ type ScreenStore struct {
 // separate from frame storage so viewer demand controls media streaming
 // without making frame bytes trust-bearing.
 type ScreenSessions struct {
-	mu      sync.Mutex
-	total   int
-	viewers map[string]int
+	mu                  sync.Mutex
+	total               int
+	viewers             map[string]int
+	mediaAuthorizations map[string]MediaGenerationAuthorization
+}
+
+// MediaGenerationAuthorization is the gateway-authored subset of a media
+// generation contract. Codec and dimensions remain bounded client-authored
+// observations; these values originate in the signed start-stream command.
+type MediaGenerationAuthorization struct {
+	GenerationID      [16]byte
+	FrameRateCap      uint64
+	MaximumFrameBytes uint64
 }
 
 // NewScreenSessions creates an empty in-memory viewer counter.
 func NewScreenSessions() *ScreenSessions {
 	return &ScreenSessions{
-		viewers: make(map[string]int),
+		viewers:             make(map[string]int),
+		mediaAuthorizations: make(map[string]MediaGenerationAuthorization),
 	}
 }
 
@@ -47,8 +58,10 @@ func (s *ScreenSessions) BeginViewer(agentID string) (agentViewers int, totalVie
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.viewers[agentID]++
 	s.total++
+
 	return s.viewers[agentID], s.total
 }
 
@@ -60,19 +73,106 @@ func (s *ScreenSessions) EndViewer(agentID string) (agentViewers int, totalViewe
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	count := s.viewers[agentID]
 	if count <= 0 {
 		return 0, s.total
 	}
+
 	if s.total > 0 {
 		s.total--
 	}
+
 	if count <= 1 {
 		delete(s.viewers, agentID)
+		delete(s.mediaAuthorizations, agentID)
+
 		return 0, s.total
 	}
+
 	s.viewers[agentID] = count - 1
+
 	return s.viewers[agentID], s.total
+}
+
+// AuthorizeMediaGeneration binds the signed start-stream contract to an
+// active gateway-owned viewer session. A media stream cannot create its own
+// authorization by supplying client-authored metadata.
+func (s *ScreenSessions) AuthorizeMediaGeneration(agentID string, authorization MediaGenerationAuthorization) bool {
+	if s == nil || agentID == "" || authorization.GenerationID == [16]byte{} ||
+		authorization.FrameRateCap == 0 || authorization.MaximumFrameBytes == 0 {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.viewers[agentID] == 0 {
+		return false
+	}
+
+	s.mediaAuthorizations[agentID] = authorization
+
+	return true
+}
+
+// RevokeMediaGeneration invalidates the current gateway-authored generation.
+func (s *ScreenSessions) RevokeMediaGeneration(agentID string) {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.mediaAuthorizations, agentID)
+}
+
+// AuthorizesMediaOpen reports whether an open exactly matches the current
+// gateway-authored generation and its signed resource limits.
+func (s *ScreenSessions) AuthorizesMediaOpen(
+	agentID string,
+	generationID [16]byte,
+	frameRateCap uint64,
+	maximumFrameBytes uint64,
+) bool {
+	if s == nil {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	authorization, exists := s.mediaAuthorizations[agentID]
+
+	return s.viewers[agentID] > 0 && exists &&
+		authorization.GenerationID == generationID &&
+		authorization.FrameRateCap == frameRateCap &&
+		authorization.MaximumFrameBytes == maximumFrameBytes
+}
+
+// AuthorizesMediaFrame reports whether a frame belongs to the current active
+// gateway-authored media generation.
+func (s *ScreenSessions) AuthorizesMediaFrame(agentID string, generationID [16]byte) bool {
+	if s == nil {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	authorization, exists := s.mediaAuthorizations[agentID]
+
+	return s.viewers[agentID] > 0 && exists && authorization.GenerationID == generationID
+}
+
+// Viewers returns the current bounded viewer count for an agent.
+func (s *ScreenSessions) Viewers(agentID string) int {
+	if s == nil {
+		return 0
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.viewers[agentID]
 }
 
 // NewScreenStore creates an empty latest-frame store.
@@ -105,6 +205,7 @@ func (s *ScreenStore) Latest(agentID string) (ScreenFrame, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	frame, ok := s.frames[agentID]
+
 	return frame, ok
 }
 
@@ -120,6 +221,7 @@ func (s *ScreenStore) WaitLatestAfter(ctx context.Context, agentID string, after
 			s.mu.Unlock()
 			return frame, true
 		}
+
 		notify := s.notify
 		s.mu.Unlock()
 

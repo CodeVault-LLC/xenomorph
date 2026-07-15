@@ -71,6 +71,7 @@ func NewTerminalStore() *TerminalStore {
 // CreateSession creates gateway-authored session identity for operator-authored terminal preferences.
 func (s *TerminalStore) CreateSession(agentID, label, shell, workingDirectory string) TerminalSession {
 	now := time.Now().UTC()
+
 	session := TerminalSession{
 		AgentID:          agentID,
 		SessionID:        uuid.New().String(),
@@ -89,10 +90,13 @@ func (s *TerminalStore) CreateSession(agentID, label, shell, workingDirectory st
 
 	sessions := s.sessions[agentID]
 	sessions = append(sessions, session)
+
 	if overflow := len(sessions) - maxTerminalSessionsPerAgent; overflow > 0 {
 		sessions = append([]TerminalSession(nil), sessions[overflow:]...)
 	}
+
 	s.sessions[agentID] = sessions
+
 	return session
 }
 
@@ -109,6 +113,7 @@ func (s *TerminalStore) ListSessions(agentID string) []TerminalSession {
 	sort.SliceStable(sessions, func(i, j int) bool {
 		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
 	})
+
 	return sessions
 }
 
@@ -126,6 +131,7 @@ func (s *TerminalStore) Session(agentID, sessionID string) (TerminalSession, boo
 			return session, true
 		}
 	}
+
 	return TerminalSession{}, false
 }
 
@@ -141,26 +147,33 @@ func (s *TerminalStore) DeleteSession(agentID, sessionID string) bool {
 	sessions := s.sessions[agentID]
 	nextSessions := sessions[:0]
 	deleted := false
+
 	for _, session := range sessions {
 		if session.SessionID == sessionID {
 			deleted = true
 			continue
 		}
+
 		nextSessions = append(nextSessions, session)
 	}
+
 	if !deleted {
 		return false
 	}
+
 	s.sessions[agentID] = append([]TerminalSession(nil), nextSessions...)
 
 	entries := s.entries[agentID]
 	nextEntries := entries[:0]
+
 	for _, entry := range entries {
 		if entry.SessionID != sessionID {
 			nextEntries = append(nextEntries, entry)
 		}
 	}
+
 	s.entries[agentID] = append([]TerminalEntry(nil), nextEntries...)
+
 	return true
 }
 
@@ -169,9 +182,11 @@ func (s *TerminalStore) AppendQueued(entry TerminalEntry) {
 	if s == nil || entry.AgentID == "" || entry.SessionID == "" || entry.CommandID == "" {
 		return
 	}
+
 	if entry.SubmittedAt.IsZero() {
 		entry.SubmittedAt = time.Now().UTC()
 	}
+
 	if entry.Status == "" {
 		entry.Status = "queued"
 	}
@@ -181,9 +196,11 @@ func (s *TerminalStore) AppendQueued(entry TerminalEntry) {
 
 	entries := s.entries[entry.AgentID]
 	entries = append(entries, entry)
+
 	if overflow := len(entries) - maxTerminalEntriesPerAgent; overflow > 0 {
 		entries = append([]TerminalEntry(nil), entries[overflow:]...)
 	}
+
 	s.entries[entry.AgentID] = entries
 	s.touchSessionLocked(entry.AgentID, entry.SessionID, entry.CommandID, entry.Shell, entry.WorkingDirectory, entry.SubmittedAt)
 }
@@ -202,22 +219,28 @@ func (s *TerminalStore) Complete(agentID, commandID string, result TerminalEntry
 		if entries[i].CommandID != commandID {
 			continue
 		}
+
 		now := time.Now().UTC()
 		entries[i].Status = result.Status
 		entries[i].ExitCode = result.ExitCode
 		entries[i].OutputLog = result.OutputLog
 		entries[i].Reason = result.Reason
 		entries[i].CompletedAt = &now
+
 		if result.Shell != "" {
 			entries[i].Shell = result.Shell
 		}
+
 		if result.WorkingDirectory != "" {
 			entries[i].WorkingDirectory = result.WorkingDirectory
 		}
+
 		s.entries[agentID] = entries
 		s.touchSessionLocked(agentID, entries[i].SessionID, commandID, entries[i].Shell, entries[i].WorkingDirectory, now)
+
 		return true
 	}
+
 	return false
 }
 
@@ -226,6 +249,7 @@ func (s *TerminalStore) ListEntries(agentID, sessionID string, limit int) []Term
 	if s == nil || agentID == "" || sessionID == "" {
 		return nil
 	}
+
 	if limit <= 0 || limit > maxTerminalEntriesPerAgent {
 		limit = maxTerminalEntriesPerAgent
 	}
@@ -239,12 +263,15 @@ func (s *TerminalStore) ListEntries(agentID, sessionID string, limit int) []Term
 			entries = append(entries, entry)
 		}
 	}
+
 	sort.SliceStable(entries, func(i, j int) bool {
 		return entries[i].SubmittedAt.Before(entries[j].SubmittedAt)
 	})
+
 	if len(entries) > limit {
 		entries = entries[len(entries)-limit:]
 	}
+
 	return entries
 }
 
@@ -254,15 +281,20 @@ func (s *TerminalStore) touchSessionLocked(agentID, sessionID, commandID, shell,
 		if sessions[i].SessionID != sessionID {
 			continue
 		}
+
 		sessions[i].LastCommandID = commandID
 		sessions[i].UpdatedAt = at
+
 		if shell != "" {
 			sessions[i].Shell = shell
 		}
+
 		if workingDirectory != "" {
 			sessions[i].WorkingDirectory = workingDirectory
 		}
+
 		s.sessions[agentID] = sessions
+
 		return
 	}
 }
@@ -288,6 +320,7 @@ func normalizeTerminalShell(value string) string {
 
 func defaultTerminalShell(osVersion string) string {
 	normalized := strings.ToLower(osVersion)
+
 	switch {
 	case strings.Contains(normalized, "windows"):
 		return terminalShellPowerShell
@@ -302,5 +335,6 @@ func clampTerminalOutput(value []byte, limit int) string {
 	if limit <= 0 || len(value) <= limit {
 		return string(value)
 	}
+
 	return string(value[:limit]) + "\n[output truncated]\n"
 }

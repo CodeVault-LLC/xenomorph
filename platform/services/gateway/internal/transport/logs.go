@@ -33,6 +33,7 @@ func NewAgentLogStore(limit int) *AgentLogStore {
 	if limit <= 0 {
 		limit = maxLogEntriesPerAgent
 	}
+
 	return &AgentLogStore{
 		entries: make(map[string][]AgentLogEntry),
 		limit:   limit,
@@ -50,9 +51,11 @@ func (s *AgentLogStore) Append(entry AgentLogEntry) {
 
 	entries := s.entries[entry.AgentID]
 	entries = append(entries, entry)
+
 	if overflow := len(entries) - s.limit; overflow > 0 {
 		entries = append([]AgentLogEntry(nil), entries[overflow:]...)
 	}
+
 	s.entries[entry.AgentID] = entries
 }
 
@@ -61,6 +64,7 @@ func (s *AgentLogStore) List(agentID string, limit int) []AgentLogEntry {
 	if s == nil || agentID == "" {
 		return nil
 	}
+
 	if limit <= 0 || limit > s.limit {
 		limit = s.limit
 	}
@@ -72,8 +76,10 @@ func (s *AgentLogStore) List(agentID string, limit int) []AgentLogEntry {
 	sort.SliceStable(entries, func(i, j int) bool {
 		return entries[i].ObservedAt.After(entries[j].ObservedAt)
 	})
+
 	if len(entries) > limit {
 		entries = entries[:limit]
 	}
+
 	return entries
 }

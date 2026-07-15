@@ -12,6 +12,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/fileworkspace"
@@ -23,7 +25,7 @@ const (
 	clientStreamInterval     time.Duration = 250 * time.Millisecond
 	screenFrameTimeout       time.Duration = 15 * time.Second
 	dashboardShutdownTimeout time.Duration = 5 * time.Second
-	liveScreenFPS            int           = 60
+	liveScreenFrameRateCap   uint64        = 60
 	liveScreenQuality        int           = 70
 	maxLiveViewers           int           = 25
 )
@@ -96,8 +98,10 @@ func RunDashboard(ctx context.Context, addr, certPath string, runtime DashboardR
 
 	go func(shutdownContext context.Context) {
 		<-ctx.Done()
+
 		shutdownCtx, cancel := context.WithTimeout(shutdownContext, dashboardShutdownTimeout)
 		defer cancel()
+
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			slog.ErrorContext(ctx, "dashboard shutdown failed", "error", err)
 		}
@@ -105,9 +109,11 @@ func RunDashboard(ctx context.Context, addr, certPath string, runtime DashboardR
 
 	certificate := filepath.Join(certPath, "server.crt")
 	privateKey := filepath.Join(certPath, "server.key")
+
 	if err := server.ListenAndServeTLS(certificate, privateKey); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+
 	return nil
 }
 
@@ -123,6 +129,7 @@ func registerHealthRoutes(mux *http.ServeMux, readiness readinessProvider) {
 			writeDashboardJSON(w, http.StatusServiceUnavailable, healthResponse{Status: "unready"})
 			return
 		}
+
 		writeDashboardJSON(w, http.StatusOK, healthResponse{Status: "ready"})
 	})
 }
@@ -148,6 +155,7 @@ func dashboardClients(directory ClientDirectory) []activity.ClientSnapshot {
 		if clients[i].IsOnline != clients[j].IsOnline {
 			return clients[i].IsOnline
 		}
+
 		return clients[i].LastSeen.After(clients[j].LastSeen)
 	})
 
@@ -158,6 +166,7 @@ func dashboardLogs(directory AgentLogDirectory, agentID string) []AgentLogEntry 
 	if directory == nil {
 		return []AgentLogEntry{}
 	}
+
 	return directory.List(agentID, maxLogEntriesPerAgent)
 }
 
@@ -205,21 +214,42 @@ func screenContentType(frame ScreenFrame) string {
 	if frame.ContentType == "" {
 		return defaultScreenContentType
 	}
+
 	return frame.ContentType
 }
 
-func enqueueScreenStreamCommand(queue *command.Queue, agentID string, start bool) {
-	if queue == nil {
+func enqueueScreenStreamCommand(queue *command.Queue, sessions *ScreenSessions, agentID string, start bool) {
+	if queue == nil || sessions == nil {
 		return
 	}
 
 	cmdType := string(CommandTypeStopScreenStream)
 	reason := "Live screen media stream stopped after last dashboard viewer disconnected"
 	payload := json.RawMessage(nil)
+
+	var authorization MediaGenerationAuthorization
+
 	if start {
+		generationID := uuid.New()
+
+		authorization = MediaGenerationAuthorization{
+			GenerationID:      generationID,
+			FrameRateCap:      liveScreenFrameRateCap,
+			MaximumFrameBytes: maxScreenMediaFrameBytes,
+		}
+		if !sessions.AuthorizeMediaGeneration(agentID, authorization) {
+			slog.Error("screen media generation authorization failed")
+			return
+		}
+
 		cmdType = string(CommandTypeStartScreenStream)
 		reason = "Live screen media stream requested from website dashboard"
-		payload = json.RawMessage(fmt.Sprintf(`{"fps":%d,"quality":%d}`, liveScreenFPS, liveScreenQuality))
+		payload = json.RawMessage(fmt.Sprintf(
+			`{"fps":%d,"quality":%d,"generation_id":%q,"maximum_frame_bytes":%d}`,
+			liveScreenFrameRateCap, liveScreenQuality, generationID.String(), maxScreenMediaFrameBytes,
+		))
+	} else {
+		sessions.RevokeMediaGeneration(agentID)
 	}
 
 	if err := queue.Enqueue(agentID, &command.Envelope{
@@ -228,6 +258,10 @@ func enqueueScreenStreamCommand(queue *command.Queue, agentID string, start bool
 		RequestedBy: "website",
 		Reason:      reason,
 	}); err != nil {
+		if start {
+			sessions.RevokeMediaGeneration(agentID)
+		}
+
 		slog.Error("screen stream command enqueue failed", "error", err)
 	}
 }
@@ -236,6 +270,7 @@ func latestScreen(store *ScreenStore, agentID string) (ScreenFrame, bool) {
 	if store == nil {
 		return ScreenFrame{}, false
 	}
+
 	return store.Latest(agentID)
 }
 
@@ -249,6 +284,7 @@ func findClient(directory ClientDirectory, agentID string) (activity.ClientSnaps
 			return client, true
 		}
 	}
+
 	return activity.ClientSnapshot{}, false
 }
 
@@ -264,5 +300,6 @@ func writeDashboardSSE(w http.ResponseWriter, event string, value any) {
 	if err != nil {
 		data = []byte(`{"error":"encode_failed"}`)
 	}
+
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 }

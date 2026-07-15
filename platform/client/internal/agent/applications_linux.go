@@ -31,6 +31,7 @@ func scanInstalledApplications() []string {
 			if len(apps) >= maxInstalledApps {
 				break
 			}
+
 			if entry.IsDir() || filepath.Ext(entry.Name()) != ".desktop" {
 				continue
 			}
@@ -38,6 +39,7 @@ func scanInstalledApplications() []string {
 			desktopPath := filepath.Clean(filepath.Join(dir, entry.Name()))
 			name := parseDesktopName(desktopPath)
 			name = strings.TrimSpace(name)
+
 			if name == "" {
 				name = strings.TrimSuffix(entry.Name(), ".desktop")
 			}
@@ -45,12 +47,15 @@ func scanInstalledApplications() []string {
 			if _, ok := seen[name]; ok {
 				continue
 			}
+
 			seen[name] = struct{}{}
+
 			apps = append(apps, name)
 		}
 	}
 
 	sort.Strings(apps)
+
 	if len(apps) > maxInstalledApps {
 		apps = apps[:maxInstalledApps]
 	}
@@ -63,6 +68,7 @@ func parseDesktopName(path string) string {
 	if err != nil {
 		return ""
 	}
+
 	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)

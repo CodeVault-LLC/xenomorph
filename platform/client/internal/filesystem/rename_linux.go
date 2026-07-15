@@ -9,5 +9,6 @@ func renameAt(sourceFD int, source string, destinationFD int, destination string
 	if replace {
 		flags = 0
 	}
+
 	return unix.Renameat2(sourceFD, source, destinationFD, destination, flags)
 }

@@ -1,0 +1,15 @@
+{
+  "message": "TransferAbort",
+  "stream": "transfer",
+  "message_type": 772,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "reason",
+      "encoding": "uint",
+      "value": 0
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "message": "MediaOpen",
+  "stream": "media",
+  "message_type": 1280,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "generation_id",
+      "encoding": "fixed16",
+      "value": "00000000000000000000000000000000"
+    },
+    {
+      "name": "codec",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "width",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "height",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "frame_rate_cap",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "maximum_frame_bytes",
+      "encoding": "uint",
+      "value": 0
+    }
+  ]
+}

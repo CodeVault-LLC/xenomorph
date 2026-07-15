@@ -25,11 +25,14 @@ func KeyID(publicKey *rsa.PublicKey) (string, error) {
 	if publicKey == nil {
 		return "", fmt.Errorf("command verification key is nil")
 	}
+
 	encoded, err := x509.MarshalPKIXPublicKey(publicKey)
 	if err != nil {
 		return "", fmt.Errorf("encode command verification key: %w", err)
 	}
+
 	fingerprint := sha256.Sum256(encoded)
+
 	return fmt.Sprintf("sha256:%x", fingerprint), nil
 }
 
@@ -68,6 +71,7 @@ func Sign(envelope *Envelope, privateKey *rsa.PrivateKey) error {
 	if privateKey == nil {
 		return fmt.Errorf("command signing key is nil")
 	}
+
 	return SignWithSigner(envelope, privateKey)
 }
 
@@ -78,9 +82,11 @@ func SignWithSigner(envelope *Envelope, signer crypto.Signer) error {
 	if envelope == nil {
 		return fmt.Errorf("command envelope is nil")
 	}
+
 	if signer == nil || isNilSigner(signer) {
 		return fmt.Errorf("command signing key is nil")
 	}
+
 	if _, ok := signer.Public().(*rsa.PublicKey); !ok {
 		return fmt.Errorf("command signing key must be RSA")
 	}
@@ -89,6 +95,7 @@ func SignWithSigner(envelope *Envelope, signer crypto.Signer) error {
 	if err != nil {
 		return err
 	}
+
 	signature, err := signer.Sign(rand.Reader, digest, &rsa.PSSOptions{
 		SaltLength: rsa.PSSSaltLengthEqualsHash,
 		Hash:       crypto.SHA256,
@@ -96,7 +103,9 @@ func SignWithSigner(envelope *Envelope, signer crypto.Signer) error {
 	if err != nil {
 		return fmt.Errorf("sign command envelope: %w", err)
 	}
+
 	envelope.Signature = base64.RawURLEncoding.EncodeToString(signature)
+
 	return nil
 }
 
@@ -110,17 +119,21 @@ func Verify(envelope Envelope, publicKey *rsa.PublicKey) error {
 	if publicKey == nil {
 		return fmt.Errorf("command verification key is nil")
 	}
+
 	signature, err := base64.RawURLEncoding.DecodeString(envelope.Signature)
 	if err != nil {
 		return fmt.Errorf("decode command signature: %w", err)
 	}
+
 	digest, err := digestEnvelope(envelope)
 	if err != nil {
 		return err
 	}
+
 	if err := rsa.VerifyPSS(publicKey, crypto.SHA256, digest, signature, nil); err != nil {
 		return fmt.Errorf("verify command signature: %w", err)
 	}
+
 	return nil
 }
 
@@ -141,6 +154,8 @@ func digestEnvelope(envelope Envelope) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode command envelope: %w", err)
 	}
+
 	digest := sha256.Sum256(encoded)
+
 	return digest[:], nil
 }

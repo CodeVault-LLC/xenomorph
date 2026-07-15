@@ -1,0 +1,172 @@
+// Xenomorph QUIC agent session — state-machine lifecycle overview.
+//
+// View purpose: show the externally meaningful session states and the events
+// that authenticate, install, replace, reconcile, drain, or terminate them.
+// Detailed per-message actions remain in the architecture plan to keep this
+// lifecycle view visually simple.
+// The palette is inspired by the JPL SMAP Science Data System architecture.
+//
+// Render:
+//   dot -Tpng -Gdpi=150 quic-agent-session-lifecycle.dot -o quic-agent-session-lifecycle.png
+//   dot -Tsvg quic-agent-session-lifecycle.dot -o quic-agent-session-lifecycle.svg
+digraph quic_agent_session_lifecycle {
+    graph [
+        rankdir = TB,
+        splines = ortho,
+        nodesep = 0.55,
+        ranksep = 0.8,
+        bgcolor = "#FFFFFF",
+        pad = 0.3,
+        label = "stm QUIC Agent Session Lifecycle [Authentication, Fencing, and Recovery]",
+        labelloc = "t",
+        fontname = "Helvetica-Bold",
+        fontsize = 16,
+        fontcolor = "#232022"
+    ];
+
+    node [
+        shape = rect,
+        style = "rounded,filled",
+        fillcolor = "#F9F6F1",
+        color = "#232022",
+        fontcolor = "#232022",
+        fontname = "Helvetica",
+        fontsize = 10,
+        penwidth = 1.2,
+        margin = "0.18,0.12"
+    ];
+
+    edge [
+        color = "#232022",
+        fontcolor = "#232022",
+        fontname = "Helvetica",
+        fontsize = 9,
+        penwidth = 1.1,
+        arrowsize = 0.75
+    ];
+
+    start [
+        shape = circle,
+        label = "",
+        style = filled,
+        fillcolor = "#232022",
+        width = 0.20,
+        fixedsize = true
+    ];
+
+    configured [
+        label = "Configured\nEndpoint, credentials, ALPN, limits loaded",
+        fillcolor = "#E1E7F5"
+    ];
+    handshaking [
+        label = "Handshaking\nUDP admission and TLS 1.3 mTLS"
+    ];
+    authenticated [
+        label = "Authenticated\nGateway derived agent ID and session ID",
+        fillcolor = "#D2CBAB"
+    ];
+    negotiating [
+        label = "Negotiating\nControl preamble, minor version, features, limits"
+    ];
+    duplicate [
+        shape = diamond,
+        label = "Existing\nsession?",
+        fillcolor = "#D2CBAB",
+        width = 1.0,
+        height = 0.72,
+        fixedsize = true
+    ];
+    fencing [
+        label = "Fencing Previous Session\nOld generation cannot commit or receive work",
+        fillcolor = "#D2CBAB"
+    ];
+    active [
+        label = "Active\nBounded lanes, replay window, queues, liveness",
+        fillcolor = "#E1E7F5",
+        penwidth = 1.7,
+        color = "#0066A6"
+    ];
+    reconciling [
+        label = "Reconciling\nRecover durable operation and replay state",
+        fillcolor = "#D2CBAB"
+    ];
+    draining [
+        label = "Draining\nStop new commands; settle bounded in-flight work"
+    ];
+    closed [
+        label = "Closed / Fenced\nFixed XBP close code and cleanup",
+        fillcolor = "#3F66A5",
+        fontcolor = "#FFFFFF"
+    ];
+    end [
+        shape = doublecircle,
+        label = "",
+        style = "filled,bold",
+        fillcolor = "#232022",
+        color = "#FFFFFF",
+        width = 0.22,
+        fixedsize = true
+    ];
+
+    start -> configured;
+    configured -> handshaking [xlabel = "agent dial"];
+    handshaking -> authenticated [
+        xlabel = "certificate and ALPN valid",
+        color = "#0066A6",
+        fontcolor = "#0066A6"
+    ];
+    handshaking -> closed [
+        xlabel = "timeout / version / ALPN / mTLS failure",
+        color = "#96281B",
+        fontcolor = "#96281B"
+    ];
+    authenticated -> negotiating [xlabel = "handshake complete"];
+    negotiating -> duplicate [xlabel = "ClientHello accepted"];
+    negotiating -> closed [
+        xlabel = "bad preamble / no compatible minor / timeout",
+        color = "#96281B",
+        fontcolor = "#96281B"
+    ];
+    duplicate -> fencing [xlabel = "yes"];
+    duplicate -> active [
+        xlabel = "no: atomically install",
+        color = "#0066A6",
+        fontcolor = "#0066A6"
+    ];
+    fencing -> active [
+        xlabel = "old generation fenced; install new",
+        color = "#0066A6",
+        fontcolor = "#0066A6"
+    ];
+
+    active -> active [
+        xlabel = "decode → validate → commit → application ack\nheartbeat / command / result / transfer / media",
+        color = "#0066A6",
+        fontcolor = "#0066A6"
+    ];
+    active -> reconciling [
+        xlabel = "path loss / process restart / ambiguous outcome",
+        color = "#96281B",
+        fontcolor = "#96281B"
+    ];
+    reconciling -> handshaking [
+        xlabel = "backoff with jitter; reconnect",
+        color = "#0066A6",
+        fontcolor = "#0066A6"
+    ];
+    reconciling -> closed [
+        xlabel = "unrecoverable ledger or policy failure",
+        color = "#96281B",
+        fontcolor = "#96281B"
+    ];
+    active -> draining [xlabel = "deploy / shutdown / revocation / policy"];
+    active -> closed [
+        xlabel = "newer session / protocol violation / idle timeout",
+        color = "#96281B",
+        fontcolor = "#96281B"
+    ];
+    draining -> closed [xlabel = "deadline or in-flight work settled"];
+    closed -> end [xlabel = "workers and registry entry released"];
+
+    { rank = same; reconciling; draining; }
+}

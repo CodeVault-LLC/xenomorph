@@ -1,6 +1,6 @@
 # Roadmap to Milestone 1
 
-Status date: 2026-07-14. The release decision and evidence baseline are maintained in `.docs/project-status.md`.
+Status date: 2026-07-15. The release decision and evidence baseline are maintained in `.docs/project-status.md`.
 
 ## Milestone Definition
 
@@ -22,9 +22,10 @@ Gate evidence: `make ci-go` and `make ci-web` pass locally on 2026-07-14. GitHub
 
 ## Phase 1: Stabilize Runtime and Recovery Contracts
 
-Status: **partially implemented; release blocking**.
+Status: **runtime and QUIC recovery foundations implemented; deployment recovery remains release blocking**.
 
-- Externalize and validate client gateway URL, TLS server name, credential location, heartbeat interval, polling/backoff, storage paths, and operational limits. Use a 10–30 second default heartbeat.
+- Client endpoint, TLS name, credential, heartbeat, reconnect, state, QUIC resource, and expiring fallback configuration is externalized and startup-validated. Preserve the 10–30 second heartbeat contract.
+- The QUIC/XBP transport, server-pushed command lane, command/operation journals, and authenticated client replay ledger are implemented behind disabled/explicit gates. Complete the production evidence and approvals in `.docs/quic-agent-transport-evidence.md` before enabling a release cohort.
 - Define gateway/client enrollment, renewal, revocation, shutdown, reconnection, offline, and upgrade state machines.
 - Make durability choices explicit for command queues, replay state, operations, transfers, audits, screen/session state, and key metadata.
 - Add backup, restore, retention, secure-deletion, corruption, restart, and partial-failure tests.
@@ -34,7 +35,7 @@ Gate: clean install, restart, backup/restore, degraded-dependency, and rollback 
 
 ## Phase 2: Complete the File Workspace Contract
 
-Status: **Phases 0, 1, and 2 substantially implemented; Phases 3–4 incomplete**.
+Status: **Phase 5 incomplete**.
 
 - Complete bounded search, cancellation, DOM virtualization, large-directory benchmarks, and the remaining Phase 1 acceptance evidence.
 - Implement Phase 4 normalized metadata writes and archive create/list/extract only through explicit platform capability gates and archive traversal/bomb controls.
@@ -68,7 +69,7 @@ Gate: each native binary has an approved owner and threat model and cannot bypas
 
 ## Phase 5: Product Documentation and Full Review
 
-Status: **not started; release blocking**.
+Status: **transport documentation started; release-wide documentation and review remain blocking**.
 
 - Update overview, architecture, trust/data-flow diagrams, public contracts, configuration reference, deployment topology, operator model, threat model, and platform capability matrix from verified runtime behavior.
 - Add enrollment, key/certificate lifecycle, monitoring, incident response, backup/restore, retention/deletion, upgrade/rollback, and disaster-recovery runbooks.

@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -33,6 +35,30 @@ var allowedCommandTypes = map[CommandType]struct{}{
 	CommandTypeFilesTransferAbort:    {},
 }
 
+var (
+	// ErrCommandReplay means a command or nonce was already accepted.
+	ErrCommandReplay = errors.New("command replay detected")
+	// ErrCommandOutcomeUnknown means prior execution may have crossed a side-effect boundary.
+	ErrCommandOutcomeUnknown = errors.New("command outcome requires reconciliation")
+)
+
+// CommandReplayEntry is the minimal authenticated security state persisted
+// before command execution. It deliberately excludes payload and result data.
+type CommandReplayEntry struct {
+	CommandID   string
+	NonceDigest [sha256.Size]byte
+	KeyID       string
+	Audience    string
+	IssuedAt    time.Time
+	ExpiresAt   time.Time
+}
+
+// CommandReplayLedger persists replay decisions across client restarts.
+type CommandReplayLedger interface {
+	Reserve(CommandReplayEntry) error
+	Complete(string, [sha256.Size]byte) error
+}
+
 // CommandDecision contains the result of processing a command.
 type CommandDecision struct {
 	Result CommandResultPayload
@@ -55,20 +81,38 @@ type CommandValidator struct {
 	keyID      string
 	audience   string
 	seenNonces map[string]struct{}
+	ledger     CommandReplayLedger
 	now        func() time.Time
+}
+
+// KeyID returns the immutable verification-key identifier negotiated with the gateway.
+func (validator *CommandValidator) KeyID() string {
+	if validator == nil {
+		return ""
+	}
+
+	return validator.keyID
 }
 
 // NewCommandValidator creates a validator with in-memory replay protection.
 // The nonce history is deliberately discarded when the client exits.
 func NewCommandValidator(publicKey *rsa.PublicKey, keyID, audience string) (*CommandValidator, error) {
+	return NewCommandValidatorWithReplayLedger(publicKey, keyID, audience, nil)
+}
+
+// NewCommandValidatorWithReplayLedger creates a validator that fails closed
+// when durable replay state cannot be committed before or after execution.
+func NewCommandValidatorWithReplayLedger(publicKey *rsa.PublicKey, keyID, audience string, ledger CommandReplayLedger) (*CommandValidator, error) {
 	if publicKey == nil || strings.TrimSpace(keyID) == "" || strings.TrimSpace(audience) == "" {
 		return nil, fmt.Errorf("command verification key, key ID, and audience are required")
 	}
+
 	return &CommandValidator{
 		publicKey:  publicKey,
 		keyID:      keyID,
 		audience:   audience,
 		seenNonces: make(map[string]struct{}),
+		ledger:     ledger,
 		now:        func() time.Time { return time.Now().UTC() },
 	}, nil
 }
@@ -98,6 +142,7 @@ func handleCommand(ctx context.Context, cmd CommandEnvelope, validator *CommandV
 	if reason := validateCommand(cmd, validator); reason != "" {
 		decision.Result.Status = CommandStatusRejected
 		decision.Result.Reason = reason
+
 		return decision, nil
 	}
 
@@ -111,6 +156,11 @@ func handleCommand(ctx context.Context, cmd CommandEnvelope, validator *CommandV
 	decision.Result.TerminalWorkingDirectory = outcome.terminalMetadata.WorkingDirectory
 	decision.Result.TerminalExitCode = outcome.terminalMetadata.ExitCode
 	decision.Result.Result = outcome.resultData
+
+	if err := validator.recordTerminalResult(cmd.CommandID, decision.Result); err != nil {
+		return decision, fmt.Errorf("persist terminal command replay state: %w", err)
+	}
+
 	return decision, nil
 }
 
@@ -118,16 +168,20 @@ func validateCommand(cmd CommandEnvelope, validator *CommandValidator) string {
 	if validator == nil {
 		return "command validator unavailable"
 	}
+
 	if reason := validateCommandShape(cmd, validator); reason != "" {
 		return reason
 	}
+
 	if reason := validateCommandWindow(cmd, validator.now()); reason != "" {
 		return reason
 	}
+
 	if !hasValidCommandSignature(cmd, validator.publicKey) {
 		return "invalid command signature"
 	}
-	return validator.recordVerifiedNonce(cmd.Nonce)
+
+	return validator.recordVerifiedCommand(cmd)
 }
 
 func hasValidCommandSignature(cmd CommandEnvelope, publicKey *rsa.PublicKey) bool {
@@ -138,24 +192,31 @@ func validateCommandShape(cmd CommandEnvelope, validator *CommandValidator) stri
 	if strings.TrimSpace(cmd.CommandID) == "" {
 		return "missing command_id"
 	}
+
 	if strings.TrimSpace(string(cmd.Type)) == "" {
 		return "missing command type"
 	}
+
 	if _, ok := allowedCommandTypes[cmd.Type]; !ok {
 		return fmt.Sprintf("command type %q is not allowed", cmd.Type)
 	}
+
 	if cmd.ProtocolVersion != commandauth.ProtocolVersion {
 		return "unsupported command protocol version"
 	}
+
 	if cmd.AudienceAgentID != validator.audience {
 		return "command audience mismatch"
 	}
+
 	if cmd.KeyID != validator.keyID {
 		return "command signing key mismatch"
 	}
+
 	if strings.TrimSpace(cmd.Nonce) == "" || strings.TrimSpace(cmd.Signature) == "" {
 		return "missing command authenticity fields"
 	}
+
 	return ""
 }
 
@@ -163,26 +224,72 @@ func validateCommandWindow(cmd CommandEnvelope, now time.Time) string {
 	if cmd.IssuedAt.IsZero() || cmd.ExpiresAt.IsZero() || !cmd.ExpiresAt.After(cmd.IssuedAt) {
 		return "invalid command validity window"
 	}
+
 	if now.After(cmd.ExpiresAt) {
 		return "command expired"
 	}
+
 	if cmd.IssuedAt.After(now.Add(commandClockSkew)) {
 		return "command issued_at is in the future"
 	}
+
 	if cmd.ExpiresAt.Sub(cmd.IssuedAt) > commandExpiry {
 		return "command validity window exceeds limit"
 	}
+
 	return ""
 }
 
-func (validator *CommandValidator) recordVerifiedNonce(nonce string) string {
+func (validator *CommandValidator) recordVerifiedCommand(command CommandEnvelope) string {
 	validator.mu.Lock()
 	defer validator.mu.Unlock()
-	if _, exists := validator.seenNonces[nonce]; exists {
-		return "command replay detected"
+
+	if _, exists := validator.seenNonces[command.Nonce]; exists {
+		return ErrCommandReplay.Error()
 	}
-	validator.seenNonces[nonce] = struct{}{}
+
+	validator.seenNonces[command.Nonce] = struct{}{}
+	if validator.ledger == nil {
+		return ""
+	}
+
+	nonceDigest := sha256.Sum256([]byte(command.Nonce))
+	err := validator.ledger.Reserve(CommandReplayEntry{
+		CommandID: command.CommandID, NonceDigest: nonceDigest, KeyID: command.KeyID,
+		Audience: command.AudienceAgentID, IssuedAt: command.IssuedAt, ExpiresAt: command.ExpiresAt,
+	})
+
+	switch {
+	case errors.Is(err, ErrCommandReplay):
+		return ErrCommandReplay.Error()
+	case errors.Is(err, ErrCommandOutcomeUnknown):
+		return "command outcome requires reconciliation"
+	case err != nil:
+		return "command replay state unavailable"
+	}
+
+	if command.AcknowledgePersistence != nil {
+		if err := command.AcknowledgePersistence(); err != nil {
+			return "command persistence acknowledgement unavailable"
+		}
+	}
+
 	return ""
+}
+
+func (validator *CommandValidator) recordTerminalResult(commandID string, result CommandResultPayload) error {
+	if validator == nil || validator.ledger == nil {
+		return nil
+	}
+
+	canonical, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("encode terminal result digest input: %w", err)
+	}
+
+	digest := sha256.Sum256(canonical)
+
+	return validator.ledger.Complete(commandID, digest)
 }
 
 func toAuthEnvelope(cmd CommandEnvelope) commandauth.Envelope {
@@ -211,6 +318,7 @@ func executeAllowedCommand(ctx context.Context, cmd CommandEnvelope, plane clien
 		if err != nil {
 			return commandOutcome{reason: fmt.Sprintf("screenshot failed: %v", err)}
 		}
+
 		return commandOutcome{reason: "screenshot captured", outputData: data}
 	case CommandTypeStartScreenStream:
 		return commandOutcome{reason: "screen stream start acknowledged"}

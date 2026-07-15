@@ -14,17 +14,21 @@ func collectStaticDiskTelemetry(path string) staticDiskTelemetry {
 	if err != nil {
 		return staticDiskTelemetry{mountpoint: path, driveType: "unknown"}
 	}
+
 	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		separator := mountInfoSeparator(fields)
+
 		if len(fields) < 6 || separator < 0 || len(fields) <= separator+2 || !sameMountpoint(decodeMountInfoPath(fields[4]), path) {
 			continue
 		}
+
 		device := decodeMountInfoPath(fields[separator+2])
 		model, driveType := diskHardware(device)
+
 		return staticDiskTelemetry{
 			device:     device,
 			filesystem: fields[separator+1],
@@ -34,6 +38,7 @@ func collectStaticDiskTelemetry(path string) staticDiskTelemetry {
 			readOnly:   hasMountOption(strings.Split(fields[5], ","), "ro"),
 		}
 	}
+
 	return staticDiskTelemetry{mountpoint: path, driveType: "unknown"}
 }
 
@@ -43,6 +48,7 @@ func mountInfoSeparator(fields []string) int {
 			return index
 		}
 	}
+
 	return -1
 }
 
@@ -56,10 +62,12 @@ func diskHardware(device string) (string, string) {
 	if deviceName == "" {
 		return "", "unknown"
 	}
+
 	vendor := readTrimmed(filepath.Join("/sys/class/block", deviceName, "device", "vendor"))
 	model := readTrimmed(filepath.Join("/sys/class/block", deviceName, "device", "model"))
 	label := strings.TrimSpace(strings.Join([]string{vendor, model}, " "))
 	rotational := readTrimmed(filepath.Join("/sys/class/block", deviceName, "queue", "rotational"))
+
 	switch rotational {
 	case "0":
 		return label, "solid-state"
@@ -75,9 +83,11 @@ func linuxParentBlockDevice(deviceName string) string {
 	if err != nil {
 		return deviceName
 	}
+
 	parent := filepath.Base(filepath.Dir(resolved))
 	if parent == "block" {
 		return deviceName
 	}
+
 	return parent
 }

@@ -1,0 +1,146 @@
+{
+  "protocol": {
+    "name": "Xenomorph Binary Protocol",
+    "major": 1,
+    "minor": 0,
+    "alpn": "xenomorph-agent/1"
+  },
+  "streams": [
+    {"name":"control","go_name":"Control","code":0,"maximum_frame_bytes":65536,"initiator":"agent","direction":"bidirectional","mandatory":true},
+    {"name":"events","go_name":"Events","code":1,"maximum_frame_bytes":262144,"initiator":"agent","direction":"unidirectional","mandatory":true},
+    {"name":"commands","go_name":"Commands","code":2,"maximum_frame_bytes":262144,"initiator":"gateway","direction":"unidirectional","mandatory":true},
+    {"name":"transfer","go_name":"Transfer","code":3,"maximum_frame_bytes":4259840,"initiator":"either","direction":"bidirectional","mandatory":false},
+    {"name":"terminal","go_name":"Terminal","code":4,"maximum_frame_bytes":262144,"initiator":"gateway","direction":"bidirectional","mandatory":false},
+    {"name":"media","go_name":"Media","code":5,"maximum_frame_bytes":10485760,"initiator":"agent","direction":"unidirectional","mandatory":false},
+    {"name":"diagnostics","go_name":"Diagnostics","code":6,"maximum_frame_bytes":65536,"initiator":"either","direction":"bidirectional","mandatory":false}
+  ],
+  "messages": [
+    {"name":"ClientHello","go_name":"ClientHello","id":1,"stream":"control","revision":1,"acknowledgement":"required","commit":"validated","retry":"never","fields":[
+      {"name":"minimum_minor","go_name":"MinimumMinor","type":"uint","maximum":65535,"trust":"client-authored"},
+      {"name":"maximum_minor","go_name":"MaximumMinor","type":"uint","maximum":65535,"trust":"client-authored"},
+      {"name":"features","go_name":"Features","type":"uint","maximum":18446744073709551615,"trust":"client-authored"},
+      {"name":"implementation_version","go_name":"ImplementationVersion","type":"string","maximum":64,"trust":"client-authored"},
+      {"name":"platform","go_name":"Platform","type":"uint","maximum":3,"trust":"client-authored"},
+      {"name":"architecture","go_name":"Architecture","type":"uint","maximum":2,"trust":"client-authored"},
+      {"name":"client_instance_nonce","go_name":"ClientInstanceNonce","type":"fixed16","trust":"client-authored"}
+    ]},
+    {"name":"ServerHello","go_name":"ServerHello","id":2,"stream":"control","revision":1,"acknowledgement":"none","commit":"validated","retry":"never","fields":[
+      {"name":"selected_minor","go_name":"SelectedMinor","type":"uint","maximum":65535,"trust":"server-authored"},
+      {"name":"negotiated_features","go_name":"NegotiatedFeatures","type":"uint","maximum":18446744073709551615,"trust":"server-authored"},
+      {"name":"session_id","go_name":"SessionID","type":"fixed16","trust":"server-authored"},
+      {"name":"heartbeat_interval_ms","go_name":"HeartbeatIntervalMilliseconds","type":"uint","maximum":300000,"trust":"server-authored"},
+      {"name":"maximum_idle_ms","go_name":"MaximumIdleMilliseconds","type":"uint","maximum":3600000,"trust":"server-authored"},
+      {"name":"event_frame_maximum","go_name":"EventFrameMaximum","type":"uint","maximum":16777216,"trust":"server-authored"},
+      {"name":"concurrent_transfer_streams","go_name":"ConcurrentTransferStreams","type":"uint","maximum":64,"trust":"server-authored"},
+      {"name":"command_verification_key_id","go_name":"CommandVerificationKeyID","type":"string","maximum":128,"trust":"server-authored"}
+    ]},
+    {"name":"Ping","go_name":"Ping","id":3,"stream":"control","revision":1,"acknowledgement":"none","commit":"decoded","retry":"never","fields":[{"name":"nonce","go_name":"Nonce","type":"uint","maximum":18446744073709551615,"trust":"sender-authored"}]},
+    {"name":"Pong","go_name":"Pong","id":4,"stream":"control","revision":1,"acknowledgement":"none","commit":"decoded","retry":"never","fields":[{"name":"nonce","go_name":"Nonce","type":"uint","maximum":18446744073709551615,"trust":"sender-authored"}]},
+    {"name":"MessageAck","go_name":"MessageAck","id":5,"stream":"control","revision":1,"acknowledgement":"none","commit":"decoded","retry":"never","presence_bits":2,"fields":[
+      {"name":"original_sequence","go_name":"OriginalSequence","type":"uint","maximum":18446744073709551615,"trust":"receiver-authored"},
+      {"name":"status","go_name":"Status","type":"uint","maximum":5,"trust":"receiver-authored"},
+      {"name":"commit","go_name":"Commit","type":"uint","maximum":5,"trust":"receiver-authored"},
+      {"name":"receipt_id","go_name":"ReceiptID","type":"fixed16","optional_bit":0,"trust":"receiver-authored"},
+      {"name":"retry","go_name":"Retry","type":"uint","maximum":3,"trust":"receiver-authored"},
+      {"name":"public_error_code","go_name":"PublicErrorCode","type":"string","maximum":64,"optional_bit":1,"trust":"receiver-authored"}
+    ]},
+    {"name":"ProtocolError","go_name":"ProtocolError","id":6,"stream":"control","revision":1,"acknowledgement":"none","commit":"decoded","retry":"never","fields":[
+      {"name":"scope","go_name":"Scope","type":"uint","maximum":3,"trust":"sender-authored"},
+      {"name":"code","go_name":"Code","type":"uint","maximum":511,"trust":"sender-authored"},
+      {"name":"public_error_code","go_name":"PublicErrorCode","type":"string","maximum":64,"trust":"sender-authored"}
+    ]},
+    {"name":"Drain","go_name":"Drain","id":7,"stream":"control","revision":1,"acknowledgement":"required","commit":"validated","retry":"never","fields":[
+      {"name":"deadline_ms","go_name":"DeadlineMilliseconds","type":"uint","maximum":300000,"trust":"server-authored"},
+      {"name":"reason","go_name":"Reason","type":"uint","maximum":16,"trust":"server-authored"}
+    ]},
+    {"name":"SessionReplaced","go_name":"SessionReplaced","id":8,"stream":"control","revision":1,"acknowledgement":"none","commit":"validated","retry":"never","fields":[{"name":"replacement_session_id","go_name":"ReplacementSessionID","type":"fixed16","trust":"server-authored"}]},
+
+    {"name":"Heartbeat","go_name":"Heartbeat","id":256,"stream":"events","revision":1,"acknowledgement":"required","commit":"published","retry":"latest-supersedes-uncommitted","presence_bits":29,"fields":[
+      {"name":"hostname","go_name":"Hostname","type":"string","maximum":120,"trust":"client-authored"},
+      {"name":"os_version","go_name":"OSVersion","type":"string","maximum":120,"optional_bit":0,"trust":"client-authored"},
+      {"name":"cpu_load_ppm","go_name":"CPULoadPPM","type":"uint","maximum":1000000,"optional_bit":1,"trust":"client-authored"},
+      {"name":"ram_usage_ppm","go_name":"RAMUsagePPM","type":"uint","maximum":1000000,"optional_bit":2,"trust":"client-authored"},
+      {"name":"uptime_seconds","go_name":"UptimeSeconds","type":"uint","maximum":3155760000,"optional_bit":3,"trust":"client-authored"},
+      {"name":"cpu_model","go_name":"CPUModel","type":"string","maximum":160,"optional_bit":4,"trust":"client-authored"},
+      {"name":"cpu_cores","go_name":"CPUCores","type":"uint","maximum":4096,"optional_bit":5,"trust":"client-authored"},
+      {"name":"cpu_threads","go_name":"CPUThreads","type":"uint","maximum":8192,"optional_bit":6,"trust":"client-authored"},
+      {"name":"total_ram_bytes","go_name":"TotalRAMBytes","type":"uint","maximum":18446744073709551615,"optional_bit":7,"trust":"client-authored"},
+      {"name":"gpu_devices","go_name":"GPUDevices","type":"string_list","count_maximum":32,"item_maximum":160,"aggregate_maximum":4096,"optional_bit":8,"trust":"client-authored"},
+      {"name":"network_name","go_name":"NetworkName","type":"string","maximum":120,"optional_bit":9,"trust":"client-authored"},
+      {"name":"network_addresses","go_name":"NetworkAddresses","type":"string_list","count_maximum":64,"item_maximum":64,"aggregate_maximum":4096,"optional_bit":10,"trust":"client-authored"},
+      {"name":"kernel_version","go_name":"KernelVersion","type":"string","maximum":120,"optional_bit":11,"trust":"client-authored"},
+      {"name":"cpu_frequency_mhz","go_name":"CPUFrequencyMHz","type":"uint","maximum":1000000,"optional_bit":12,"trust":"client-authored"},
+      {"name":"network_online","go_name":"NetworkOnline","type":"bool","optional_bit":13,"trust":"client-authored"},
+      {"name":"link_speed_mbps","go_name":"LinkSpeedMbps","type":"uint","maximum":1000000000,"optional_bit":14,"trust":"client-authored"},
+      {"name":"network_type","go_name":"NetworkType","type":"uint","maximum":16,"optional_bit":15,"trust":"client-authored"},
+      {"name":"total_storage_bytes","go_name":"TotalStorageBytes","type":"uint","maximum":18446744073709551615,"optional_bit":16,"trust":"client-authored"},
+      {"name":"available_storage_bytes","go_name":"AvailableStorageBytes","type":"uint","maximum":18446744073709551615,"optional_bit":17,"trust":"client-authored"},
+      {"name":"network_ssid","go_name":"NetworkSSID","type":"string","maximum":128,"optional_bit":18,"trust":"client-authored"},
+      {"name":"used_storage_bytes","go_name":"UsedStorageBytes","type":"uint","maximum":18446744073709551615,"optional_bit":19,"trust":"client-authored"},
+      {"name":"storage_usage_ppm","go_name":"StorageUsagePPM","type":"uint","maximum":1000000,"optional_bit":20,"trust":"client-authored"},
+      {"name":"inode_usage_ppm","go_name":"InodeUsagePPM","type":"uint","maximum":1000000,"optional_bit":21,"trust":"client-authored"},
+      {"name":"storage_device","go_name":"StorageDevice","type":"string","maximum":160,"optional_bit":22,"trust":"client-authored"},
+      {"name":"storage_filesystem","go_name":"StorageFilesystem","type":"string","maximum":64,"optional_bit":23,"trust":"client-authored"},
+      {"name":"storage_mountpoint","go_name":"StorageMountpoint","type":"string","maximum":4096,"optional_bit":24,"trust":"client-authored"},
+      {"name":"storage_model","go_name":"StorageModel","type":"string","maximum":160,"optional_bit":25,"trust":"client-authored"},
+      {"name":"storage_type","go_name":"StorageType","type":"uint","maximum":16,"optional_bit":26,"trust":"client-authored"},
+      {"name":"storage_read_only","go_name":"StorageReadOnly","type":"bool","optional_bit":27,"trust":"client-authored"},
+      {"name":"application_types","go_name":"ApplicationTypes","type":"application_usage_list","optional_bit":28,"trust":"client-authored"}
+    ]},
+    {"name":"Attestation","go_name":"Attestation","id":257,"stream":"events","revision":1,"acknowledgement":"required","commit":"published","retry":"same-operation","fields":[
+      {"name":"hostname","go_name":"Hostname","type":"string","maximum":120,"trust":"client-authored"},
+      {"name":"os_version","go_name":"OSVersion","type":"string","maximum":120,"trust":"client-authored"},
+      {"name":"requires_attestation","go_name":"RequiresAttestation","type":"bool","trust":"client-authored"},
+      {"name":"browsers","go_name":"Browsers","type":"browser_list","trust":"client-authored"},
+      {"name":"installed_applications","go_name":"InstalledApplications","type":"string_list","count_maximum":200,"item_maximum":120,"aggregate_maximum":32768,"trust":"client-authored"}
+    ]},
+    {"name":"LogEntry","go_name":"LogEntry","id":258,"stream":"events","revision":1,"acknowledgement":"required","commit":"published","retry":"never","fields":[
+      {"name":"level","go_name":"Level","type":"uint","maximum":4,"trust":"client-authored"},
+      {"name":"component","go_name":"Component","type":"uint","maximum":255,"trust":"client-authored"},
+      {"name":"event_code","go_name":"EventCode","type":"uint","maximum":65535,"trust":"client-authored"},
+      {"name":"detail","go_name":"Detail","type":"string","maximum":512,"trust":"client-authored"}
+    ]},
+
+    {"name":"Command","go_name":"Command","id":512,"stream":"commands","revision":1,"acknowledgement":"required","commit":"persisted","retry":"reconciliation-only","fields":[{"name":"signed_envelope","go_name":"SignedEnvelope","type":"bytes","maximum":131072,"trust":"server-authored"}]},
+    {"name":"CommandResult","go_name":"CommandResult","id":513,"stream":"events","revision":1,"acknowledgement":"required","commit":"operation-terminal","retry":"same-operation","presence_bits":6,"fields":[
+      {"name":"command_type","go_name":"CommandType","type":"string","maximum":64,"trust":"client-authored"},
+      {"name":"state","go_name":"State","type":"uint","maximum":8,"trust":"client-authored"},
+      {"name":"reason_code","go_name":"ReasonCode","type":"uint","maximum":65535,"trust":"client-authored"},
+      {"name":"reason_text","go_name":"ReasonText","type":"string","maximum":512,"optional_bit":0,"trust":"client-authored"},
+      {"name":"responded_at_ms","go_name":"RespondedAtMilliseconds","type":"uint","maximum":4102444800000,"trust":"client-authored"},
+      {"name":"hostname","go_name":"Hostname","type":"string","maximum":120,"trust":"client-authored"},
+      {"name":"terminal_session_id","go_name":"TerminalSessionID","type":"string","maximum":128,"optional_bit":1,"trust":"client-authored"},
+      {"name":"terminal_shell","go_name":"TerminalShell","type":"string","maximum":32,"optional_bit":2,"trust":"client-authored"},
+      {"name":"terminal_working_directory","go_name":"TerminalWorkingDirectory","type":"string","maximum":4096,"optional_bit":3,"trust":"client-authored"},
+      {"name":"terminal_exit_code","go_name":"TerminalExitCode","type":"sint","maximum":2147483647,"optional_bit":4,"trust":"client-authored"},
+      {"name":"result_revision","go_name":"ResultRevision","type":"uint","maximum":255,"trust":"client-authored"},
+      {"name":"result","go_name":"Result","type":"bytes","maximum":10485760,"optional_bit":5,"trust":"client-authored"}
+    ]},
+    {"name":"CommandCancel","go_name":"CommandCancel","id":514,"stream":"commands","revision":1,"acknowledgement":"required","commit":"validated","retry":"same-operation","fields":[{"name":"reason","go_name":"Reason","type":"uint","maximum":32,"trust":"server-authored"}]},
+    {"name":"CommandState","go_name":"CommandState","id":515,"stream":"events","revision":1,"acknowledgement":"required","commit":"persisted","retry":"same-operation","fields":[{"name":"state","go_name":"State","type":"uint","maximum":16,"trust":"client-authored"}]},
+
+    {"name":"TransferOpen","go_name":"TransferOpen","id":768,"stream":"transfer","revision":1,"acknowledgement":"required","commit":"validated","retry":"same-operation","fields":[
+      {"name":"transfer_id","go_name":"TransferID","type":"fixed16","trust":"server-authored"},
+      {"name":"signed_capability","go_name":"SignedCapability","type":"bytes","maximum":8192,"trust":"server-authored"},
+      {"name":"direction","go_name":"Direction","type":"uint","maximum":2,"trust":"server-authored"},
+      {"name":"manifest_digest","go_name":"ManifestDigest","type":"opaque32","trust":"server-authored"},
+      {"name":"expected_total_size","go_name":"ExpectedTotalSize","type":"uint","maximum":1099511627776,"trust":"server-authored"},
+      {"name":"chunk_size","go_name":"ChunkSize","type":"uint","maximum":4194304,"trust":"server-authored"},
+      {"name":"expires_at_ms","go_name":"ExpiresAtMilliseconds","type":"uint","maximum":4102444800000,"trust":"server-authored"}
+    ]},
+    {"name":"TransferChunk","go_name":"TransferChunk","id":769,"stream":"transfer","revision":1,"acknowledgement":"required","commit":"persisted","retry":"same-operation","fields":[
+      {"name":"chunk_index","go_name":"ChunkIndex","type":"uint","maximum":1048576,"trust":"sender-authored"},
+      {"name":"chunk_length","go_name":"ChunkLength","type":"uint","maximum":4194304,"trust":"sender-authored"},
+      {"name":"digest_algorithm","go_name":"DigestAlgorithm","type":"uint","maximum":1,"trust":"sender-authored"},
+      {"name":"digest","go_name":"Digest","type":"opaque32","trust":"sender-authored"},
+      {"name":"data","go_name":"Data","type":"bytes","maximum":4194304,"trust":"sender-authored"}
+    ]},
+    {"name":"TransferChunkAck","go_name":"TransferChunkAck","id":770,"stream":"transfer","revision":1,"acknowledgement":"none","commit":"persisted","retry":"same-operation","fields":[{"name":"chunk_index","go_name":"ChunkIndex","type":"uint","maximum":1048576,"trust":"receiver-authored"},{"name":"digest","go_name":"Digest","type":"opaque32","trust":"receiver-authored"}]},
+    {"name":"TransferFinalize","go_name":"TransferFinalize","id":771,"stream":"transfer","revision":1,"acknowledgement":"required","commit":"persisted","retry":"same-operation","fields":[{"name":"expected_chunk_count","go_name":"ExpectedChunkCount","type":"uint","maximum":1048576,"trust":"sender-authored"},{"name":"total_size","go_name":"TotalSize","type":"uint","maximum":1099511627776,"trust":"sender-authored"},{"name":"whole_object_digest","go_name":"WholeObjectDigest","type":"opaque32","trust":"sender-authored"}]},
+    {"name":"TransferAbort","go_name":"TransferAbort","id":772,"stream":"transfer","revision":1,"acknowledgement":"required","commit":"persisted","retry":"same-operation","fields":[{"name":"reason","go_name":"Reason","type":"uint","maximum":32,"trust":"sender-authored"}]},
+
+    {"name":"MediaOpen","go_name":"MediaOpen","id":1280,"stream":"media","revision":1,"acknowledgement":"required","commit":"validated","retry":"never","fields":[{"name":"generation_id","go_name":"GenerationID","type":"fixed16","trust":"server-authored"},{"name":"codec","go_name":"Codec","type":"uint","maximum":8,"trust":"client-authored"},{"name":"width","go_name":"Width","type":"uint","maximum":16384,"trust":"client-authored"},{"name":"height","go_name":"Height","type":"uint","maximum":16384,"trust":"client-authored"},{"name":"frame_rate_cap","go_name":"FrameRateCap","type":"uint","maximum":120,"trust":"server-authored"},{"name":"maximum_frame_bytes","go_name":"MaximumFrameBytes","type":"uint","maximum":10485760,"trust":"server-authored"}]},
+    {"name":"MediaFrame","go_name":"MediaFrame","id":1281,"stream":"media","revision":1,"acknowledgement":"none","commit":"decoded","retry":"never","fields":[{"name":"generation_id","go_name":"GenerationID","type":"fixed16","trust":"sender-authored"},{"name":"frame_number","go_name":"FrameNumber","type":"uint","maximum":18446744073709551615,"trust":"client-authored"},{"name":"captured_at_ms","go_name":"CapturedAtMilliseconds","type":"uint","maximum":4102444800000,"trust":"client-authored"},{"name":"keyframe","go_name":"Keyframe","type":"bool","trust":"client-authored"},{"name":"content_type","go_name":"ContentType","type":"uint","maximum":8,"trust":"client-authored"},{"name":"data","go_name":"Data","type":"bytes","maximum":10485760,"trust":"client-authored"}]},
+    {"name":"MediaClose","go_name":"MediaClose","id":1282,"stream":"media","revision":1,"acknowledgement":"none","commit":"decoded","retry":"never","fields":[{"name":"reason","go_name":"Reason","type":"uint","maximum":32,"trust":"sender-authored"},{"name":"last_frame_number","go_name":"LastFrameNumber","type":"uint","maximum":18446744073709551615,"trust":"client-authored"}]}
+  ]
+}

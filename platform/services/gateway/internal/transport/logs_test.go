@@ -18,6 +18,7 @@ func TestAgentLogStoreBoundsAndSortsPerAgent(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("expected bounded entries, got %d", len(entries))
 	}
+
 	if entries[0].EventID != "newest" || entries[1].EventID != "new" {
 		t.Fatalf("expected newest entries first, got %#v", entries)
 	}

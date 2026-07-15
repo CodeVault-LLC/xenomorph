@@ -1,0 +1,35 @@
+{
+  "message": "MessageAck",
+  "stream": "control",
+  "message_type": 5,
+  "schema_revision": 1,
+  "flags": 0,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "presence",
+      "encoding": "presence",
+      "value": 0
+    },
+    {
+      "name": "original_sequence",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "status",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "commit",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "retry",
+      "encoding": "uint",
+      "value": 0
+    }
+  ]
+}

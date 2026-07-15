@@ -1,0 +1,30 @@
+{
+  "message": "LogEntry",
+  "stream": "events",
+  "message_type": 258,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "level",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "component",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "event_code",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "detail",
+      "encoding": "string",
+      "value": ""
+    }
+  ]
+}

@@ -6,31 +6,33 @@ import (
 	"time"
 )
 
-const (
-	heartbeatInterval time.Duration = 500 * time.Millisecond
-	routineCount      int           = 2
-)
+const routineCount = 2
 
 func run() int {
 	ac, err := setupApp()
 	if err != nil {
 		return 1
 	}
+
 	reportClientLog(ac, "INFO", "client.runtime", "event=runtime_started")
 
 	requiresAttestation, err := authenticateDevice(ac)
 	if err != nil {
 		reportClientLog(ac, "ERROR", "client.authentication", "event=authentication_failed")
 		shutdown(ac)
+
 		return 1
 	}
+
 	reportClientLog(ac, "INFO", "client.authentication", "event=authentication_succeeded")
 
 	if err := attestEndpoint(ac, requiresAttestation); err != nil {
 		reportClientLog(ac, "ERROR", "client.attestation", "event=attestation_failed")
 		shutdown(ac)
+
 		return 1
 	}
+
 	if requiresAttestation {
 		reportClientLog(ac, "INFO", "client.attestation", "event=attestation_submitted")
 	}
@@ -38,6 +40,7 @@ func run() int {
 	if err := runRuntimeLoops(ac); err != nil {
 		reportClientLog(ac, "ERROR", "client.runtime", "event=runtime_loop_failed")
 		shutdown(ac)
+
 		return 1
 	}
 
@@ -57,11 +60,11 @@ func runRuntimeLoops(ac *appContext) error {
 }
 
 func runHeartbeatLoop(ac *appContext) error {
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(ac.heartbeatInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if err := ac.ag.SendHeartbeat(); err != nil {
+		if err := ac.transport.SendHeartbeat(); err != nil {
 			reportClientLog(ac, "ERROR", "client.heartbeat", "event=heartbeat_failed")
 			return err
 		}
@@ -72,7 +75,7 @@ func runHeartbeatLoop(ac *appContext) error {
 
 func runCommandLoop(ac *appContext) error {
 	for {
-		cmd, err := ac.ag.PollNextCommand()
+		cmd, err := ac.transport.PollNextCommand()
 		if err != nil {
 			reportClientLog(ac, "ERROR", "client.command", "event=command_poll_failed")
 			return err
@@ -81,6 +84,7 @@ func runCommandLoop(ac *appContext) error {
 		if cmd == nil {
 			continue
 		}
+
 		reportClientLog(ac, "INFO", "client.command", "event=command_received")
 
 		if err := processCommand(ac, cmd); err != nil {

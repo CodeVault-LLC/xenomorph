@@ -9,6 +9,7 @@ import (
 
 func TestClampTelemetryRatio(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name  string
 		value float64
@@ -22,6 +23,7 @@ func TestClampTelemetryRatio(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if got := clampTelemetryRatio(tt.value); got != tt.want {
 				t.Fatalf("clampTelemetryRatio(%f) = %f, want %f", tt.value, got, tt.want)
 			}
@@ -31,18 +33,22 @@ func TestClampTelemetryRatio(t *testing.T) {
 
 func TestNormalizeApplicationTypesBoundsAndFiltersClientInput(t *testing.T) {
 	t.Parallel()
+
 	values := []*pb.ApplicationTypeUsage{
 		{Category: "Development", Count: 150},
 		{Category: "Untrusted category", Count: 100},
 		{Category: "Browsers", Count: 100},
 	}
+
 	got := normalizeApplicationTypes(values)
 	if len(got) != 2 {
 		t.Fatalf("normalizeApplicationTypes() returned %d categories, want 2", len(got))
 	}
+
 	if got[0].Category != "Development" || got[0].Count != 150 {
 		t.Fatalf("first normalized category = %#v", got[0])
 	}
+
 	if got[1].Category != "Browsers" || got[1].Count != 50 {
 		t.Fatalf("second normalized category = %#v, want Browsers count 50", got[1])
 	}
@@ -50,9 +56,12 @@ func TestNormalizeApplicationTypesBoundsAndFiltersClientInput(t *testing.T) {
 
 func TestNormalizeStorageBytesBoundsValues(t *testing.T) {
 	t.Parallel()
+
 	maximum := ^uint64(0)
 	total, available, used := normalizeStorageBytes(maximum, maximum, maximum)
+
 	const maxStorageBytes uint64 = 1 << 50
+
 	if total != maxStorageBytes || available != maxStorageBytes || used != maxStorageBytes {
 		t.Fatalf("normalizeStorageBytes() = %d, %d, %d", total, available, used)
 	}

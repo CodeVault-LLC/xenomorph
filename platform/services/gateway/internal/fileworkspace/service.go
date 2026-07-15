@@ -49,21 +49,26 @@ func NewService(queue *command.Queue, store *Store) (*Service, error) {
 	if queue == nil || store == nil {
 		return nil, fmt.Errorf("file workspace queue and store are required")
 	}
+
 	transfers, err := newTransferStore(store.path)
 	if err != nil {
 		return nil, fmt.Errorf("transfer store setup: %w", err)
 	}
+
 	return &Service{queue: queue, store: store, transfers: transfers}, nil
 }
 
 // ProbeRoots persists and dispatches automatic filesystem-root discovery.
 func (service *Service) ProbeRoots(agentID, operatorID, traceID string) (Operation, error) {
 	now := time.Now().UTC()
+
 	payload, err := json.Marshal(fileprotocol.RootsListRequest{ProtocolVersion: fileprotocol.Version})
 	if err != nil {
 		return Operation{}, fmt.Errorf("encode file root probe: %w", err)
 	}
+
 	commandID := uuid.New().String()
+
 	operation, err := service.store.Create(Operation{
 		CommandID: commandID, AgentID: agentID, OperatorID: operatorID,
 		RootID: "*", Type: fileprotocol.CommandRootsList,
@@ -72,6 +77,7 @@ func (service *Service) ProbeRoots(agentID, operatorID, traceID string) (Operati
 	if err != nil {
 		return Operation{}, err
 	}
+
 	envelope := &command.Envelope{
 		CommandID: commandID, Type: fileprotocol.CommandRootsList, Payload: payload,
 		RequestedBy: operatorID, Reason: "Automatic filesystem root discovery",
@@ -80,6 +86,7 @@ func (service *Service) ProbeRoots(agentID, operatorID, traceID string) (Operati
 		_ = service.store.Fail(operation.OperationID, "dispatch_failed")
 		return Operation{}, fmt.Errorf("enqueue file root probe: %w", err)
 	}
+
 	return operation, nil
 }
 
@@ -90,25 +97,33 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 	if err := validateRootID(rootID); err != nil {
 		return Operation{}, err
 	}
+
 	now := time.Now().UTC()
+
 	operationID := uuid.New().String()
 	if mutation, ok := request.(*fileprotocol.MutationRequest); ok {
 		mutation.OperationID = operationID
 	}
+
 	if metadata, ok := request.(*fileprotocol.MetadataSetRequest); ok {
 		metadata.OperationID = operationID
 	}
+
 	if archive, ok := request.(*fileprotocol.ArchiveRequest); ok {
 		archive.OperationID = operationID
 	}
+
 	if err := prepareRequest(commandType, request, rootID); err != nil {
 		return Operation{}, err
 	}
+
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return Operation{}, fmt.Errorf("encode file command request: %w", err)
 	}
+
 	commandID := uuid.New().String()
+
 	operation, err := service.store.Create(Operation{
 		OperationID: operationID, CommandID: commandID,
 		AgentID: agentID, OperatorID: operatorID, RootID: rootID, Type: commandType,
@@ -118,6 +133,7 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 	if err != nil {
 		return Operation{}, err
 	}
+
 	envelope := &command.Envelope{
 		CommandID: commandID,
 		Type:      commandType, Payload: payload, RequestedBy: operatorID,
@@ -127,6 +143,7 @@ func (service *Service) Dispatch(agentID, operatorID, rootID, commandType, trace
 		_ = service.store.Fail(operation.OperationID, "dispatch_failed")
 		return Operation{}, fmt.Errorf("enqueue file command: %w", err)
 	}
+
 	return operation, nil
 }
 
@@ -134,6 +151,7 @@ func fileCommandReason(commandType string) string {
 	if commandType == fileprotocol.CommandOperationExecute || commandType == fileprotocol.CommandMetadataSet || commandType == fileprotocol.CommandArchiveExecute {
 		return "Preconditioned file workspace mutation"
 	}
+
 	return "Read-only file workspace operation"
 }
 
@@ -142,13 +160,16 @@ func (service *Service) Complete(agentID, commandID, status string, result json.
 	if service == nil {
 		return nil
 	}
+
 	operation, err := service.store.Complete(agentID, commandID, status, result)
 	if err != nil {
 		return err
 	}
+
 	if status != "executed" {
 		return err
 	}
+
 	switch operation.Type {
 	case fileprotocol.CommandTransferPrepare, fileprotocol.CommandTransferResume, fileprotocol.CommandTransferAbort:
 		return service.recordTransferResult(agentID, operation, result)
@@ -162,21 +183,26 @@ func (service *Service) recordTransferResult(agentID string, operation Operation
 	if err := json.Unmarshal(result, &envelope); err != nil {
 		return fmt.Errorf("decode transfer result envelope: %w", err)
 	}
+
 	var transferResult fileprotocol.TransferResult
 	if err := json.Unmarshal(envelope.Data, &transferResult); err != nil {
 		return fmt.Errorf("decode transfer result: %w", err)
 	}
+
 	transfer, err := service.transfers.RecordAgentResult(agentID, transferResult)
 	if err != nil {
 		return err
 	}
+
 	if transferResult.State == "prepared" {
 		lease, err := service.transfers.IssueLease(agentID, transfer.TransferID)
 		if err != nil {
 			return err
 		}
+
 		return service.dispatchTransfer(agentID, operation.OperatorID, operation.AuditTraceID, transfer, lease, fileprotocol.CommandTransferResume)
 	}
+
 	return nil
 }
 
@@ -185,8 +211,10 @@ func mutationRequest(request any) *fileprotocol.MutationRequest {
 	if !ok {
 		return nil
 	}
+
 	copyValue := *mutation
 	copyValue.Items = append([]fileprotocol.MutationItem(nil), mutation.Items...)
+
 	return &copyValue
 }
 
@@ -202,18 +230,22 @@ func (service *Service) CreateTransfer(agentID, operatorID, traceID string, mani
 	if err := validateRootID(manifest.RootID); err != nil {
 		return Transfer{}, err
 	}
+
 	if err := validateOperatorRelativePath(manifest.RelativePath); err != nil {
 		return Transfer{}, err
 	}
+
 	transfer, lease, err := service.transfers.CreateTransfer(agentID, operatorID, manifest)
 	if err != nil {
 		return Transfer{}, err
 	}
+
 	if transfer.Manifest.Direction == fileprotocol.TransferDownload {
 		if err := service.dispatchTransfer(agentID, operatorID, traceID, transfer, lease, fileprotocol.CommandTransferPrepare); err != nil {
 			return Transfer{}, err
 		}
 	}
+
 	return transfer, nil
 }
 
@@ -230,16 +262,20 @@ func (service *Service) CommitUpload(agentID, operatorID, traceID, transferID st
 	if err != nil {
 		return Transfer{}, err
 	}
+
 	if transfer.Manifest.Direction != fileprotocol.TransferUpload {
 		return Transfer{}, fmt.Errorf("transfer is not an upload")
 	}
+
 	lease, err := service.transfers.IssueLease(agentID, transferID)
 	if err != nil {
 		return Transfer{}, err
 	}
+
 	if err := service.dispatchTransfer(agentID, operatorID, traceID, transfer, lease, fileprotocol.CommandTransferPrepare); err != nil {
 		return Transfer{}, err
 	}
+
 	return transfer, nil
 }
 
@@ -260,12 +296,15 @@ func (service *Service) RemoveTransfer(agentID, operatorID, traceID, transferID 
 	if !ok {
 		return fmt.Errorf("transfer not found")
 	}
+
 	if !terminalTransferState(transfer.State) {
 		return fmt.Errorf("active transfer cannot be removed")
 	}
+
 	if err := service.store.appendTransferRemovalAudit(agentID, operatorID, traceID, transferID, transfer.Manifest.RootID, "transfer_removal_requested"); err != nil {
 		return err
 	}
+
 	return service.transfers.Remove(agentID, transferID)
 }
 
@@ -273,17 +312,21 @@ func (service *Service) RemoveTransfer(agentID, operatorID, traceID, transferID 
 // for one agent. Active and other-agent transfers are retained.
 func (service *Service) RemoveFinishedTransfers(agentID, operatorID, traceID string) (int, error) {
 	finished := 0
+
 	for _, transfer := range service.transfers.Transfers(agentID) {
 		if terminalTransferState(transfer.State) {
 			finished++
 		}
 	}
+
 	if finished == 0 {
 		return 0, nil
 	}
+
 	if err := service.store.appendTransferRemovalAudit(agentID, operatorID, traceID, "", "*", "finished_transfers_removal_requested"); err != nil {
 		return 0, err
 	}
+
 	return service.transfers.RemoveFinished(agentID)
 }
 
@@ -293,13 +336,16 @@ func (service *Service) ResumeTransfer(agentID, operatorID, traceID, transferID 
 	if !ok || transfer.State != TransferPaused && transfer.State != TransferQueued {
 		return Transfer{}, fmt.Errorf("transfer is not resumable")
 	}
+
 	lease, err := service.transfers.IssueLease(agentID, transferID)
 	if err != nil {
 		return Transfer{}, err
 	}
+
 	if err := service.dispatchTransfer(agentID, operatorID, traceID, transfer, lease, fileprotocol.CommandTransferResume); err != nil {
 		return Transfer{}, err
 	}
+
 	return transfer, nil
 }
 
@@ -309,13 +355,16 @@ func (service *Service) AbortTransfer(agentID, operatorID, traceID, transferID s
 	if !ok || transfer.State == TransferCompleted || transfer.State == TransferCancelled {
 		return Transfer{}, fmt.Errorf("transfer is not cancellable")
 	}
+
 	lease, err := service.transfers.IssueLease(agentID, transferID)
 	if err != nil {
 		return Transfer{}, err
 	}
+
 	if err := service.dispatchTransfer(agentID, operatorID, traceID, transfer, lease, fileprotocol.CommandTransferAbort); err != nil {
 		return Transfer{}, err
 	}
+
 	return transfer, nil
 }
 
@@ -329,6 +378,15 @@ func (service *Service) ReadAgentTransferChunk(agentID, transferID, token string
 	return service.transfers.ReadChunk(agentID, transferID, token, index)
 }
 
+// ValidateAgentTransferLease verifies the gateway-issued agent data-plane capability.
+func (service *Service) ValidateAgentTransferLease(agentID, transferID, token string) error {
+	if service == nil || service.transfers == nil {
+		return fmt.Errorf("validate agent transfer lease: transfer service is unavailable")
+	}
+
+	return service.transfers.ValidateLease(agentID, transferID, token)
+}
+
 // ReadCompletedTransferChunk returns verified bytes to the dashboard transport.
 func (service *Service) ReadCompletedTransferChunk(agentID, transferID string, index int) ([]byte, error) {
 	return service.transfers.ReadCompletedChunk(agentID, transferID, index)
@@ -339,16 +397,20 @@ func (service *Service) FinalizeAgentTransfer(agentID, transferID, token string)
 	if err := service.transfers.ValidateLease(agentID, transferID, token); err != nil {
 		return Transfer{}, err
 	}
+
 	return service.transfers.Finalize(agentID, transferID)
 }
 
 func (service *Service) dispatchTransfer(agentID, operatorID, traceID string, transfer Transfer, lease fileprotocol.DataPlaneLease, commandType string) error {
 	request := fileprotocol.TransferRequest{ProtocolVersion: fileprotocol.Version, Manifest: transfer.Manifest, Lease: lease}
+
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("encode transfer request: %w", err)
 	}
+
 	commandID := uuid.New().String()
+
 	operation, err := service.store.Create(Operation{
 		CommandID: commandID, TransferID: transfer.TransferID, AgentID: agentID, OperatorID: operatorID,
 		RootID: transfer.Manifest.RootID, Type: commandType,
@@ -357,6 +419,7 @@ func (service *Service) dispatchTransfer(agentID, operatorID, traceID string, tr
 	if err != nil {
 		return err
 	}
+
 	if err := service.queue.Enqueue(agentID, &command.Envelope{
 		CommandID: commandID, Type: commandType, Payload: payload,
 		RequestedBy: operatorID, Reason: "Staged file transfer",
@@ -364,6 +427,7 @@ func (service *Service) dispatchTransfer(agentID, operatorID, traceID string, tr
 		_ = service.store.Fail(operation.OperationID, "dispatch_failed")
 		return fmt.Errorf("enqueue transfer command: %w", err)
 	}
+
 	return nil
 }
 
@@ -392,15 +456,19 @@ func prepareDirectorySearchRequest(commandType, rootID string, request *fileprot
 	if commandType != fileprotocol.CommandDirectorySearch || !validDirectorySearchQuery(request.Query) {
 		return fmt.Errorf("invalid directory search request")
 	}
+
 	if !validDirectorySearchBounds(request) {
 		return fmt.Errorf("directory search bounds exceed limit")
 	}
+
 	if request.RelativePath != "" {
 		if err := validateOperatorRelativePath(request.RelativePath); err != nil {
 			return fmt.Errorf("directory search path is invalid")
 		}
 	}
+
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+
 	return nil
 }
 
@@ -418,48 +486,61 @@ func prepareDirectoryRequest(commandType, rootID string, request *fileprotocol.D
 	if commandType != fileprotocol.CommandDirectoryList || request.PageSize <= 0 || request.PageSize > maxDirectoryPage {
 		return fmt.Errorf("invalid directory request")
 	}
+
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+
 	return nil
 }
 func prepareMetadataRequest(commandType, rootID string, request *fileprotocol.MetadataGetRequest) error {
 	if commandType != fileprotocol.CommandMetadataGet {
 		return fmt.Errorf("invalid metadata request")
 	}
+
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+
 	return nil
 }
 func prepareMetadataSetRequest(commandType, rootID string, request *fileprotocol.MetadataSetRequest) error {
 	if commandType != fileprotocol.CommandMetadataSet || request.Delta.ModifiedAt == nil && request.Delta.POSIXMode == nil {
 		return fmt.Errorf("invalid metadata update request")
 	}
+
 	if err := validateOperatorRelativePath(request.RelativePath); err != nil {
 		return fmt.Errorf("metadata path is invalid")
 	}
+
 	if request.Delta.ModifiedAt != nil {
 		minimum, maximum := time.Unix(0, 0).UTC(), time.Now().UTC().Add(maxMetadataFutureSkew)
 		if request.Delta.ModifiedAt.Before(minimum) || request.Delta.ModifiedAt.After(maximum) {
 			return fmt.Errorf("metadata timestamp is outside limit")
 		}
 	}
+
 	if request.Delta.POSIXMode != nil && *request.Delta.POSIXMode > 0o7777 {
 		return fmt.Errorf("POSIX mode is outside limit")
 	}
+
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+
 	return nil
 }
 func prepareArchiveRequest(commandType, rootID string, request *fileprotocol.ArchiveRequest) error {
 	if commandType != fileprotocol.CommandArchiveExecute || request.Format != fileprotocol.ArchiveZIP || !validArchiveAction(request.Action) {
 		return fmt.Errorf("invalid archive request")
 	}
+
 	if err := validateOperatorRelativePath(request.ArchivePath); err != nil {
 		return fmt.Errorf("archive path is invalid")
 	}
+
 	if err := validateArchiveOperands(request); err != nil {
 		return err
 	}
+
 	if request.Action != fileprotocol.ArchiveList && !validArchiveConflict(request.Conflict) {
 		return fmt.Errorf("archive conflict strategy is invalid")
 	}
+
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
 	request.Limits = fileprotocol.ArchiveLimits{
 		MaxEntries: maxArchiveEntries, MaxDepth: maxArchiveDepth,
@@ -467,6 +548,7 @@ func prepareArchiveRequest(commandType, rootID string, request *fileprotocol.Arc
 		MaxCompressionRatio: maxArchiveRatio, MaxRuntime: maxArchiveRuntime,
 		MaxListedEntries: maxArchiveListItems, MaxListedNameBytes: maxArchiveNameBytes,
 	}
+
 	return nil
 }
 
@@ -478,11 +560,13 @@ func validateArchiveOperands(request *fileprotocol.ArchiveRequest) error {
 	if request.Action == fileprotocol.ArchiveCreate {
 		return validateArchiveSources(request.SourcePaths)
 	}
+
 	if request.Action == fileprotocol.ArchiveExtract {
 		if err := validateOperatorRelativePath(request.DestinationPath); err != nil {
 			return fmt.Errorf("archive destination is invalid")
 		}
 	}
+
 	return nil
 }
 
@@ -490,11 +574,13 @@ func validateArchiveSources(sources []string) error {
 	if len(sources) == 0 || len(sources) > maxArchiveSources {
 		return fmt.Errorf("archive source count exceeds limit")
 	}
+
 	for _, source := range sources {
 		if err := validateOperatorRelativePath(source); err != nil {
 			return fmt.Errorf("archive source path is invalid")
 		}
 	}
+
 	return nil
 }
 
@@ -505,22 +591,28 @@ func preparePreviewRequest(commandType, rootID string, request *fileprotocol.Pre
 	if commandType != fileprotocol.CommandPreviewRead || request.Offset < 0 || request.Length <= 0 || request.Length > maxPreviewReadBytes {
 		return fmt.Errorf("invalid preview request")
 	}
+
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+
 	return nil
 }
 func prepareMutationRequest(commandType, rootID string, request *fileprotocol.MutationRequest) error {
 	if commandType != fileprotocol.CommandOperationExecute || !validMutationVerb(request.Verb) || !validConflictStrategy(request.Conflict) {
 		return fmt.Errorf("invalid mutation request")
 	}
+
 	if len(request.Items) == 0 || len(request.Items) > maxMutationItems {
 		return fmt.Errorf("mutation item count exceeds limit")
 	}
+
 	for _, item := range request.Items {
 		if err := validateMutationItem(request.Verb, item); err != nil {
 			return err
 		}
 	}
+
 	request.ProtocolVersion, request.RootID = fileprotocol.Version, rootID
+
 	return nil
 }
 
@@ -528,16 +620,19 @@ func validateMutationItem(verb fileprotocol.MutationVerb, item fileprotocol.Muta
 	if item.ItemID == "" || len(item.AppendData) > maxAppendBytes || item.TruncateSize < 0 {
 		return fmt.Errorf("mutation item is invalid")
 	}
+
 	if mutationNeedsSource(verb) {
 		if err := validateOperatorRelativePath(item.SourcePath); err != nil {
 			return fmt.Errorf("mutation source path is invalid")
 		}
 	}
+
 	if mutationNeedsDestination(verb) {
 		if err := validateOperatorRelativePath(item.DestinationPath); err != nil {
 			return fmt.Errorf("mutation destination path is invalid")
 		}
 	}
+
 	return nil
 }
 
@@ -560,9 +655,11 @@ func validateOperatorRelativePath(value string) error {
 	if value == "" {
 		return fmt.Errorf("relative path is required")
 	}
+
 	if err := validateOperatorPathEncoding(value); err != nil {
 		return err
 	}
+
 	return validateOperatorPathComponents(strings.Split(value, "/"))
 }
 
@@ -570,9 +667,11 @@ func validateOperatorPathEncoding(value string) error {
 	if len(value) > maxRelativePath || !utf8.ValidString(value) || strings.ContainsAny(value, "\x00\\\r\n") {
 		return fmt.Errorf("relative path encoding is invalid")
 	}
+
 	if strings.HasPrefix(value, "/") || strings.HasSuffix(value, "/") {
 		return fmt.Errorf("relative path is not normalized")
 	}
+
 	return nil
 }
 
@@ -580,11 +679,13 @@ func validateOperatorPathComponents(components []string) error {
 	if len(components) > maxPathComponents {
 		return fmt.Errorf("relative path depth exceeds limit")
 	}
+
 	for _, component := range components {
 		if component == "" || component == "." || component == ".." {
 			return fmt.Errorf("relative path contains a forbidden component")
 		}
 	}
+
 	return nil
 }
 
@@ -614,11 +715,13 @@ func validateRootID(rootID string) error {
 	if rootID == "" || len(rootID) > maxRootIDBytes || !utf8.ValidString(rootID) || strings.TrimSpace(rootID) != rootID {
 		return fmt.Errorf("filesystem root ID is invalid")
 	}
+
 	for _, character := range rootID {
 		if !validRootIDCharacter(character) {
 			return fmt.Errorf("filesystem root ID is invalid")
 		}
 	}
+
 	return nil
 }
 

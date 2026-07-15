@@ -1,0 +1,15 @@
+{
+  "message": "Ping",
+  "stream": "control",
+  "message_type": 3,
+  "schema_revision": 1,
+  "flags": 0,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "nonce",
+      "encoding": "uint",
+      "value": 0
+    }
+  ]
+}

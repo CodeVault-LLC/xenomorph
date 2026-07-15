@@ -56,14 +56,17 @@ func collectDiskTelemetry() diskTelemetry {
 		applicationTypes: collectApplicationTypes(),
 	}
 	usage, ok := sampleDiskUsage(path)
+
 	if !ok {
 		return telemetry
 	}
+
 	telemetry.totalBytes = usage.totalBytes
 	telemetry.availableBytes = usage.availableBytes
 	telemetry.usedBytes = usage.usedBytes
 	telemetry.usage = usage.usage
 	telemetry.inodeUsage = usage.inodeUsage
+
 	return telemetry
 }
 
@@ -77,5 +80,6 @@ func hasMountOption(options []string, target string) bool {
 			return true
 		}
 	}
+
 	return false
 }

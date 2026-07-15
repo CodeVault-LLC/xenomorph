@@ -1,0 +1,45 @@
+{
+  "message": "TransferOpen",
+  "stream": "transfer",
+  "message_type": 768,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "transfer_id",
+      "encoding": "fixed16",
+      "value": "00000000000000000000000000000000"
+    },
+    {
+      "name": "signed_capability",
+      "encoding": "bytes",
+      "value": ""
+    },
+    {
+      "name": "direction",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "manifest_digest",
+      "encoding": "opaque32",
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "expected_total_size",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "chunk_size",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "expires_at_ms",
+      "encoding": "uint",
+      "value": 0
+    }
+  ]
+}

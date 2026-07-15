@@ -43,20 +43,25 @@ func summarizeApplicationTypes(applications []string) []ApplicationTypeUsage {
 	for category, count := range counts {
 		result = append(result, ApplicationTypeUsage{Category: category, Count: count})
 	}
+
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Count == result[j].Count {
 			return result[i].Category < result[j].Category
 		}
+
 		return result[i].Count > result[j].Count
 	})
+
 	if len(result) > maxApplicationTypes {
 		result = result[:maxApplicationTypes]
 	}
+
 	return result
 }
 
 func classifyApplication(application string) string {
 	name := strings.ToLower(application)
+
 	categories := []struct {
 		category string
 		keywords []string
@@ -76,5 +81,6 @@ func classifyApplication(application string) string {
 			}
 		}
 	}
+
 	return "Utilities and other"
 }

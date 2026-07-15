@@ -1,0 +1,15 @@
+{
+  "message": "Command",
+  "stream": "commands",
+  "message_type": 512,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "signed_envelope",
+      "encoding": "bytes",
+      "value": ""
+    }
+  ]
+}

@@ -52,9 +52,11 @@ func clampTelemetryRatio(value float64) float64 {
 	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
 		return 0
 	}
+
 	if value > 1 {
 		return 1
 	}
+
 	return value
 }
 
@@ -63,6 +65,7 @@ func clampTelemetryText(value string, limit int) string {
 	if len(value) > limit {
 		return value[:limit]
 	}
+
 	return value
 }
 
@@ -81,31 +84,40 @@ func normalizeStorageType(value string) string {
 
 func normalizeApplicationTypes(values []*pb.ApplicationTypeUsage) []ApplicationTypeUsage {
 	const maxDetectedApplications uint32 = 200
+
 	counts := make(map[string]uint32, applicationCategoryCapacity)
+
 	total := uint32(0)
 	for _, value := range values {
 		if total >= maxDetectedApplications || value == nil || !allowedApplicationCategory(value.GetCategory()) {
 			continue
 		}
+
 		remaining := maxDetectedApplications - total
 		if value.GetCount() < remaining {
 			remaining = value.GetCount()
 		}
+
 		counts[value.GetCategory()] += remaining
 		total += remaining
 	}
+
 	result := make([]ApplicationTypeUsage, 0, len(counts))
+
 	for category, count := range counts {
 		if count > 0 {
 			result = append(result, ApplicationTypeUsage{Category: category, Count: count})
 		}
 	}
+
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Count == result[j].Count {
 			return result[i].Category < result[j].Category
 		}
+
 		return result[i].Count > result[j].Count
 	})
+
 	return result
 }
 
@@ -114,12 +126,15 @@ func normalizeStorageBytes(total, available, used uint64) (uint64, uint64, uint6
 	if total > maxStorageBytes {
 		total = maxStorageBytes
 	}
+
 	if available > total {
 		available = total
 	}
+
 	if used > total {
 		used = total
 	}
+
 	return total, available, used
 }
 
@@ -253,15 +268,19 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 	if ctx == nil {
 		return errors.New("heartbeat context is nil")
 	}
+
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("heartbeat context ended: %w", err)
 	}
+
 	if envelope == nil {
 		return fmt.Errorf("heartbeat envelope is nil")
 	}
+
 	if envelope.Security == nil {
 		return fmt.Errorf("heartbeat envelope missing security context")
 	}
+
 	agentID := envelope.Security.AgentId
 	if agentID == "" {
 		return fmt.Errorf("heartbeat envelope has empty agent id")
@@ -277,9 +296,13 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 	cpuCores := int32(0)
 	cpuThreads := int32(0)
 	totalRAMBytes := uint64(0)
+
 	var gpuDevices []string
+
 	networkName := ""
+
 	var networkAddresses []string
+
 	kernelVersion := ""
 	cpuFrequencyMHz := uint64(0)
 	networkOnline := false
@@ -296,8 +319,11 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 	storageModel := ""
 	storageType := ""
 	storageReadOnly := false
+
 	var applicationTypes []ApplicationTypeUsage
+
 	networkSSID := ""
+
 	if hb != nil {
 		hostname = hb.Hostname
 		osVersion = hb.OsVersion
@@ -330,6 +356,7 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 		applicationTypes = normalizeApplicationTypes(hb.GetApplicationTypes())
 		networkSSID = hb.GetNetworkSsid()
 	}
+
 	totalStorageBytes, availableStorageBytes, usedStorageBytes = normalizeStorageBytes(
 		totalStorageBytes,
 		availableStorageBytes,
@@ -343,6 +370,7 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 
 	m.mu.Lock()
 	m.online[agentID] = presence{lastSeen: eventTime, hostname: hostname}
+
 	record, known := m.all[agentID]
 	if !known {
 		record = clientRecord{
@@ -350,6 +378,7 @@ func (m *Monitor) ProcessHeartbeat(ctx context.Context, envelope *pb.EventEnvelo
 			firstSeen: eventTime,
 		}
 	}
+
 	record.hostname = hostname
 	record.clientIP = envelope.Security.ClientIp
 	record.osVersion = osVersion
@@ -402,6 +431,7 @@ func (m *Monitor) Sweep(_ context.Context) error {
 	for agentID, state := range m.online {
 		if now.Sub(state.lastSeen) > m.offlineAfter {
 			delete(m.online, agentID)
+
 			record, ok := m.all[agentID]
 			if ok {
 				record.isOnline = false

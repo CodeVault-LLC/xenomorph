@@ -1,0 +1,20 @@
+{
+  "message": "MediaClose",
+  "stream": "media",
+  "message_type": 1282,
+  "schema_revision": 1,
+  "flags": 0,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "reason",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "last_frame_number",
+      "encoding": "uint",
+      "value": 0
+    }
+  ]
+}

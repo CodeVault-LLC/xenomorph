@@ -1,6 +1,6 @@
 # Project Status and Milestone 1 Readiness
 
-Status date: 2026-07-14.
+Status date: 2026-07-15.
 
 ## Release Decision
 
@@ -21,6 +21,7 @@ Milestone 1 is defined as an **authorized internal preview** of one gateway depl
 | Operator website | Agent, logs, terminal, screen, and file workflows build successfully in React and TypeScript. | No authenticated human operator or authorization layer exists. A configured operator label is audit-only. |
 | Cryptographic service | Software-provider validation, fail-closed readiness, opaque key handles, command-key separation, cryptographic consistency probes, lifecycle tests, nonce-failure tests, and protected command-key storage tests exist. | The key-generation plan explicitly records partial and missing production controls. |
 | Broker publication | Gateway events are protobuf messages published synchronously to JetStream; publication succeeds only after a broker acknowledgement. Stream provisioning and acknowledgement failures have direct tests. | The gateway-to-NATS connection still lacks independent mutual-TLS identity, subject authorization, and bounded reconnect policy. |
+| Agent transport | Raw QUIC v1, strict TLS 1.3 mTLS, XBP generation/codecs, bounded streams, server-pushed commands, durable replay/journals, transfer/media adapters, admission/fencing, metrics, and real-listener trust tests are implemented. QUIC is required at runtime; no agent HTTP/WebSocket listener or client fallback is started. The dashboard and broker protobuf contract are unchanged. | XBP benchmark approval, UDP deployment/capacity/soak/native-OS evidence, certificate lifecycle, canary, and independent reviews are incomplete. |
 | CI and review | Go formatting, tests, race, vet, static/security analysis, vulnerability scan, lint, cross-build, and website format/lint/type/build gates pass locally. Contributor changes to `master` require both CI jobs, a fresh code-owner review, a current branch, and resolved conversations. Large AI changes always use that PR workflow; administrators retain a documented small-change bypass. | Platform integration, browser tests, signing, provenance, SBOM, and release publication do not exist. |
 
 ## Milestone 1 Blockers
@@ -29,12 +30,12 @@ The following are release-blocking. Priority is determined by trust and operatio
 
 1. **Broker protection:** use independently issued NATS mutual-TLS credentials, authenticate and authorize the gateway subject namespace, bound reconnect/publish behavior, and document broker recovery. Synchronous durable publish acknowledgement is implemented and tested.
 2. **Credential remediation:** remove development CA and private keys from tracked source, purge them from history where they may have been exposed, revoke/rotate them, provide an external enrollment and secret-delivery process, and ensure release packages exclude credentials and local state.
-3. **Runtime configuration:** remove hard-coded client gateway URL, certificate path, server name, 500 ms heartbeat, and other development assumptions. Validate secure production configuration at startup. The heartbeat must satisfy the repository's 10–30 second default rule.
+3. **Transport production evidence:** approve the exact QUIC/Go/cryptographic boundary and codec from controlled evidence; prove UDP/firewall/NAT/kernel behavior, capacity, adversarial and soak behavior, mixed-version rollback, certificate lifecycle, and native client platforms. Runtime endpoint, credential, cadence, state, and timeout configuration is externalized and validated; production deployment values remain an operations-owned input.
 4. **Cryptographic production gate:** resolve every applicable partial/missing control in `gateway-cryptographic-key-generation-plan.md`, extend failure injection and provider-integration evidence, select the actual HSM/KMS or explicitly approved provider and operating environment, implement rotation/recovery/audit controls, and produce independent approval evidence. Disabled future encryption algorithms need not be exposed merely to satisfy the milestone; no unimplemented algorithm may carry a production claim.
 5. **File workspace completion:** complete the residual Phase 1 search/virtualization and benchmark gate, Phase 4 metadata/archive safety work, and Phase 5 metrics, retention, audit export, chaos/load/recovery/accessibility work. Test mutations and transfers natively on every supported OS.
-6. **Durability and recovery:** define persistence for command queues, dashboard state, file operations, transfers, audit, replay state, key metadata, backup, restoration, retention, and secure deletion. Prove restart and partial-failure behavior.
+6. **Durability and recovery:** command/operation journals and the authenticated client replay ledger now define interrupted-command behavior. Complete persistence choices for dashboard state, audits, key metadata, backup, restoration, retention, secure deletion, and whole-system partial failure; prove the complete deployment recovery contract.
 7. **Release engineering:** implement the pipeline in `.docs/ci-and-release.md`, pin dependencies and actions, add platform/browser/integration suites, sign artifacts and provenance, publish checksums/SBOMs, and prove clean install/upgrade/rollback.
-8. **Documentation and review evidence:** update system, deployment, threat, data-flow, operational, incident, recovery, and user documentation from the actual runtime; perform the full review defined by `.docs/code-review.md`; close all Blocker and High findings.
+8. **Documentation and review evidence:** complete enrollment, certificate lifecycle, deployment-specific, user, and release documentation; perform the full review defined by `.docs/code-review.md`; close all Blocker and High findings.
 
 ## Decisions Required Before New Native Binaries
 

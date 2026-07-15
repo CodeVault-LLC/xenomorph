@@ -1,0 +1,15 @@
+{
+  "message": "SessionReplaced",
+  "stream": "control",
+  "message_type": 8,
+  "schema_revision": 1,
+  "flags": 0,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "replacement_session_id",
+      "encoding": "fixed16",
+      "value": "00000000000000000000000000000000"
+    }
+  ]
+}

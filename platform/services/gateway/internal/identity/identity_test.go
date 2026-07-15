@@ -18,6 +18,7 @@ func TestFromPeerCertificateDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first derivation failed: %v", err)
 	}
+
 	second, err := FromPeerCertificate(cert)
 	if err != nil {
 		t.Fatalf("second derivation failed: %v", err)
@@ -26,9 +27,11 @@ func TestFromPeerCertificateDeterministic(t *testing.T) {
 	if first.ID != second.ID {
 		t.Fatalf("expected deterministic ID, got %q and %q", first.ID, second.ID)
 	}
+
 	if first.FingerprintSHA256 != second.FingerprintSHA256 {
 		t.Fatalf("expected deterministic fingerprint, got %q and %q", first.FingerprintSHA256, second.FingerprintSHA256)
 	}
+
 	if first.SubjectCommonName != "edge-01" {
 		t.Fatalf("unexpected common name: %q", first.SubjectCommonName)
 	}
@@ -42,6 +45,7 @@ func TestFromPeerCertificateUniquePerCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identity A derivation failed: %v", err)
 	}
+
 	identityB, err := FromPeerCertificate(certB)
 	if err != nil {
 		t.Fatalf("identity B derivation failed: %v", err)
@@ -50,6 +54,7 @@ func TestFromPeerCertificateUniquePerCertificate(t *testing.T) {
 	if identityA.ID == identityB.ID {
 		t.Fatalf("expected different IDs for different certs: %q", identityA.ID)
 	}
+
 	if identityA.FingerprintSHA256 == identityB.FingerprintSHA256 {
 		t.Fatalf("expected different fingerprints for different certs")
 	}

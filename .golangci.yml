@@ -22,7 +22,20 @@ linters:
     - nestif
     - goconst
     - goprintffuncname
+    - wsl
 
 formatters:
   enable:
     - gofmt
+
+linters-settings:
+  wsl:
+    # Enforces an empty line before if statements, assignments, loops, etc.
+    force-case-trailing-whitespace: 0
+    # Enforces that block statements (like if) are separated by a newline
+    strict-append: true
+    allow-assign-and-anything: false
+    allow-assign-and-call: false
+    allow-cuddle-declarations: false
+    # Do not allow cuddling if statements next to other expressions
+    allow-trailing-comment: false

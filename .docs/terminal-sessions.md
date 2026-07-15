@@ -25,7 +25,7 @@ Client-authored terminal output is not trusted input. It is displayed as remote 
 3. The website calls `POST /api/clients/{agentID}/terminal/sessions/{sessionID}/commands` with command text.
 4. The gateway verifies that the agent is known, online, and that the terminal session belongs to the selected agent.
 5. The gateway enqueues a `support.terminal.run` command with a gateway-authored command ID.
-6. The client polls `/commands/next` over mTLS, validates the command envelope, executes the command through the selected local shell, and posts the command result to `/commands/result`.
+6. The gateway pushes the signed command over the authenticated QUIC command lane. The client validates and executes it through the selected local shell, then returns the result over the QUIC event lane.
 7. The gateway stores the result in the terminal read model and exposes it through `GET /api/clients/{agentID}/terminal/sessions/{sessionID}/entries`.
 
 ## Current Behavior

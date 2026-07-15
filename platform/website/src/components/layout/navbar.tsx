@@ -14,6 +14,7 @@ import { useTheme } from "@/stores/theme-store"
 export const Navbar = () => {
   const navItems = [
     { to: "/", label: "Clients", exact: true },
+    { to: "/generate-client", label: "Generate client", exact: true },
     { to: "/terms", label: "Glossary", exact: true },
   ] as const
 
@@ -50,7 +51,7 @@ function NavLink({
   label,
   exact,
 }: {
-  to: "/" | "/terms"
+  to: "/" | "/generate-client" | "/terms"
   label: string
   exact: boolean
 }) {

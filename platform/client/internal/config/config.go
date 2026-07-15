@@ -44,6 +44,7 @@ type Config struct {
 // generation did not provide a complete profile.
 func Load() (Config, error) {
 	config := generatedConfig()
+
 	if !developmentBuild && config.Environment != "production" {
 		return Config{}, fmt.Errorf("load compiled client profile: production environment is required")
 	}
@@ -131,9 +132,11 @@ func (config Config) validateTiming() error {
 	if config.OperationTimeout <= 0 || config.QUICHandshakeTimeout < time.Second || config.QUICIdleTimeout <= config.HeartbeatInterval {
 		return fmt.Errorf("validate client profile: operation, handshake, or idle timeout is invalid")
 	}
+
 	if config.QUICKeepAlive <= 0 || config.QUICKeepAlive >= config.QUICIdleTimeout/2 {
 		return fmt.Errorf("validate client profile: QUIC keepalive must be below half the idle timeout")
 	}
+
 	if config.ReconnectMinimumBackoff <= 0 || config.ReconnectMaximumBackoff < config.ReconnectMinimumBackoff {
 		return fmt.Errorf("validate client profile: reconnect backoff range is invalid")
 	}

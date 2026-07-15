@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -61,6 +62,7 @@ func TestSecurityFailureClassification(t *testing.T) {
 func validClientConfig() clientconfig.Config {
 	return clientconfig.Config{
 		Environment: "test", ImplementationVersion: "test", QUICEndpoint: "gateway.internal:8444",
+		TargetOS: runtime.GOOS, TargetArchitecture: runtime.GOARCH,
 		ServerName: "gateway.internal", ClientCertificateFile: "client.crt", ClientPrivateKeyFile: "client.key",
 		CAFile: "ca.crt", CommandVerificationKeyFile: "command.pub", ReplayLedgerFile: "ledger.json",
 		ReplayAuthenticationKeyFile: "ledger.key", HeartbeatInterval: 15 * time.Second, OperationTimeout: 10 * time.Second,

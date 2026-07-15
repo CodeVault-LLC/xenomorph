@@ -48,11 +48,12 @@ func (admission *handshakeAdmission) connectionContext(parent context.Context, r
 	if admission == nil {
 		return nil, fmt.Errorf("admit QUIC handshake: admission controller is nil")
 	}
+
 	select {
-	case admission.incomplete <- struct{}{}:
-	default:
-		admission.metrics.overloadRejected.Add(1)
-		return nil, fmt.Errorf("admit QUIC handshake: incomplete handshake capacity reached")
+		case admission.incomplete <- struct{}{}:
+		default:
+			admission.metrics.overloadRejected.Add(1)
+			return nil, fmt.Errorf("admit QUIC handshake: incomplete handshake capacity reached")
 	}
 
 	if !admission.allowPrefix(remoteAddress) {

@@ -84,6 +84,7 @@ func (config Config) validateVersion() error {
 	if strings.TrimSpace(config.Environment) == "" {
 		return fmt.Errorf("validate client profile: environment is required")
 	}
+
 	if version := strings.TrimSpace(config.ImplementationVersion); version == "" || len(version) > 64 {
 		return fmt.Errorf("validate client profile: implementation version must contain 1 to 64 bytes")
 	}
@@ -95,6 +96,7 @@ func (config Config) validateEndpoints() error {
 	if _, _, err := net.SplitHostPort(config.QUICEndpoint); err != nil {
 		return fmt.Errorf("validate client profile: QUIC endpoint requires host and port: %w", err)
 	}
+
 	if strings.TrimSpace(config.ServerName) == "" || net.ParseIP(config.ServerName) != nil ||
 		(strings.EqualFold(config.ServerName, "localhost") && config.Environment == "production") {
 		return fmt.Errorf("validate client profile: TLS server name must be a non-localhost DNS name")
@@ -125,6 +127,7 @@ func (config Config) validateTiming() error {
 	if config.HeartbeatInterval < minimumHeartbeat || config.HeartbeatInterval > maximumHeartbeat {
 		return fmt.Errorf("validate client profile: heartbeat interval must be between 10s and 30s")
 	}
+
 	if config.OperationTimeout <= 0 || config.QUICHandshakeTimeout < time.Second || config.QUICIdleTimeout <= config.HeartbeatInterval {
 		return fmt.Errorf("validate client profile: operation, handshake, or idle timeout is invalid")
 	}

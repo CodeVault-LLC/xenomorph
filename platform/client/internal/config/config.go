@@ -48,6 +48,7 @@ func Load() (Config, error) {
 	if !developmentBuild && config.Environment != "production" {
 		return Config{}, fmt.Errorf("load compiled client profile: production environment is required")
 	}
+
 	if err := config.Validate(); err != nil {
 		return Config{}, fmt.Errorf("load compiled client profile: %w", err)
 	}

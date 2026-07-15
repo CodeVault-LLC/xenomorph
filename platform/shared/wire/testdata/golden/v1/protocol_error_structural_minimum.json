@@ -1,0 +1,25 @@
+{
+  "message": "ProtocolError",
+  "stream": "control",
+  "message_type": 6,
+  "schema_revision": 1,
+  "flags": 0,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "scope",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "code",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "public_error_code",
+      "encoding": "string",
+      "value": ""
+    }
+  ]
+}

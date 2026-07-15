@@ -14,86 +14,154 @@ import (
 	"time"
 
 	"github.com/codevault-llc/xenomorph/platform/client/internal/agent"
+	"github.com/codevault-llc/xenomorph/platform/client/internal/agentquic"
+	clientconfig "github.com/codevault-llc/xenomorph/platform/client/internal/config"
+	clientfs "github.com/codevault-llc/xenomorph/platform/client/internal/filesystem"
+	"github.com/codevault-llc/xenomorph/platform/client/internal/replay"
 	"github.com/codevault-llc/xenomorph/platform/shared/commandauth"
 	sharedidentity "github.com/codevault-llc/xenomorph/platform/shared/identity"
 )
 
-const (
-	gatewayURL                 string        = "https://localhost:8443"
-	certPath                   string        = "../infrastructure/certs"
-	clientTimeout              time.Duration = 10 * time.Second
-	commandVerificationKeyBits               = 3072
-)
+const commandVerificationKeyBits = 3072
+
+type controlTransport interface {
+	Authenticate() (agent.DeviceAuthResult, error)
+	SendHeartbeat() error
+	SubmitAttestation(agent.EndpointAttestation) error
+	PollNextCommand() (*agent.CommandEnvelope, error)
+	SendCommandResult(agent.CommandResultPayload) error
+	SendLogEntry(agent.LogEntryPayload) error
+}
 
 type appContext struct {
-	httpClient *http.Client
-	gatewayURL string
-	tlsConfig  *tls.Config
-	ag         *agent.Agent
-	streamer   *screenStreamer
-	validator  *agent.CommandValidator
+	httpClient        *http.Client
+	gatewayURL        string
+	tlsConfig         *tls.Config
+	transport         controlTransport
+	httpAgent         *agent.Agent
+	quicClient        *agentquic.Client
+	streamer          *screenStreamer
+	validator         *agent.CommandValidator
+	heartbeatInterval time.Duration
+	transferPlane     clientfs.TransferPlane
 }
 
 func setupApp() (*appContext, error) {
 	if err := removeLegacyRuntimeState(); err != nil {
 		return nil, err
 	}
-
-	cert, err := tls.LoadX509KeyPair(certPath+"/client.crt", certPath+"/client.key")
-	if err != nil {
-		return nil, fmt.Errorf("load client certs: %w", err)
-	}
-
-	caCert, err := os.ReadFile(certPath + "/ca.crt")
-	if err != nil {
-		return nil, fmt.Errorf("read CA cert: %w", err)
-	}
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
-
-	tlsConfig := &tls.Config{
-		Certificates:     []tls.Certificate{cert},
-		RootCAs:          caCertPool,
-		ServerName:       "localhost",
-		MinVersion:       tls.VersionTLS13,
-		CurvePreferences: []tls.CurveID{tls.CurveP384},
-	}
-
-	httpClient := &http.Client{
-		Timeout: clientTimeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
-
-	a := agent.New(httpClient, gatewayURL)
-
-	clientCertificate, err := x509.ParseCertificate(cert.Certificate[0])
-	if err != nil {
-		return nil, fmt.Errorf("parse client identity certificate: %w", err)
-	}
-	audience, err := sharedidentity.AgentIDFromCertificate(clientCertificate)
-	if err != nil {
-		return nil, fmt.Errorf("derive command audience: %w", err)
-	}
-	verificationKey, keyID, err := loadCommandVerificationKey(filepath.Join(certPath, "command-signing.pub"))
+	runtimeConfig, err := clientconfig.Load()
 	if err != nil {
 		return nil, err
 	}
 
-	ac := &appContext{
-		httpClient: httpClient,
-		gatewayURL: gatewayURL,
-		tlsConfig:  tlsConfig,
-		ag:         a,
-		streamer:   newScreenStreamer(gatewayURL, tlsConfig),
+	tlsConfig, clientCertificate, err := loadClientTLS(runtimeConfig)
+	if err != nil {
+		return nil, err
 	}
-	validator, err := agent.NewCommandValidator(verificationKey, keyID, audience)
+	httpClient := newHTTPClient(runtimeConfig.HTTPTimeout, tlsConfig)
+	httpAgent := agent.New(httpClient, runtimeConfig.GatewayURL)
+	audience, err := sharedidentity.AgentIDFromCertificate(clientCertificate)
+	if err != nil {
+		return nil, fmt.Errorf("derive command audience: %w", err)
+	}
+	ac := &appContext{
+		httpClient:        httpClient,
+		gatewayURL:        runtimeConfig.GatewayURL,
+		tlsConfig:         tlsConfig,
+		httpAgent:         httpAgent,
+		streamer:          newScreenStreamer(runtimeConfig.GatewayURL, tlsConfig),
+		heartbeatInterval: runtimeConfig.HeartbeatInterval,
+	}
+	validator, err := newCommandValidator(runtimeConfig, audience)
 	if err != nil {
 		return nil, fmt.Errorf("initialize command validator: %w", err)
 	}
 	ac.validator = validator
+	if err := selectControlTransport(ac, runtimeConfig, audience); err != nil {
+		return nil, err
+	}
+	ac.streamer.quicClient = ac.quicClient
 	return ac, nil
+}
+
+func loadClientTLS(runtimeConfig clientconfig.Config) (*tls.Config, *x509.Certificate, error) {
+	certificate, err := tls.LoadX509KeyPair(runtimeConfig.ClientCertificateFile, runtimeConfig.ClientPrivateKeyFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load client certs: %w", err)
+	}
+	if len(certificate.Certificate) == 0 {
+		return nil, nil, fmt.Errorf("load client certs: identity certificate is missing")
+	}
+	clientCertificate, err := x509.ParseCertificate(certificate.Certificate[0])
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse client identity certificate: %w", err)
+	}
+	caData, err := os.ReadFile(filepath.Clean(runtimeConfig.CAFile))
+	if err != nil {
+		return nil, nil, fmt.Errorf("read CA cert: %w", err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caData) {
+		return nil, nil, fmt.Errorf("read CA cert: no certificates found")
+	}
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{certificate}, RootCAs: caPool,
+		ServerName: runtimeConfig.ServerName, MinVersion: tls.VersionTLS13,
+		CurvePreferences: []tls.CurveID{tls.CurveP384},
+	}
+	return tlsConfig, clientCertificate, nil
+}
+
+func newHTTPClient(timeout time.Duration, tlsConfig *tls.Config) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &http.Transport{TLSClientConfig: tlsConfig.Clone()},
+	}
+}
+
+func newCommandValidator(runtimeConfig clientconfig.Config, audience string) (*agent.CommandValidator, error) {
+	verificationKey, keyID, err := loadCommandVerificationKey(runtimeConfig.CommandVerificationKeyFile)
+	if err != nil {
+		return nil, err
+	}
+	replayLedger, err := replay.Open(runtimeConfig.ReplayLedgerFile, runtimeConfig.ReplayAuthenticationKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("initialize command replay ledger: %w", err)
+	}
+	return agent.NewCommandValidatorWithReplayLedger(verificationKey, keyID, audience, replayLedger)
+}
+
+func selectControlTransport(ac *appContext, runtimeConfig clientconfig.Config, audience string) error {
+	if runtimeConfig.TransportMode == clientconfig.TransportHTTP {
+		ac.transport = ac.httpAgent
+		ac.transferPlane = ac.httpAgent
+		return nil
+	}
+	quicClient, err := agentquic.New(runtimeConfig, ac.tlsConfig, audience, ac.validator.KeyID())
+	if err != nil {
+		return err
+	}
+	startContext, cancel := context.WithTimeout(context.Background(), runtimeConfig.QUICHandshakeTimeout)
+	err = quicClient.Start(startContext)
+	cancel()
+	if err == nil {
+		ac.quicClient = quicClient
+		ac.transport = quicClient
+		ac.transferPlane = quicClient
+		return nil
+	}
+	quicClient.Close()
+	if runtimeConfig.TransportMode != clientconfig.TransportQUICFirst ||
+		agentquic.IsSecurityFailure(err) || !runtimeConfig.HTTPFallbackUntil.After(time.Now().UTC()) {
+		return fmt.Errorf("establish required QUIC transport: %w", err)
+	}
+	ac.transport = ac.httpAgent
+	ac.transferPlane = ac.httpAgent
+	_ = ac.httpAgent.SendLogEntry(agent.LogEntryPayload{
+		Level: "WARN", Component: "client.runtime", Message: "event=quic_network_fallback",
+	})
+	return nil
 }
 
 // removeLegacyRuntimeState removes the pre-stateless client state file. The
@@ -143,7 +211,7 @@ func loadCommandVerificationKey(path string) (*rsa.PublicKey, string, error) {
 }
 
 func authenticateDevice(ac *appContext) (bool, error) {
-	auth, err := ac.ag.Authenticate()
+	auth, err := ac.transport.Authenticate()
 	if err != nil {
 		return false, fmt.Errorf("authentication failed: %w", err)
 	}
@@ -156,7 +224,7 @@ func attestEndpoint(ac *appContext, requiresAttestation bool) error {
 	}
 
 	attestation := agent.BuildEndpointAttestation(requiresAttestation, nil, nil)
-	if err := ac.ag.SubmitAttestation(attestation); err != nil {
+	if err := ac.transport.SubmitAttestation(attestation); err != nil {
 		return fmt.Errorf("endpoint attestation failed: %w", err)
 	}
 
@@ -166,7 +234,7 @@ func attestEndpoint(ac *appContext, requiresAttestation bool) error {
 func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 	ctx, cancel := context.WithDeadline(context.Background(), cmd.ExpiresAt)
 	defer cancel()
-	decision, err := agent.HandleCommandWithTransferPlane(ctx, *cmd, ac.validator, ac.ag)
+	decision, err := agent.HandleCommandWithTransferPlane(ctx, *cmd, ac.validator, ac.transferPlane)
 	if err != nil {
 		return fmt.Errorf("command handling failed: %w", err)
 	}
@@ -186,7 +254,7 @@ func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 		}
 	}
 
-	if err := ac.ag.SendCommandResult(decision.Result); err != nil {
+	if err := ac.transport.SendCommandResult(decision.Result); err != nil {
 		reportClientLog(ac, "ERROR", "client.command", "event=command_result_submission_failed")
 		return fmt.Errorf("command result submission failed: %w", err)
 	}
@@ -199,12 +267,12 @@ func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 // discards delivery failures. Diagnostic delivery must not alter client
 // behavior, and no retry queue or local log file is permitted on the client.
 func reportClientLog(ac *appContext, level, component, message string) {
-	if ac == nil || ac.ag == nil {
+	if ac == nil || ac.transport == nil {
 		return
 	}
 	// A logging failure is intentionally not persisted or returned to prevent
 	// recursive diagnostics and client-side data retention.
-	_ = ac.ag.SendLogEntry(agent.LogEntryPayload{
+	_ = ac.transport.SendLogEntry(agent.LogEntryPayload{
 		Level:     level,
 		Component: component,
 		Message:   message,
@@ -216,4 +284,7 @@ func shutdown(ac *appContext) {
 		return
 	}
 	ac.streamer.Stop()
+	if ac.quicClient != nil {
+		ac.quicClient.Close()
+	}
 }

@@ -1,0 +1,40 @@
+{
+  "message": "MediaFrame",
+  "stream": "media",
+  "message_type": 1281,
+  "schema_revision": 1,
+  "flags": 0,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "generation_id",
+      "encoding": "fixed16",
+      "value": "00000000000000000000000000000000"
+    },
+    {
+      "name": "frame_number",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "captured_at_ms",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "keyframe",
+      "encoding": "bool",
+      "value": false
+    },
+    {
+      "name": "content_type",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "data",
+      "encoding": "bytes",
+      "value": ""
+    }
+  ]
+}

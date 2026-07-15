@@ -6,6 +6,7 @@ import (
 )
 
 func TestTerminalStoreCreatesAndCompletesEntry(t *testing.T) {
+	const executedStatus = "executed"
 	store := NewTerminalStore()
 	session := store.CreateSession("agent-1", "Ops", "bash", "/tmp")
 	if session.SessionID == "" {
@@ -24,7 +25,7 @@ func TestTerminalStoreCreatesAndCompletesEntry(t *testing.T) {
 	})
 
 	ok := store.Complete("agent-1", "cmd-1", TerminalEntry{
-		Status:           "executed",
+		Status:           executedStatus,
 		ExitCode:         0,
 		OutputLog:        "/tmp\n",
 		Reason:           "terminal command completed",
@@ -39,7 +40,7 @@ func TestTerminalStoreCreatesAndCompletesEntry(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("expected one entry, got %d", len(entries))
 	}
-	if entries[0].Status != "executed" || entries[0].OutputLog != "/tmp\n" {
+	if entries[0].Status != executedStatus || entries[0].OutputLog != "/tmp\n" {
 		t.Fatalf("expected completed entry, got %#v", entries[0])
 	}
 	if entries[0].CompletedAt == nil {

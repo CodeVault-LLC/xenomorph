@@ -12,6 +12,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/fileworkspace"
@@ -23,7 +25,7 @@ const (
 	clientStreamInterval     time.Duration = 250 * time.Millisecond
 	screenFrameTimeout       time.Duration = 15 * time.Second
 	dashboardShutdownTimeout time.Duration = 5 * time.Second
-	liveScreenFPS            int           = 60
+	liveScreenFrameRateCap   uint64        = 60
 	liveScreenQuality        int           = 70
 	maxLiveViewers           int           = 25
 )
@@ -208,18 +210,34 @@ func screenContentType(frame ScreenFrame) string {
 	return frame.ContentType
 }
 
-func enqueueScreenStreamCommand(queue *command.Queue, agentID string, start bool) {
-	if queue == nil {
+func enqueueScreenStreamCommand(queue *command.Queue, sessions *ScreenSessions, agentID string, start bool) {
+	if queue == nil || sessions == nil {
 		return
 	}
 
 	cmdType := string(CommandTypeStopScreenStream)
 	reason := "Live screen media stream stopped after last dashboard viewer disconnected"
 	payload := json.RawMessage(nil)
+	var authorization MediaGenerationAuthorization
 	if start {
+		generationID := uuid.New()
+		authorization = MediaGenerationAuthorization{
+			GenerationID:      generationID,
+			FrameRateCap:      liveScreenFrameRateCap,
+			MaximumFrameBytes: maxScreenMediaFrameBytes,
+		}
+		if !sessions.AuthorizeMediaGeneration(agentID, authorization) {
+			slog.Error("screen media generation authorization failed")
+			return
+		}
 		cmdType = string(CommandTypeStartScreenStream)
 		reason = "Live screen media stream requested from website dashboard"
-		payload = json.RawMessage(fmt.Sprintf(`{"fps":%d,"quality":%d}`, liveScreenFPS, liveScreenQuality))
+		payload = json.RawMessage(fmt.Sprintf(
+			`{"fps":%d,"quality":%d,"generation_id":%q,"maximum_frame_bytes":%d}`,
+			liveScreenFrameRateCap, liveScreenQuality, generationID.String(), maxScreenMediaFrameBytes,
+		))
+	} else {
+		sessions.RevokeMediaGeneration(agentID)
 	}
 
 	if err := queue.Enqueue(agentID, &command.Envelope{
@@ -228,6 +246,9 @@ func enqueueScreenStreamCommand(queue *command.Queue, agentID string, start bool
 		RequestedBy: "website",
 		Reason:      reason,
 	}); err != nil {
+		if start {
+			sessions.RevokeMediaGeneration(agentID)
+		}
 		slog.Error("screen stream command enqueue failed", "error", err)
 	}
 }

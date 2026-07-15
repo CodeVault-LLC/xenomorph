@@ -1,0 +1,50 @@
+{
+  "message": "ServerHello",
+  "stream": "control",
+  "message_type": 2,
+  "schema_revision": 1,
+  "flags": 0,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "selected_minor",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "negotiated_features",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "session_id",
+      "encoding": "fixed16",
+      "value": "00000000000000000000000000000000"
+    },
+    {
+      "name": "heartbeat_interval_ms",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "maximum_idle_ms",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "event_frame_maximum",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "concurrent_transfer_streams",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "command_verification_key_id",
+      "encoding": "string",
+      "value": ""
+    }
+  ]
+}

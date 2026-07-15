@@ -6,10 +6,7 @@ import (
 	"time"
 )
 
-const (
-	heartbeatInterval time.Duration = 500 * time.Millisecond
-	routineCount      int           = 2
-)
+const routineCount = 2
 
 func run() int {
 	ac, err := setupApp()
@@ -57,11 +54,11 @@ func runRuntimeLoops(ac *appContext) error {
 }
 
 func runHeartbeatLoop(ac *appContext) error {
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(ac.heartbeatInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if err := ac.ag.SendHeartbeat(); err != nil {
+		if err := ac.transport.SendHeartbeat(); err != nil {
 			reportClientLog(ac, "ERROR", "client.heartbeat", "event=heartbeat_failed")
 			return err
 		}
@@ -72,7 +69,7 @@ func runHeartbeatLoop(ac *appContext) error {
 
 func runCommandLoop(ac *appContext) error {
 	for {
-		cmd, err := ac.ag.PollNextCommand()
+		cmd, err := ac.transport.PollNextCommand()
 		if err != nil {
 			reportClientLog(ac, "ERROR", "client.command", "event=command_poll_failed")
 			return err

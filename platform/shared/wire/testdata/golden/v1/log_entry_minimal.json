@@ -1,0 +1,11 @@
+{
+  "stream": "events",
+  "message_type": 258,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "level": 1,
+  "component": 1,
+  "event_code": 1,
+  "detail": ""
+}

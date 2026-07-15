@@ -1,0 +1,15 @@
+{
+  "message": "CommandCancel",
+  "stream": "commands",
+  "message_type": 514,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "reason",
+      "encoding": "uint",
+      "value": 0
+    }
+  ]
+}

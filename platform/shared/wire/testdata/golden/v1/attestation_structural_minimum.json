@@ -1,0 +1,35 @@
+{
+  "message": "Attestation",
+  "stream": "events",
+  "message_type": 257,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "hostname",
+      "encoding": "string",
+      "value": ""
+    },
+    {
+      "name": "os_version",
+      "encoding": "string",
+      "value": ""
+    },
+    {
+      "name": "requires_attestation",
+      "encoding": "bool",
+      "value": false
+    },
+    {
+      "name": "browsers",
+      "encoding": "browser_list",
+      "value": []
+    },
+    {
+      "name": "installed_applications",
+      "encoding": "string_list",
+      "value": []
+    }
+  ]
+}

@@ -23,10 +23,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/agentquic"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/fileworkspace"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/identity"
+	operationjournal "github.com/codevault-llc/xenomorph/platform/services/gateway/internal/operation"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
 	pb "github.com/codevault-llc/xenomorph/platform/shared/proto/gen/go/platform/v1"
 )
@@ -64,18 +66,20 @@ var screenMediaUpgrader = websocket.Upgrader{
 // termination, agent identity extraction, request routing, and event
 // publishing to the NATS broker.
 type Server struct {
-	broker          *broker.NATS
-	commandQueue    *command.Queue
-	statusProvider  agentStatusProvider
-	screenStore     *ScreenStore
-	screenSessions  *ScreenSessions
-	logStore        *AgentLogStore
-	terminalStore   *TerminalStore
-	fileWorkspace   *fileworkspace.Service
-	fileOperatorID  string
-	dashboardOrigin string
-	engine          *gin.Engine
-	readiness       readinessProvider
+	broker           *broker.NATS
+	commandQueue     *command.Queue
+	statusProvider   agentStatusProvider
+	screenStore      *ScreenStore
+	screenSessions   *ScreenSessions
+	logStore         *AgentLogStore
+	terminalStore    *TerminalStore
+	fileWorkspace    *fileworkspace.Service
+	fileOperatorID   string
+	dashboardOrigin  string
+	engine           *gin.Engine
+	readiness        readinessProvider
+	quicTransfers    *quicTransferRegistry
+	operationJournal *operationjournal.Journal
 
 	seenMu     sync.Mutex
 	seenAgents map[string]struct{}
@@ -103,6 +107,7 @@ func NewServer(b *broker.NATS, commandQueue *command.Queue, statusProvider agent
 		terminalStore:  NewTerminalStore(),
 		engine:         gin.Default(),
 		seenAgents:     make(map[string]struct{}),
+		quicTransfers:  newQUICTransferRegistry(),
 	}
 	s.routes()
 	return s
@@ -141,6 +146,11 @@ func (s *Server) routes() {
 // by the administrative health endpoint.
 func (s *Server) ConfigureReadiness(provider readinessProvider) {
 	s.readiness = provider
+}
+
+// ConfigureOperationJournal installs durable non-command operation idempotency.
+func (s *Server) ConfigureOperationJournal(journal *operationjournal.Journal) {
+	s.operationJournal = journal
 }
 
 // handleLogEntry processes an authenticated client diagnostic log entry.
@@ -188,6 +198,31 @@ func (s *Server) handleLogEntry(c *gin.Context) {
 	s.storeLogEnvelope(env)
 
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "event_id": env.EventId})
+}
+
+func (s *Server) commitHTTPCommandResult(agentID string, request commandResultRequest) (command.ResultDisposition, string, error) {
+	if s == nil || s.commandQueue == nil {
+		return 0, "", fmt.Errorf("commit HTTP command result: durable queue is unavailable")
+	}
+	envelope, exists := s.commandQueue.Command(agentID, request.CommandID)
+	if !exists || string(envelope.Type) != request.Type {
+		return 0, "", fmt.Errorf("commit HTTP command result: command audience or type mismatch")
+	}
+	operationID, err := uuid.Parse(request.CommandID)
+	if err != nil {
+		return 0, "", fmt.Errorf("commit HTTP command result: invalid gateway command ID: %w", err)
+	}
+	canonical, err := canonicalizeCommandResult(request)
+	if err != nil {
+		return 0, "", fmt.Errorf("commit HTTP command result: %w", err)
+	}
+	disposition, err := s.commandQueue.CommitResult(agentID, request.CommandID, canonical)
+	if err != nil {
+		return 0, "", err
+	}
+	receipt := agentquic.IngressReceipt{AgentID: agentID, OperationID: [16]byte(operationID)}
+	_, deterministicEventID := newDeterministicIngressEnvelope(receipt, "command-result")
+	return disposition, uuid.UUID(deterministicEventID).String(), nil
 }
 
 // traceMiddleware extracts the X-Trace-ID header from the incoming request
@@ -285,7 +320,7 @@ func (s *Server) handleHeartbeat(c *gin.Context) {
 		return
 	}
 
-	_, existed := s.markSeen(agentID)
+	existed := s.markSeen(agentID)
 
 	c.JSON(http.StatusAccepted, gin.H{
 		"status":               "accepted",
@@ -407,7 +442,11 @@ func (s *Server) handleNextCommand(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), commandPollTimeout)
 	defer cancel()
 
-	cmd := s.commandQueue.WaitDequeue(ctx, agentID)
+	cmd, err := s.commandQueue.WaitDispatch(ctx, agentID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "command state unavailable"})
+		return
+	}
 	if cmd == nil {
 		c.Status(http.StatusNoContent)
 		return
@@ -448,6 +487,11 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schema"})
 		return
 	}
+	disposition, eventID, err := s.commitHTTPCommandResult(agentID, req)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "command result does not match durable command state"})
+		return
+	}
 
 	message := fmt.Sprintf(
 		"command_result command_id=%s type=%s status=%s hostname=%s reason=%s output_bytes=%d",
@@ -460,7 +504,7 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 	)
 
 	env := &pb.EventEnvelope{
-		EventId:   uuid.New().String(),
+		EventId:   eventID,
 		TraceId:   c.GetHeader("X-Trace-ID"),
 		Timestamp: timestamppb.Now(),
 		Security: &pb.SecurityContext{
@@ -493,7 +537,11 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "event_id": env.EventId})
+	status := "accepted"
+	if disposition == command.ResultDuplicate {
+		status = "duplicate"
+	}
+	c.JSON(http.StatusAccepted, gin.H{"status": status, "event_id": env.EventId})
 }
 
 func (s *Server) recordSpecialCommandResult(agentID string, req commandResultRequest) error {
@@ -664,17 +712,17 @@ func normalizeLogEntry(entry *pb.LogEntry) *pb.LogEntry {
 // markSeen records that an agent has been observed. Returns whether this is
 // the first observation (inserted) and whether the agent was previously known
 // (existed). Thread-safe.
-func (s *Server) markSeen(agentID string) (inserted bool, existed bool) {
+func (s *Server) markSeen(agentID string) bool {
 	s.seenMu.Lock()
 	defer s.seenMu.Unlock()
 
-	_, existed = s.seenAgents[agentID]
+	_, existed := s.seenAgents[agentID]
 	if !existed {
 		s.seenAgents[agentID] = struct{}{}
-		return true, false
+		return false
 	}
 
-	return false, true
+	return true
 }
 
 // normalizeAttestationRequest validates and constrains an attestation request into a

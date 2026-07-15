@@ -1,0 +1,20 @@
+{
+  "message": "TransferChunkAck",
+  "stream": "transfer",
+  "message_type": 770,
+  "schema_revision": 1,
+  "flags": 0,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "chunk_index",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "digest",
+      "encoding": "opaque32",
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

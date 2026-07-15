@@ -10,11 +10,14 @@ import (
 	"syscall"
 
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/agentquic"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/config"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/keyservice"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/sdk"
 )
+
+const maximumConcurrentGatewayServices = 3
 
 func run() error {
 	if err := sdk.InitLogger(""); err != nil {
@@ -25,30 +28,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
-	keys, err := keyservice.New(keyservice.Config{
-		ProviderName:                 cfg.CryptoProvider,
-		AllowedModuleVersions:        cfg.CryptoModuleVersions,
-		Certificate:                  cfg.CryptoCertificate,
-		SecurityPolicy:               cfg.CryptoSecurityPolicy,
-		AllowedOperatingEnvironments: cfg.CryptoEnvironments,
-	})
+	keys, err := openKeyService(cfg)
 	if err != nil {
-		return fmt.Errorf("cryptographic provider setup: %w", err)
+		return err
 	}
-	defer func() {
-		if err := keys.Close(); err != nil {
-			slog.Error("cryptographic provider shutdown failed", "error", err)
-		}
-	}()
-	provider := keys.Provider()
-	slog.Info("cryptographic provider ready",
-		"provider", provider.Name,
-		"module_version", provider.ModuleVersion,
-		"certificate", provider.Certificate,
-		"operating_environment", provider.OperatingEnvironment,
-	)
+	defer closeKeyService(keys)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	return serveGateway(ctx, cancel, cfg, keys)
+}
+
+func serveGateway(ctx context.Context, cancel context.CancelFunc, cfg config.GatewayConfig, keys *keyservice.Service) error {
 	signingKey, err := setupCommandSigner(ctx, cfg, keys)
 	if err != nil {
 		return err
@@ -66,16 +56,67 @@ func run() error {
 		return fmt.Errorf("activity monitoring setup: %w", err)
 	}
 
-	srv, err := buildGatewayServer(cfg, signingKey, keys, natsBroker, monitor)
+	srv, queue, err := buildGatewayServer(cfg, signingKey, keys, natsBroker, monitor)
 	if err != nil {
 		return err
 	}
-	startHTTPServers(ctx, cfg, srv)
+	quicListener, err := buildAgentQUICListener(cfg, srv, queue, signingKey)
+	if err != nil {
+		return err
+	}
+	serviceFailures := make(chan error, maximumConcurrentGatewayServices)
+	startHTTPServers(ctx, cfg, srv, serviceFailures)
+	startAgentQUICService(ctx, cfg, quicListener, serviceFailures)
+	return waitForShutdown(cancel, serviceFailures)
+}
 
+func waitForShutdown(cancel context.CancelFunc, serviceFailures <-chan error) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	return nil
+	defer signal.Stop(quit)
+	select {
+	case <-quit:
+		cancel()
+		return nil
+	case serviceError := <-serviceFailures:
+		cancel()
+		return serviceError
+	}
+}
+
+func startAgentQUICService(ctx context.Context, cfg config.GatewayConfig, listener *agentquic.Listener, failures chan<- error) {
+	if listener == nil {
+		return
+	}
+	go func() {
+		slog.Info("agent QUIC listener starting", "addr", cfg.AgentQUIC.Address)
+		if err := listener.Run(ctx); err != nil {
+			failures <- fmt.Errorf("agent QUIC listener: %w", err)
+		}
+	}()
+}
+
+func openKeyService(cfg config.GatewayConfig) (*keyservice.Service, error) {
+	keys, err := keyservice.New(keyservice.Config{
+		ProviderName: cfg.CryptoProvider, AllowedModuleVersions: cfg.CryptoModuleVersions,
+		Certificate: cfg.CryptoCertificate, SecurityPolicy: cfg.CryptoSecurityPolicy,
+		AllowedOperatingEnvironments: cfg.CryptoEnvironments,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cryptographic provider setup: %w", err)
+	}
+	provider := keys.Provider()
+	slog.Info("cryptographic provider ready",
+		"provider", provider.Name, "module_version", provider.ModuleVersion,
+		"certificate", provider.Certificate, "operating_environment", provider.OperatingEnvironment,
+	)
+	return keys, nil
+}
+
+func closeKeyService(keys *keyservice.Service) {
+	if err := keys.Close(); err != nil {
+		slog.Error("cryptographic provider shutdown failed", "error", err)
+	}
 }
 
 func main() {

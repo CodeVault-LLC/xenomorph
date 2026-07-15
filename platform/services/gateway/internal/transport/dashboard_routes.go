@@ -237,7 +237,7 @@ func (h dashboardHandler) liveScreen(w http.ResponseWriter, r *http.Request) {
 	}
 	defer h.endScreenViewer(agentID)
 	if agentViewers == 1 {
-		enqueueScreenStreamCommand(h.runtime.CommandQueue, agentID, true)
+		enqueueScreenStreamCommand(h.runtime.CommandQueue, h.runtime.Sessions, agentID, true)
 	}
 	upgrader := websocket.Upgrader{CheckOrigin: func(request *http.Request) bool {
 		return request.Header.Get("Origin") == h.runtime.DashboardOrigin
@@ -384,6 +384,6 @@ func (h dashboardHandler) requireScreenStream(w http.ResponseWriter) bool {
 func (h dashboardHandler) endScreenViewer(agentID string) {
 	remainingAgentViewers, _ := h.runtime.Sessions.EndViewer(agentID)
 	if remainingAgentViewers == 0 {
-		enqueueScreenStreamCommand(h.runtime.CommandQueue, agentID, false)
+		enqueueScreenStreamCommand(h.runtime.CommandQueue, h.runtime.Sessions, agentID, false)
 	}
 }

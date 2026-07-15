@@ -1,0 +1,34 @@
+digraph quic_agent_deployment {
+  graph [bgcolor="#F7F9FB", fontname="Helvetica", rankdir=LR, pad="0.25", nodesep="0.45", ranksep="0.7"];
+  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#355C7D", fillcolor="#EAF2F8"];
+  edge [fontname="Helvetica", fontsize=9, color="#526D82", arrowsize=0.7];
+
+  subgraph cluster_endpoints {
+    label="Authorized endpoint network";
+    color="#8FB9A8";
+    agent [label="Enrolled agent\nclient certificate\nQUIC v1 + TLS 1.3", fillcolor="#E8F5E9"];
+    browser [label="Operator browser\nuntrusted intent", fillcolor="#FFF3E0"];
+  }
+
+  subgraph cluster_gateway {
+    label="Single gateway failure domain";
+    color="#355C7D";
+    quic [label="Agent QUIC listener\nUDP :8444\ndisabled by default", fillcolor="#DDEBF7"];
+    https [label="Compatibility agent HTTPS\nTCP :8443", fillcolor="#DDEBF7"];
+    dashboard [label="Dashboard API\nseparate TCP listener", fillcolor="#FFF3E0"];
+    boundary [label="Certificate identity, validation,\njournals, protobuf provenance", shape=component, fillcolor="#F3E5F5"];
+  }
+
+  nats [label="Secured NATS JetStream\ngateway identity only", shape=cylinder, fillcolor="#FCE4EC"];
+
+  agent -> quic [label="allowed UDP only"];
+  agent -> https [label="bounded compatibility TCP"];
+  browser -> dashboard [label="internal HTTPS"];
+  quic -> boundary;
+  https -> boundary;
+  dashboard -> boundary [label="operator intent"];
+  boundary -> nats [label="protobuf EventEnvelope"];
+  agent -> nats [label="denied", color="#C0392B", style=dashed];
+  browser -> quic [label="denied", color="#C0392B", style=dashed];
+  browser -> nats [label="denied", color="#C0392B", style=dashed];
+}

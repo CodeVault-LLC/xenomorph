@@ -22,7 +22,7 @@ GOSEC ?= $(or $(shell command -v gosec 2>/dev/null),$(GOBIN)/gosec)
 GATEWAY_DIR := $(ROOT)/platform/services/gateway
 CLIENT_DIR := $(ROOT)/platform/client
 
-.PHONY: help fmt fmt-check test test-race vet staticcheck govulncheck gosec tidy tidy-check build build-all build-gateway build-client run-gateway run-client clean lint install-tools web-install web-format-check web-lint web-typecheck web-build ci-go ci-web ci
+.PHONY: help fmt fmt-check test test-race vet staticcheck govulncheck gosec tidy tidy-check wire-generate wire-generate-check build build-all build-gateway build-client run-gateway run-client clean lint install-tools web-install web-format-check web-lint web-typecheck web-build ci-go ci-web ci
 
 help:
 	@printf '%s\n' "Available targets:"
@@ -35,6 +35,7 @@ help:
 	@printf '%s\n' "  make govulncheck   Run govulncheck for every Go module"
 	@printf '%s\n' "  make gosec         Run gosec for every Go module"
 	@printf '%s\n' "  make tidy          Normalize module metadata across every Go module"
+	@printf '%s\n' "  make wire-generate Generate XBP registries, codecs, vectors, and reference"
 	@printf '%s\n' "  make tidy-check    Verify go mod tidy produces no changes"
 	@printf '%s\n' "  make build         Build native gateway and client binaries"
 	@printf '%s\n' "  make build FIPS_MODULE=v1.0.0  Build with the selected Go FIPS 140-3 module"
@@ -98,6 +99,12 @@ tidy-check:
 		exit 1; \
 	fi
 
+wire-generate:
+	@cd $(ROOT)/platform/shared && $(GO) run ./cmd/wiregen
+
+wire-generate-check:
+	@cd $(ROOT)/platform/shared && $(GO) run ./cmd/wiregen -check
+
 build: build-gateway build-client
 
 build-gateway:
@@ -153,7 +160,7 @@ web-typecheck:
 web-build:
 	@cd $(WEBSITE_DIR) && $(BUN) run build
 
-ci-go: fmt-check tidy-check test-race govulncheck lint build-all
+ci-go: wire-generate-check fmt-check tidy-check test-race govulncheck lint build-all
 
 ci-web: web-install web-format-check web-lint web-typecheck web-build
 

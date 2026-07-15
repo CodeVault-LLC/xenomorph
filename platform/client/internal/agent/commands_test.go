@@ -93,7 +93,7 @@ func TestHandleCommandRejectsReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second HandleCommand() error = %v", err)
 	}
-	if second.Result.Status != CommandStatusRejected || second.Result.Reason != "command replay detected" {
+	if second.Result.Status != CommandStatusRejected || second.Result.Reason != ErrCommandReplay.Error() {
 		t.Fatalf("second result = (%q, %q), want replay rejection", second.Result.Status, second.Result.Reason)
 	}
 }

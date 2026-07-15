@@ -1,0 +1,15 @@
+{
+  "message": "CommandState",
+  "stream": "events",
+  "message_type": 515,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "state",
+      "encoding": "uint",
+      "value": 0
+    }
+  ]
+}

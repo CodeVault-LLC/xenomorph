@@ -1,0 +1,179 @@
+// Xenomorph QUIC agent transport — component and trust-boundary view.
+//
+// View purpose: show component ownership, authenticated boundaries, application
+// stream allocation, and the unchanged dashboard/NATS compatibility edges.
+// The palette is inspired by the JPL SMAP Science Data System architecture.
+// Colors are redundant with labels and shapes; they do not carry meaning alone.
+//
+// Render:
+//   dot -Tpng -Gdpi=150 quic-agent-transport-architecture.dot -o quic-agent-transport-architecture.png
+//   dot -Tsvg quic-agent-transport-architecture.dot -o quic-agent-transport-architecture.svg
+digraph quic_agent_transport_architecture {
+    graph [
+        rankdir = LR,
+        splines = ortho,
+        nodesep = 0.45,
+        ranksep = 0.8,
+        bgcolor = "#FFFFFF",
+        pad = 0.25,
+        label = "Xenomorph QUIC Agent Transport — Component and Trust Boundaries",
+        labelloc = "t",
+        fontname = "Helvetica-Bold",
+        fontsize = 16,
+        fontcolor = "#232022"
+    ];
+
+    node [
+        shape = rect,
+        style = "rounded,filled",
+        fillcolor = "#F9F6F1",
+        color = "#232022",
+        fontcolor = "#232022",
+        fontname = "Helvetica",
+        fontsize = 10,
+        penwidth = 1.2,
+        margin = "0.18,0.12"
+    ];
+
+    edge [
+        color = "#232022",
+        fontcolor = "#232022",
+        fontname = "Helvetica",
+        fontsize = 9,
+        penwidth = 1.1,
+        arrowsize = 0.75
+    ];
+
+    subgraph cluster_agent {
+        label = "Agent Client\nUntrusted emitter and local executor";
+        color = "#232022";
+        fontcolor = "#0066A6";
+        fontname = "Helvetica-Bold";
+        fontsize = 11;
+        penwidth = 1.4;
+        margin = 18;
+
+        local_sources [
+            label = "Local Sources\nTelemetry | filesystem | screen | process",
+            fillcolor = "#E1E7F5"
+        ];
+        agent_runtime [
+            label = "Agent Runtime\nCollect | validate command | execute"
+        ];
+        replay_ledger [
+            label = "Security Replay Ledger\nBounded durable command state",
+            fillcolor = "#D2CBAB"
+        ];
+        quic_client [
+            label = "QUIC Session Manager\nTLS 1.3 client | XBP codec | backpressure",
+            fillcolor = "#3F66A5",
+            fontcolor = "#FFFFFF"
+        ];
+
+        local_sources -> agent_runtime [label = " client-authored observations"];
+        replay_ledger -> agent_runtime [label = " replay decision"];
+        agent_runtime -> replay_ledger [label = " state transition"];
+        agent_runtime -> quic_client [label = " bounded messages"];
+        quic_client -> agent_runtime [label = " verified signed command"];
+    }
+
+    subgraph cluster_gateway_boundary {
+        label = "Gateway Trust Boundary\nSole agent authentication and provenance authority";
+        color = "#0066A6";
+        fontcolor = "#0066A6";
+        fontname = "Helvetica-Bold";
+        fontsize = 11;
+        penwidth = 2.0;
+        margin = 20;
+
+        quic_listener [
+            label = "QUIC Listener\nUDP | TLS 1.3 mTLS | ALPN | admission"
+        ];
+        identity [
+            label = "Identity Derivation\nVerified certificate → agent ID",
+            fillcolor = "#D2CBAB"
+        ];
+        session_manager [
+            label = "Session Manager\nServer session ID | registry | fencing | drain"
+        ];
+        dispatcher [
+            label = "Protocol Dispatcher\nCanonical decode | bounds | authorization"
+        ];
+        ingress [
+            label = "Transport-neutral Ingress Services\nValidate | create provenance | commit/ack"
+        ];
+        command_service [
+            label = "Command Service\nSign | queue | operation journal | reconcile"
+        ];
+        transfer_service [
+            label = "Transfer and Media Services\nQuota | digest | encrypted spool | session bind"
+        ];
+        broker_adapter [
+            label = "Broker Adapter\nServer-authored protobuf EventEnvelope"
+        ];
+
+        quic_listener -> identity [label = " verified peer certificate"];
+        identity -> session_manager [label = " trusted agent ID"];
+        session_manager -> dispatcher [label = " authenticated session"];
+        dispatcher -> ingress [label = " validated client payload"];
+        ingress -> broker_adapter [label = " gateway-authored envelope"];
+        command_service -> dispatcher [label = " signed command"];
+        dispatcher -> command_service [label = " correlated result"];
+        dispatcher -> transfer_service [label = " scoped stream"];
+    }
+
+    subgraph cluster_platform {
+        label = "Platform Compatibility Consumers";
+        color = "#232022";
+        fontcolor = "#0066A6";
+        fontname = "Helvetica-Bold";
+        fontsize = 11;
+        penwidth = 1.4;
+        margin = 18;
+
+        nats [
+            label = "NATS JetStream\nAcknowledged protobuf events",
+            fillcolor = "#E1E7F5"
+        ];
+        dashboard_api [
+            label = "Dashboard HTTPS API\nOperator intent and presentation",
+            fillcolor = "#E1E7F5"
+        ];
+        website [
+            label = "Administrative Website\nOperator-authored input",
+            fillcolor = "#E1E7F5"
+        ];
+
+        website -> dashboard_api [
+            label = " HTTPS",
+            dir = both,
+            arrowtail = normal
+        ];
+    }
+
+    quic_client -> quic_listener [
+        label = " QUIC v1 + TLS 1.3 mTLS\n ALPN xenomorph-agent/1\n control | events | commands | transfer | media",
+        color = "#0066A6",
+        fontcolor = "#0066A6",
+        penwidth = 2.0,
+        dir = both,
+        arrowtail = normal
+    ];
+
+    broker_adapter -> nats [
+        label = " synchronous durable publish",
+        color = "#0066A6",
+        fontcolor = "#0066A6"
+    ];
+    dashboard_api -> command_service [
+        label = " operator-authored intent",
+        color = "#232022"
+    ];
+    command_service -> dashboard_api [
+        label = " gateway state"
+    ];
+    transfer_service -> dashboard_api [
+        label = " bounded result/media/file state"
+    ];
+
+}

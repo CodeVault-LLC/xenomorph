@@ -329,6 +329,14 @@ func (service *Service) ReadAgentTransferChunk(agentID, transferID, token string
 	return service.transfers.ReadChunk(agentID, transferID, token, index)
 }
 
+// ValidateAgentTransferLease verifies the gateway-issued agent data-plane capability.
+func (service *Service) ValidateAgentTransferLease(agentID, transferID, token string) error {
+	if service == nil || service.transfers == nil {
+		return fmt.Errorf("validate agent transfer lease: transfer service is unavailable")
+	}
+	return service.transfers.ValidateLease(agentID, transferID, token)
+}
+
 // ReadCompletedTransferChunk returns verified bytes to the dashboard transport.
 func (service *Service) ReadCompletedTransferChunk(agentID, transferID string, index int) ([]byte, error) {
 	return service.transfers.ReadCompletedChunk(agentID, transferID, index)

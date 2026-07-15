@@ -138,6 +138,9 @@ type CommandEnvelope struct {
 	Reason          string          `json:"reason"`
 	KeyID           string          `json:"key_id"`
 	Signature       string          `json:"signature"`
+	// AcknowledgePersistence is transport-owned and excluded from the signed
+	// envelope. The validator invokes it only after durable replay reservation.
+	AcknowledgePersistence func() error `json:"-"`
 }
 
 // CommandResultPayload is sent to the gateway after command execution.

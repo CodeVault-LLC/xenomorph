@@ -1,0 +1,45 @@
+{
+  "message": "ClientHello",
+  "stream": "control",
+  "message_type": 1,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "minimum_minor",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "maximum_minor",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "features",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "implementation_version",
+      "encoding": "string",
+      "value": ""
+    },
+    {
+      "name": "platform",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "architecture",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "client_instance_nonce",
+      "encoding": "fixed16",
+      "value": "00000000000000000000000000000000"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "major": 1,
+  "assigned": {
+    "1":"ClientHello", "2":"ServerHello", "3":"Ping", "4":"Pong", "5":"MessageAck", "6":"ProtocolError", "7":"Drain", "8":"SessionReplaced",
+    "256":"Heartbeat", "257":"Attestation", "258":"LogEntry",
+    "512":"Command", "513":"CommandResult", "514":"CommandCancel", "515":"CommandState",
+    "768":"TransferOpen", "769":"TransferChunk", "770":"TransferChunkAck", "771":"TransferFinalize", "772":"TransferAbort",
+    "1280":"MediaOpen", "1281":"MediaFrame", "1282":"MediaClose"
+  },
+  "compatibility": {
+    "1": "sha256:53540d3a0438a3e211138d27ed102ca2e4c975a2e7c22e959966aa42d6d2c2de",
+    "2": "sha256:d4a27ef80bb9fba3b1066981b99db194c916dddf10e6dcba8edd0b93eec57185",
+    "3": "sha256:1d3e1aeb033ee243bdca38f735b798e57c5a9dc9d7206ecfda0008bb0f820aff",
+    "4": "sha256:1d3e1aeb033ee243bdca38f735b798e57c5a9dc9d7206ecfda0008bb0f820aff",
+    "5": "sha256:636a9e1711b29864d182ab0eb56171ccd629a86d341e29a73c62450ad4e34eb3",
+    "6": "sha256:64f19fa518a09c0c76ffe131eac8263cc21c3ae463558fd76f62137d5efb7275",
+    "7": "sha256:1eca263b1e4ec746184f85dc245d01c2532ad1856d1ec90cd5b62dfb5672de55",
+    "8": "sha256:9884d3b63f4feb71d6a7ba567d4bf5e405961e8e1f1364d7cb466f5f68f6a50f",
+    "256": "sha256:e60830e65345fca04ef1dc84d6023a178f671eef99731ca3a99ae52e43e551a0",
+    "257": "sha256:21801d89ff664dfbf66a84dc5669109300c1fb00bc14d502e1d18e7d1a7c6a6d",
+    "258": "sha256:8cde321418b0e7967379cdb181d98e0e61fd43a18f34490040d710b8db2a0440",
+    "512": "sha256:48f2ee5fb9cf65be655cfffbd3dbe807bc212c5cb7fdd1417bbd4cd1bb64aca4",
+    "513": "sha256:34cf27e6e6fac5d30af91ddb3046efbea978641bdcc47a3d598c3dfb29d2f1ad",
+    "514": "sha256:59193daef5b4bf551f49a5c264cd7d7ebc31a61a9b12e318bab57c3f90c3ff8e",
+    "515": "sha256:01b08bf7c2a5ec01ddf570472a4d1815a247a5db5e59d285f8a8cfdc7fa3ac95",
+    "768": "sha256:5113a498cbd6c56ffa2f1278478c1783c4b9e86880761a706fbdda75eb23a786",
+    "769": "sha256:dfe8a2a8d2884b2fc41315aedf25726ccc096c9bcaab361c5be45d823d1151be",
+    "770": "sha256:5bb24fa81095872a35fe30b6a0c385c097ce6c8cfab3b0d1b249fc1f842f79ef",
+    "771": "sha256:0c5167f6c6ceac2ed49342895f0072e2f3c63b48c4996670f5ad0cbf22e6fa95",
+    "772": "sha256:59193daef5b4bf551f49a5c264cd7d7ebc31a61a9b12e318bab57c3f90c3ff8e",
+    "1280": "sha256:628e4eec70625520e78a156e3c5bda3bfaf426c15923777e8f75ab2b1b0bbe9c",
+    "1281": "sha256:83cbd5328ac17a3ea2123be8b0a5b9a4beed1685af4c0bcfad2490662ddc9790",
+    "1282": "sha256:3da009761d2bc5cff8b014ffa3e33465db568be084103c9777f1c7500562a76a"
+  },
+  "tombstoned": {}
+}

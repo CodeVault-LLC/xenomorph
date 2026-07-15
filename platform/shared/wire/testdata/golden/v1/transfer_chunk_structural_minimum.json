@@ -1,0 +1,35 @@
+{
+  "message": "TransferChunk",
+  "stream": "transfer",
+  "message_type": 769,
+  "schema_revision": 1,
+  "flags": 1,
+  "sequence": 1,
+  "fields": [
+    {
+      "name": "chunk_index",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "chunk_length",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "digest_algorithm",
+      "encoding": "uint",
+      "value": 0
+    },
+    {
+      "name": "digest",
+      "encoding": "opaque32",
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "data",
+      "encoding": "bytes",
+      "value": ""
+    }
+  ]
+}

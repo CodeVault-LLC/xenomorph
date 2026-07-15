@@ -6,7 +6,7 @@ require (
 	github.com/codevault-llc/xenomorph/platform/shared v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/quic-go/quic-go v0.59.1
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.47.0
 )
 
 require (

@@ -130,7 +130,7 @@ run-gateway:
 	@cd $(GATEWAY_DIR) && CRYPTO_ALLOWED_ENVIRONMENTS=$(CRYPTO_ALLOWED_ENVIRONMENTS) GOFIPS140=$(FIPS_MODULE) $(GO) run ./cmd
 
 run-client:
-	@cd $(CLIENT_DIR) && GOFIPS140=$(FIPS_MODULE) $(GO) run ./cmd
+	@cd $(CLIENT_DIR) && GOFIPS140=$(FIPS_MODULE) $(GO) run -tags development ./cmd
 
 clean:
 	@rm -rf $(BIN_DIR)

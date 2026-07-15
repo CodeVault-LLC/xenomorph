@@ -1,7 +1,6 @@
 package config
 
 import (
-	"strings"
 	"testing"
 	"time"
 )
@@ -48,11 +47,14 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsLegacyHTTPTransportConfiguration(t *testing.T) {
-	t.Setenv("AGENT_TRANSPORT_MODE", "http")
+func TestLoadFailsWithoutGeneratedProfile(t *testing.T) {
+	if developmentBuild {
+		t.Skip("development build supplies a compile-time fixture profile")
+	}
 
-	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "QUIC-only") {
-		t.Fatalf("Load error = %v, want QUIC-only configuration error", err)
+	t.Setenv("AGENT_QUIC_ENDPOINT", "attacker.example:8444")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() succeeded without a generated profile")
 	}
 }

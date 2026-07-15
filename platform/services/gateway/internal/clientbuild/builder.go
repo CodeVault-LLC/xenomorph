@@ -23,6 +23,8 @@ const (
 	maxVersionLength          = 64
 	maxArtifactBytes    int64 = 100 << 20
 	buildTimeout              = 2 * time.Minute
+	maxDiagnosticsBytes       = 16 << 10
+	generatedFileMode         = 0o600
 )
 
 // ErrBusy indicates that the fixed client build capacity is already in use.
@@ -58,6 +60,7 @@ func New(sourceRoot string) (*Builder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve client build source: %w", err)
 	}
+
 	for _, module := range []string{"client", "shared"} {
 		if _, err := os.Stat(filepath.Join(absSourceRoot, module, "go.mod")); err != nil {
 			return nil, fmt.Errorf("validate client build source %s: %w", module, err)
@@ -78,12 +81,15 @@ func (request *Request) Validate() error {
 	if err := validateEndpoint(request.Endpoint); err != nil {
 		return err
 	}
+
 	if !validDNSName(request.TLSServerName) || strings.EqualFold(request.TLSServerName, "localhost") {
-		return fmt.Errorf("TLS server name must be a non-localhost DNS name")
+		return fmt.Errorf("tls server name must be a non-localhost DNS name")
 	}
+
 	if !supportedTarget(request.TargetOS, request.TargetArchitecture) {
 		return fmt.Errorf("target %s/%s is not supported", request.TargetOS, request.TargetArchitecture)
 	}
+
 	if !validVersion(request.ClientVersion) {
 		return fmt.Errorf("client version must contain 1 to %d letters, numbers, dots, underscores, pluses, or hyphens", maxVersionLength)
 	}
@@ -98,12 +104,11 @@ func (builder *Builder) Build(ctx context.Context, request Request) (Artifact, e
 	if err := request.Validate(); err != nil {
 		return Artifact{}, err
 	}
-	select {
-	case builder.slots <- struct{}{}:
-		defer func() { <-builder.slots }()
-	default:
+
+	if !builder.acquire() {
 		return Artifact{}, ErrBusy
 	}
+	defer builder.release()
 
 	buildContext, cancel := context.WithTimeout(ctx, buildTimeout)
 	defer cancel()
@@ -112,42 +117,81 @@ func (builder *Builder) Build(ctx context.Context, request Request) (Artifact, e
 	if err != nil {
 		return Artifact{}, fmt.Errorf("create client build workspace: %w", err)
 	}
+
+	// The workspace is private temporary build state and is not an artifact store.
 	defer func() { _ = os.RemoveAll(workspace) }()
 
-	if err := builder.copyModules(workspace); err != nil {
-		return Artifact{}, err
-	}
-	if err := writeGeneratedProfile(workspace, request); err != nil {
+	if err := builder.prepareWorkspace(workspace, request); err != nil {
 		return Artifact{}, err
 	}
 
+	return compileArtifact(buildContext, workspace, request)
+}
+
+func (builder *Builder) acquire() bool {
+	select {
+	case builder.slots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (builder *Builder) release() {
+	<-builder.slots
+}
+
+func (builder *Builder) prepareWorkspace(workspace string, request Request) error {
+	if err := builder.copyModules(workspace); err != nil {
+		return err
+	}
+
+	if err := writeGeneratedProfile(workspace, request); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func compileArtifact(ctx context.Context, workspace string, request Request) (Artifact, error) {
 	filename := artifactFilename(request.TargetOS, request.TargetArchitecture)
 	outputPath := filepath.Join(workspace, filename)
-	command := exec.CommandContext(buildContext, "go", "build", "-trimpath", "-o", outputPath, "./cmd")
+	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", outputPath, "./cmd") // #nosec G204 -- command and arguments are fixed; browser input cannot affect them.
 	command.Dir = filepath.Join(workspace, "client")
+
 	command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+request.TargetOS, "GOARCH="+request.TargetArchitecture)
 
-	var diagnostics limitedBuffer
-	diagnostics.limit = 16 << 10
+	diagnostics := limitedBuffer{limit: maxDiagnosticsBytes}
 	command.Stderr = &diagnostics
+
 	if err := command.Run(); err != nil {
 		return Artifact{}, fmt.Errorf("build generated client: %w: %s", err, diagnostics.String())
 	}
 
-	info, err := os.Stat(outputPath)
+	contents, err := readArtifact(outputPath)
 	if err != nil {
-		return Artifact{}, fmt.Errorf("inspect generated client artifact: %w", err)
-	}
-	if info.Size() <= 0 || info.Size() > maxArtifactBytes {
-		return Artifact{}, fmt.Errorf("generated client artifact has invalid size")
-	}
-
-	contents, err := os.ReadFile(outputPath)
-	if err != nil {
-		return Artifact{}, fmt.Errorf("read generated client artifact: %w", err)
+		return Artifact{}, err
 	}
 
 	return Artifact{Contents: contents, Filename: filename}, nil
+}
+
+func readArtifact(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect generated client artifact: %w", err)
+	}
+
+	if info.Size() <= 0 || info.Size() > maxArtifactBytes {
+		return nil, fmt.Errorf("generated client artifact has invalid size")
+	}
+
+	contents, err := os.ReadFile(path) // #nosec G304 -- path is the builder's temporary output, not browser input.
+	if err != nil {
+		return nil, fmt.Errorf("read generated client artifact: %w", err)
+	}
+
+	return contents, nil
 }
 
 func (builder *Builder) copyModules(workspace string) error {
@@ -193,9 +237,10 @@ func generatedConfig() Config {
 		ReconnectMinimumBackoff: time.Second,
 		ReconnectMaximumBackoff: 30 * time.Second,
 	}
-}
-`, request.ClientVersion, request.TargetOS, request.TargetArchitecture, request.Endpoint, request.TLSServerName)
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+	}
+	`, request.ClientVersion, request.TargetOS, request.TargetArchitecture, request.Endpoint, request.TLSServerName)
+
+	if err := os.WriteFile(path, []byte(contents), generatedFileMode); err != nil {
 		return fmt.Errorf("write generated client profile: %w", err)
 	}
 
@@ -206,15 +251,38 @@ func validateEndpoint(endpoint string) error {
 	if len(endpoint) == 0 || len(endpoint) > maxEndpointLength {
 		return fmt.Errorf("endpoint must contain 1 to %d bytes", maxEndpointLength)
 	}
+
 	host, portText, err := net.SplitHostPort(endpoint)
-	if err != nil || host == "" || strings.EqualFold(host, "localhost") {
+	if err != nil {
 		return fmt.Errorf("endpoint must be a non-localhost host and port")
 	}
+
+	if err := validateEndpointHost(host); err != nil {
+		return err
+	}
+
+	return validatePort(portText)
+}
+
+func validateEndpointHost(host string) error {
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return fmt.Errorf("endpoint must be a non-localhost host and port")
+	}
+
 	if net.ParseIP(host) == nil && !validDNSName(host) {
 		return fmt.Errorf("endpoint host must be an IP address or DNS name")
 	}
+
+	return nil
+}
+
+func validatePort(portText string) error {
 	port, err := strconv.Atoi(portText)
-	if err != nil || port < 1 || port > 65535 {
+	if err != nil {
+		return fmt.Errorf("endpoint port must be in [1,65535]")
+	}
+
+	if port < 1 || port > 65535 {
 		return fmt.Errorf("endpoint port must be in [1,65535]")
 	}
 
@@ -225,20 +293,38 @@ func validDNSName(name string) bool {
 	if len(name) == 0 || len(name) > maxServerNameLength || net.ParseIP(name) != nil {
 		return false
 	}
+
 	labels := strings.Split(name, ".")
 	for _, label := range labels {
-		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+		if !validDNSLabel(label) {
 			return false
-		}
-		for _, character := range label {
-			if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
-				(character < '0' || character > '9') && character != '-' {
-				return false
-			}
 		}
 	}
 
 	return true
+}
+
+func validDNSLabel(label string) bool {
+	if len(label) == 0 || len(label) > 63 {
+		return false
+	}
+
+	if label[0] == '-' || label[len(label)-1] == '-' {
+		return false
+	}
+
+	for _, character := range label {
+		if !validDNSCharacter(character) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func validDNSCharacter(character rune) bool {
+	return character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+		character >= '0' && character <= '9' || character == '-'
 }
 
 func supportedTarget(targetOS, targetArchitecture string) bool {
@@ -250,14 +336,18 @@ func validVersion(version string) bool {
 	if len(version) == 0 || len(version) > maxVersionLength {
 		return false
 	}
+
 	for _, character := range version {
-		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
-			(character < '0' || character > '9') && character != '.' && character != '_' && character != '+' && character != '-' {
+		if !validVersionCharacter(character) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func validVersionCharacter(character rune) bool {
+	return validDNSCharacter(character) || character == '.' || character == '_' || character == '+'
 }
 
 func artifactFilename(targetOS, targetArchitecture string) string {
@@ -277,10 +367,12 @@ type limitedBuffer struct {
 func (buffer *limitedBuffer) Write(contents []byte) (int, error) {
 	originalLength := len(contents)
 	remaining := buffer.limit - buffer.Len()
+
 	if remaining > 0 {
 		if len(contents) > remaining {
 			contents = contents[:remaining]
 		}
+
 		_, _ = buffer.Buffer.Write(contents)
 	}
 

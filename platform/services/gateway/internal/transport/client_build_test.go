@@ -38,12 +38,15 @@ func TestClientBuildRouteDownloadsArtifact(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 	}
+
 	if got, want := response.Header().Get("Content-Disposition"), "attachment; filename=xenomorph-client-linux-amd64"; got != want {
 		t.Fatalf("Content-Disposition = %q, want %q", got, want)
 	}
+
 	if got, want := response.Body.String(), "client-binary"; got != want {
 		t.Fatalf("body = %q, want %q", got, want)
 	}
+
 	if builder.request.Endpoint != "gateway.example.test:8444" {
 		t.Fatalf("builder endpoint = %q", builder.request.Endpoint)
 	}
@@ -63,6 +66,7 @@ func TestClientBuildRouteRejectsInvalidProfile(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
 	}
+
 	if builder.request.Endpoint != "" {
 		t.Fatalf("builder received invalid request: %#v", builder.request)
 	}
@@ -82,6 +86,7 @@ func TestClientBuildRouteReportsBusyCapacity(t *testing.T) {
 	if response.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusTooManyRequests)
 	}
+
 	if !errors.Is(builder.err, clientbuild.ErrBusy) {
 		t.Fatal("test setup did not provide busy error")
 	}

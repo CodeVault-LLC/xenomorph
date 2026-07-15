@@ -37,6 +37,7 @@ func TestRequestValidate(t *testing.T) {
 
 			request := valid
 			test.mutate(&request)
+
 			if err := request.Validate(); err == nil {
 				t.Fatal("Validate() succeeded for invalid request")
 			}
@@ -50,6 +51,7 @@ func TestArtifactFilename(t *testing.T) {
 	if got, want := artifactFilename("windows", "amd64"), "xenomorph-client-windows-amd64.exe"; got != want {
 		t.Fatalf("artifactFilename() = %q, want %q", got, want)
 	}
+
 	if got, want := artifactFilename("linux", "arm64"), "xenomorph-client-linux-arm64"; got != want {
 		t.Fatalf("artifactFilename() = %q, want %q", got, want)
 	}
@@ -93,6 +95,7 @@ type Config struct {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+
 	artifact, err := builder.Build(context.Background(), Request{
 		Endpoint: "gateway.example.test:8444", TLSServerName: "gateway.example.test",
 		TargetOS: runtime.GOOS, TargetArchitecture: runtime.GOARCH, ClientVersion: "1.2.3",
@@ -100,6 +103,7 @@ type Config struct {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
+
 	if len(artifact.Contents) == 0 {
 		t.Fatal("Build() returned an empty artifact")
 	}
@@ -112,6 +116,7 @@ func TestWriteGeneratedProfileIncludesRequestValues(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(workspace, "client", "internal", "config"), 0o700); err != nil {
 		t.Fatalf("create config directory: %v", err)
 	}
+
 	request := Request{
 		Endpoint: "gateway.example.test:8444", TLSServerName: "gateway.example.test",
 		TargetOS: "linux", TargetArchitecture: "amd64", ClientVersion: "1.2.3",
@@ -119,10 +124,13 @@ func TestWriteGeneratedProfileIncludesRequestValues(t *testing.T) {
 	if err := writeGeneratedProfile(workspace, request); err != nil {
 		t.Fatalf("writeGeneratedProfile() error = %v", err)
 	}
-	contents, err := os.ReadFile(filepath.Join(workspace, "client", "internal", "config", "config_generated.go"))
+
+	contents, err := os.ReadFile(filepath.Join(workspace, "client", "internal", "config", "config_generated.go")) // #nosec G304 -- test reads its own temporary workspace.
+
 	if err != nil {
 		t.Fatalf("read generated profile: %v", err)
 	}
+
 	for _, expected := range []string{request.Endpoint, request.TLSServerName, request.TargetOS, request.TargetArchitecture, request.ClientVersion} {
 		if !strings.Contains(string(contents), expected) {
 			t.Errorf("generated profile does not contain %q", expected)
@@ -132,9 +140,11 @@ func TestWriteGeneratedProfileIncludesRequestValues(t *testing.T) {
 
 func writeTestFile(t *testing.T, path, contents string) {
 	t.Helper()
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("create %s: %v", filepath.Dir(path), err)
 	}
+
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}

@@ -52,10 +52,12 @@ func buildGatewayServer(cfg config.GatewayConfig, signingKey command.Signer, key
 	}
 
 	server := transport.NewServer(natsBroker, queue, monitor)
+
 	clientBuilder, err := clientbuild.New(cfg.ClientBuildSource)
 	if err != nil {
 		return nil, nil, fmt.Errorf("client artifact builder setup: %w", err)
 	}
+
 	server.ConfigureClientBuilder(clientBuilder)
 
 	operationJournal, err := operationjournal.Open(filepath.Join(cfg.StatePath, "operation-journal.json"))

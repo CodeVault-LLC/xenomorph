@@ -58,6 +58,7 @@ func (h dashboardHandler) buildClient(w http.ResponseWriter, r *http.Request) {
 		writeDashboardJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid client build request"})
 		return
 	}
+
 	if err := request.Validate(); err != nil {
 		writeDashboardJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid client build profile"})
 		return
@@ -71,6 +72,7 @@ func (h dashboardHandler) buildClient(w http.ResponseWriter, r *http.Request) {
 		}
 
 		writeDashboardJSON(w, http.StatusInternalServerError, map[string]string{"error": "client build failed"})
+
 		return
 	}
 

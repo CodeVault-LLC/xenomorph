@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/clientbuild"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/fileworkspace"
 )
@@ -56,6 +57,12 @@ type TerminalDirectory interface {
 	ListEntries(agentID, sessionID string, limit int) []TerminalEntry
 }
 
+// ClientBuilder constructs a single temporary client artifact from validated
+// browser intent. It does not authorize the browser or trust the request.
+type ClientBuilder interface {
+	Build(context.Context, clientbuild.Request) (clientbuild.Artifact, error)
+}
+
 // DashboardRuntime contains the read and command dependencies needed by the
 // browser dashboard API. The dashboard does not own agent authentication or
 // event ingestion.
@@ -70,6 +77,7 @@ type DashboardRuntime struct {
 	FileOperatorID  string
 	DashboardOrigin string
 	Readiness       readinessProvider
+	ClientBuilder   ClientBuilder
 }
 
 type healthResponse struct {

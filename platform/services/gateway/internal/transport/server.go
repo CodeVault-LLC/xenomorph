@@ -51,6 +51,7 @@ type Server struct {
 	readiness        readinessProvider
 	quicTransfers    *quicTransferRegistry
 	operationJournal *operationjournal.Journal
+	clientBuilder    ClientBuilder
 
 	seenMu     sync.Mutex
 	seenAgents map[string]struct{}
@@ -185,7 +186,14 @@ func (s *Server) DashboardRuntime() DashboardRuntime {
 		FileOperatorID:  s.fileOperatorID,
 		DashboardOrigin: s.dashboardOrigin,
 		Readiness:       s.readiness,
+		ClientBuilder:   s.clientBuilder,
 	}
+}
+
+// ConfigureClientBuilder installs the gateway-owned fixed-toolchain builder
+// used by the browser artifact download route.
+func (s *Server) ConfigureClientBuilder(builder ClientBuilder) {
+	s.clientBuilder = builder
 }
 
 // ConfigureFileWorkspace attaches the gateway-owned durable file service and

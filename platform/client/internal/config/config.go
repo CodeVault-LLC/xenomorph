@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -20,6 +21,8 @@ const (
 type Config struct {
 	Environment                 string
 	ImplementationVersion       string
+	TargetOS                    string
+	TargetArchitecture          string
 	QUICEndpoint                string
 	ServerName                  string
 	ClientCertificateFile       string
@@ -55,6 +58,7 @@ func Load() (Config, error) {
 func (config Config) Validate() error {
 	validators := []func() error{
 		config.validateVersion,
+		config.validateTarget,
 		config.validateEndpoints,
 		config.validatePaths,
 		config.validateTiming,
@@ -63,6 +67,14 @@ func (config Config) Validate() error {
 		if err := validate(); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (config Config) validateTarget() error {
+	if config.TargetOS != runtime.GOOS || config.TargetArchitecture != runtime.GOARCH {
+		return fmt.Errorf("validate client profile: target %s/%s does not match this binary", config.TargetOS, config.TargetArchitecture)
 	}
 
 	return nil

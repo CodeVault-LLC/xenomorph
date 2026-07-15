@@ -9,6 +9,7 @@ import (
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/activity"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/agentquic"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/broker"
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/clientbuild"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/config"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/keyservice"
@@ -51,6 +52,11 @@ func buildGatewayServer(cfg config.GatewayConfig, signingKey command.Signer, key
 	}
 
 	server := transport.NewServer(natsBroker, queue, monitor)
+	clientBuilder, err := clientbuild.New(cfg.ClientBuildSource)
+	if err != nil {
+		return nil, nil, fmt.Errorf("client artifact builder setup: %w", err)
+	}
+	server.ConfigureClientBuilder(clientBuilder)
 
 	operationJournal, err := operationjournal.Open(filepath.Join(cfg.StatePath, "operation-journal.json"))
 	if err != nil {

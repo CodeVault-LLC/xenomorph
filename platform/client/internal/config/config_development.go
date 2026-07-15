@@ -4,11 +4,15 @@
 // production build; production profile selection cannot be changed at runtime.
 package config
 
-import "time"
+import (
+	"runtime"
+	"time"
+)
 
 func generatedConfig() Config {
 	return Config{
 		Environment: "development", ImplementationVersion: "development",
+		TargetOS: runtime.GOOS, TargetArchitecture: runtime.GOARCH,
 		QUICEndpoint: "localhost:8444", ServerName: "localhost",
 		ClientCertificateFile:       "../infrastructure/certs/client.crt",
 		ClientPrivateKeyFile:        "../infrastructure/certs/client.key",

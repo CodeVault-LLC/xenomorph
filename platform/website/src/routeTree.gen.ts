@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as GenerateClientRouteImport } from './routes/generate-client'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
 import { Route as AgentsAgentIdIndexRouteImport } from './routes/agents.$agentId/index'
@@ -22,6 +23,11 @@ import { Route as AgentsAgentIdFilesRouteImport } from './routes/agents.$agentId
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GenerateClientRoute = GenerateClientRouteImport.update({
+  id: '/generate-client',
+  path: '/generate-client',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -67,6 +73,7 @@ const AgentsAgentIdFilesRoute = AgentsAgentIdFilesRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/generate-client': typeof GenerateClientRoute
   '/terms': typeof TermsRoute
   '/agents/$agentId': typeof AgentsAgentIdRouteWithChildren
   '/agents/$agentId/files': typeof AgentsAgentIdFilesRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/generate-client': typeof GenerateClientRoute
   '/terms': typeof TermsRoute
   '/agents/$agentId/files': typeof AgentsAgentIdFilesRoute
   '/agents/$agentId/logs': typeof AgentsAgentIdLogsRoute
@@ -89,6 +97,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/generate-client': typeof GenerateClientRoute
   '/terms': typeof TermsRoute
   '/agents/$agentId': typeof AgentsAgentIdRouteWithChildren
   '/agents/$agentId/files': typeof AgentsAgentIdFilesRoute
@@ -102,6 +111,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/generate-client'
     | '/terms'
     | '/agents/$agentId'
     | '/agents/$agentId/files'
@@ -113,6 +123,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/generate-client'
     | '/terms'
     | '/agents/$agentId/files'
     | '/agents/$agentId/logs'
@@ -123,6 +134,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/generate-client'
     | '/terms'
     | '/agents/$agentId'
     | '/agents/$agentId/files'
@@ -135,6 +147,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  GenerateClientRoute: typeof GenerateClientRoute
   TermsRoute: typeof TermsRoute
   AgentsAgentIdRoute: typeof AgentsAgentIdRouteWithChildren
 }
@@ -146,6 +159,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/generate-client': {
+      id: '/generate-client'
+      path: '/generate-client'
+      fullPath: '/generate-client'
+      preLoaderRoute: typeof GenerateClientRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -231,6 +251,7 @@ const AgentsAgentIdRouteWithChildren = AgentsAgentIdRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  GenerateClientRoute: GenerateClientRoute,
   TermsRoute: TermsRoute,
   AgentsAgentIdRoute: AgentsAgentIdRouteWithChildren,
 }

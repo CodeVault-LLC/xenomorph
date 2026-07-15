@@ -22,6 +22,7 @@ const (
 	defaultOfflineAfter            time.Duration = 30 * time.Second
 	defaultSweepInterval           time.Duration = 5 * time.Second
 	defaultStatePath               string        = "./data"
+	defaultClientBuildSource       string        = "../.."
 	defaultDashboardOrigin         string        = "https://localhost:5173"
 	defaultCryptoProvider          string        = "go-cryptographic-module"
 	defaultFIPSModule              string        = "v1.0.0-c2097c7c"
@@ -66,6 +67,7 @@ type GatewayConfig struct {
 	ActivityOfflineAfter  time.Duration
 	ActivitySweepInterval time.Duration
 	StatePath             string
+	ClientBuildSource     string
 	FileOperatorID        string
 	DashboardOrigin       string
 	CommandSigningKeyPath string
@@ -93,6 +95,7 @@ type GatewayConfig struct {
 //   - GATEWAY_CERT_PATH (default: ../../infrastructure/certs)
 //   - DASHBOARD_ADDR (default: 127.0.0.1:8080)
 //   - GATEWAY_STATE_PATH (default: ./data)
+//   - GATEWAY_CLIENT_BUILD_SOURCE (default: ../..; platform source root containing client and shared modules)
 //   - FILE_OPERATOR_ID (audit source label; default: internal-website)
 //   - DASHBOARD_ALLOWED_ORIGIN (default: https://localhost:5173)
 //   - COMMAND_SIGNING_KEY_PATH (default: <GATEWAY_CERT_PATH>/command-signing.key)
@@ -128,6 +131,7 @@ func LoadFromEnv() (GatewayConfig, error) {
 		ActivityOfflineAfter:  offlineAfter,
 		ActivitySweepInterval: sweepInterval,
 		StatePath:             statePath,
+		ClientBuildSource:     stringFromEnv("GATEWAY_CLIENT_BUILD_SOURCE", defaultClientBuildSource),
 		FileOperatorID:        stringFromEnv("FILE_OPERATOR_ID", "internal-website"),
 		DashboardOrigin:       stringFromEnv("DASHBOARD_ALLOWED_ORIGIN", defaultDashboardOrigin),
 		CommandSigningKeyPath: stringFromEnv("COMMAND_SIGNING_KEY_PATH", filepath.Join(certPath, "command-signing.key")),

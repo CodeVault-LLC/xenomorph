@@ -3,11 +3,16 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"mime"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
 
+	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/clientbuild"
 	"github.com/codevault-llc/xenomorph/platform/services/gateway/internal/command"
 )
 
@@ -15,7 +20,10 @@ type dashboardHandler struct {
 	runtime DashboardRuntime
 }
 
-const maxTerminalAPIRequestBytes int64 = 64 << 10
+const (
+	maxTerminalAPIRequestBytes int64 = 64 << 10
+	maxClientBuildRequestBytes int64 = 2 << 10
+)
 
 func registerDashboardRoutes(mux *http.ServeMux, runtime DashboardRuntime) {
 	handler := dashboardHandler{runtime: runtime}
@@ -32,6 +40,49 @@ func registerDashboardRoutes(mux *http.ServeMux, runtime DashboardRuntime) {
 	mux.HandleFunc("GET /api/clients/{agentID}/screen/latest.png", handler.latestScreenImage)
 	mux.HandleFunc("GET /api/clients/{agentID}/screen/live", handler.liveScreen)
 	mux.HandleFunc("GET /api/clients/{agentID}/screen/stream", handler.streamScreen)
+	mux.HandleFunc("POST /api/client-builds", handler.buildClient)
+}
+
+func (h dashboardHandler) buildClient(w http.ResponseWriter, r *http.Request) {
+	if h.runtime.ClientBuilder == nil {
+		writeDashboardJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "client build service unavailable"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxClientBuildRequestBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	var request clientbuild.Request
+	if err := decoder.Decode(&request); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		writeDashboardJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid client build request"})
+		return
+	}
+
+	if err := request.Validate(); err != nil {
+		writeDashboardJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid client build profile"})
+		return
+	}
+
+	artifact, err := h.runtime.ClientBuilder.Build(r.Context(), request)
+	if err != nil {
+		if errors.Is(err, clientbuild.ErrBusy) {
+			writeDashboardJSON(w, http.StatusTooManyRequests, map[string]string{"error": "client build capacity is busy"})
+			return
+		}
+
+		writeDashboardJSON(w, http.StatusInternalServerError, map[string]string{"error": "client build failed"})
+
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": artifact.Filename}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Length", strconv.Itoa(len(artifact.Contents)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(artifact.Contents)
 }
 
 func (h dashboardHandler) listClients(w http.ResponseWriter, _ *http.Request) {

@@ -1,7 +1,7 @@
 package config
 
 import (
-	"strings"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -11,6 +11,7 @@ func TestConfigValidation(t *testing.T) {
 
 	valid := Config{
 		Environment: "production", ImplementationVersion: "test",
+		TargetOS: runtime.GOOS, TargetArchitecture: runtime.GOARCH,
 		QUICEndpoint: "gateway.internal:8444", ServerName: "gateway.internal",
 		ClientCertificateFile: "client.crt", ClientPrivateKeyFile: "client.key", CAFile: "ca.crt",
 		CommandVerificationKeyFile: "command.pub", ReplayLedgerFile: "ledger.json", ReplayAuthenticationKeyFile: "ledger.key",
@@ -29,6 +30,7 @@ func TestConfigValidation(t *testing.T) {
 	}{
 		{name: "IP server name", mutate: func(config *Config) { config.ServerName = "192.0.2.1" }},
 		{name: "localhost production", mutate: func(config *Config) { config.ServerName = "localhost" }},
+		{name: "wrong target", mutate: func(config *Config) { config.TargetArchitecture = "unsupported" }},
 		{name: "fast heartbeat", mutate: func(config *Config) { config.HeartbeatInterval = time.Second }},
 		{name: "invalid keepalive", mutate: func(config *Config) { config.QUICKeepAlive = config.QUICIdleTimeout }},
 		{name: "invalid operation timeout", mutate: func(config *Config) { config.OperationTimeout = 0 }},
@@ -48,11 +50,14 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsLegacyHTTPTransportConfiguration(t *testing.T) {
-	t.Setenv("AGENT_TRANSPORT_MODE", "http")
+func TestLoadFailsWithoutGeneratedProfile(t *testing.T) {
+	if developmentBuild {
+		t.Skip("development build supplies a compile-time fixture profile")
+	}
 
-	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "QUIC-only") {
-		t.Fatalf("Load error = %v, want QUIC-only configuration error", err)
+	t.Setenv("AGENT_QUIC_ENDPOINT", "attacker.example:8444")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() succeeded without a generated profile")
 	}
 }

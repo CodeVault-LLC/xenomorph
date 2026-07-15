@@ -46,10 +46,13 @@ func NewListener(config Config, sink IngressSink, commands CommandSource, comman
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+
 	if sink == nil || commands == nil || commandKeyID == "" {
 		return nil, fmt.Errorf("create QUIC listener: ingress sink, command source, and command key ID are required")
 	}
+
 	metrics := &Metrics{}
+
 	return &Listener{
 		config:       config,
 		sink:         sink,
@@ -67,20 +70,25 @@ func (listener *Listener) Run(ctx context.Context) error {
 	if listener == nil {
 		return fmt.Errorf("run QUIC listener: listener is nil")
 	}
+
 	if ctx == nil {
 		return fmt.Errorf("run QUIC listener: context is nil")
 	}
+
 	udpAddress, err := net.ResolveUDPAddr("udp", listener.config.Address)
 	if err != nil {
 		return fmt.Errorf("resolve QUIC UDP address: %w", err)
 	}
+
 	udpConnection, err := net.ListenUDP("udp", udpAddress)
 	if err != nil {
 		return fmt.Errorf("open QUIC UDP listener: %w", err)
 	}
+
 	if err := listener.serve(ctx, udpConnection); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -88,6 +96,7 @@ func (listener *Listener) Run(ctx context.Context) error {
 func (listener *Listener) Address() net.Addr {
 	listener.mu.Lock()
 	defer listener.mu.Unlock()
+
 	return listener.localAddress
 }
 
@@ -102,15 +111,19 @@ func (listener *Listener) serve(ctx context.Context, udpConnection *net.UDPConn)
 		if closeErr := udpConnection.Close(); closeErr != nil {
 			return fmt.Errorf("%v; close QUIC UDP socket: %w", err, closeErr)
 		}
+
 		return err
 	}
+
 	tlsConfig, err := buildServerTLSConfig(listener.config, listener.admission, listener.metrics)
 	if err != nil {
 		if closeErr := udpConnection.Close(); closeErr != nil {
 			return fmt.Errorf("%v; close QUIC UDP socket: %w", err, closeErr)
 		}
+
 		return err
 	}
+
 	transport := &quic.Transport{
 		Conn:                udpConnection,
 		StatelessResetKey:   resetKey,
@@ -122,21 +135,28 @@ func (listener *Listener) serve(ctx context.Context, udpConnection *net.UDPConn)
 		},
 	}
 	quicConfig := listener.quicConfig()
+
 	tracer, err := newTransportDiagnosticTracer(listener.config, listener.metrics)
 	if err != nil {
 		_ = transport.Close()
 		return err
 	}
+
 	quicConfig.Tracer = tracer
+
 	quicListener, err := transport.Listen(tlsConfig, quicConfig)
 	if err != nil {
 		if closeErr := transport.Close(); closeErr != nil {
 			return fmt.Errorf("start QUIC listener: %v; close transport: %w", err, closeErr)
 		}
+
 		return fmt.Errorf("start QUIC listener: %w", err)
 	}
+
 	listener.setRuntime(transport, quicListener)
+
 	defer listener.closeRuntime()
+
 	return listener.acceptLoop(ctx, quicListener)
 }
 
@@ -164,6 +184,7 @@ func (listener *Listener) acceptLoop(ctx context.Context, quicListener *quic.Lis
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+
 			return fmt.Errorf("accept QUIC connection: %w", err)
 		}
 		select {
@@ -172,6 +193,7 @@ func (listener *Listener) acceptLoop(ctx context.Context, quicListener *quic.Lis
 			go listener.serveConnection(ctx, connection)
 		default:
 			listener.metrics.overloadRejected.Add(1)
+
 			if err := connection.CloseWithError(quic.ApplicationErrorCode(wire.ApplicationLimit), "session capacity"); err != nil {
 				listener.metrics.rejectedFrames.Add(1)
 			}
@@ -184,23 +206,29 @@ func (listener *Listener) serveConnection(ctx context.Context, connection *quic.
 		<-listener.active
 		listener.sessionWaiter.Done()
 	}()
+
 	agentID, err := listener.authenticateConnection(connection)
 	if err != nil {
 		return
 	}
+
 	candidate, err := listener.negotiateSession(ctx, connection, agentID)
 	if err != nil {
 		return
 	}
+
 	previous, err := listener.registry.install(candidate)
 	if err != nil {
 		closeConnection(connection, wire.ApplicationLimit, "session registry capacity")
 		return
 	}
+
 	listener.metrics.activeSessions.Add(1)
+
 	if previous != nil {
 		previous.replace(candidate.sessionID)
 	}
+
 	candidate.run(ctx)
 	listener.registry.remove(candidate)
 	listener.metrics.activeSessions.Add(-1)
@@ -212,14 +240,18 @@ func (listener *Listener) authenticateConnection(connection *quic.Conn) (string,
 		len(state.TLS.PeerCertificates) == 0 {
 		listener.metrics.handshakeRejected.Add(1)
 		closeConnection(connection, wire.ApplicationAuthState, "authenticated session required")
+
 		return "", fmt.Errorf("authenticate QUIC connection: invalid TLS or transport state")
 	}
+
 	authenticatedAgent, err := identity.FromPeerCertificate(state.TLS.PeerCertificates[0])
 	if err != nil {
 		listener.metrics.certificateFailed.Add(1)
 		closeConnection(connection, wire.ApplicationAuthState, "invalid client identity")
+
 		return "", fmt.Errorf("authenticate QUIC connection: %w", err)
 	}
+
 	return authenticatedAgent.ID, nil
 }
 
@@ -229,15 +261,18 @@ func (listener *Listener) negotiateSession(ctx context.Context, connection *quic
 		closeConnection(connection, wire.ApplicationInternal, "session initialization failed")
 		return nil, err
 	}
+
 	candidate, err := newSession(listener, connection, agentID, sessionID)
 	if err != nil {
 		closeConnection(connection, wire.ApplicationInternal, "session initialization failed")
 		return nil, err
 	}
+
 	if err := candidate.negotiate(ctx); err != nil {
 		closeConnection(connection, errorCode(err), "session negotiation failed")
 		return nil, err
 	}
+
 	return candidate, nil
 }
 
@@ -256,12 +291,15 @@ func (listener *Listener) closeRuntime() {
 	listener.quicListener = nil
 	listener.transport = nil
 	listener.mu.Unlock()
+
 	if quicListener != nil {
 		if err := quicListener.Close(); err != nil {
 			slog.Debug("QUIC listener close failed", "error", err)
 		}
 	}
+
 	listener.sessionWaiter.Wait()
+
 	if transport != nil {
 		if err := transport.Close(); err != nil {
 			slog.Debug("QUIC transport close failed", "error", err)
@@ -274,9 +312,11 @@ func newSessionID() ([16]byte, error) {
 	if _, err := rand.Read(sessionID[:]); err != nil {
 		return sessionID, fmt.Errorf("generate QUIC session ID: %w", err)
 	}
+
 	if sessionID == [16]byte{} {
 		return sessionID, fmt.Errorf("generate QUIC session ID: zero output")
 	}
+
 	return sessionID, nil
 }
 

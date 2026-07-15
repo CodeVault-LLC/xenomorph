@@ -28,13 +28,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
+
 	keys, err := openKeyService(cfg)
 	if err != nil {
 		return err
 	}
+
 	defer closeKeyService(keys)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
 	return serveGateway(ctx, cancel, cfg, keys)
 }
 
@@ -60,19 +64,23 @@ func serveGateway(ctx context.Context, cancel context.CancelFunc, cfg config.Gat
 	if err != nil {
 		return err
 	}
+
 	quicListener, err := buildAgentQUICListener(cfg, srv, queue, signingKey)
 	if err != nil {
 		return err
 	}
+
 	serviceFailures := make(chan error, maximumConcurrentGatewayServices)
 	startHTTPServers(ctx, cfg, srv, serviceFailures)
 	startAgentQUICService(ctx, cfg, quicListener, serviceFailures)
+
 	return waitForShutdown(cancel, serviceFailures)
 }
 
 func waitForShutdown(cancel context.CancelFunc, serviceFailures <-chan error) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
 	defer signal.Stop(quit)
 	select {
 	case <-quit:
@@ -88,8 +96,10 @@ func startAgentQUICService(ctx context.Context, cfg config.GatewayConfig, listen
 	if listener == nil {
 		return
 	}
+
 	go func() {
 		slog.Info("agent QUIC listener starting", "addr", cfg.AgentQUIC.Address)
+
 		if err := listener.Run(ctx); err != nil {
 			failures <- fmt.Errorf("agent QUIC listener: %w", err)
 		}
@@ -105,11 +115,13 @@ func openKeyService(cfg config.GatewayConfig) (*keyservice.Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cryptographic provider setup: %w", err)
 	}
+
 	provider := keys.Provider()
 	slog.Info("cryptographic provider ready",
 		"provider", provider.Name, "module_version", provider.ModuleVersion,
 		"certificate", provider.Certificate, "operating_environment", provider.OperatingEnvironment,
 	)
+
 	return keys, nil
 }
 

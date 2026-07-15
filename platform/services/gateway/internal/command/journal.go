@@ -80,6 +80,7 @@ func NewJournal(path string) (*Journal, error) {
 	if strings.TrimSpace(path) == "" || cleaned == "." {
 		return nil, fmt.Errorf("open command journal: path is required")
 	}
+
 	journal := &Journal{
 		path:    cleaned,
 		records: make(map[string]journalRecord),
@@ -88,6 +89,7 @@ func NewJournal(path string) (*Journal, error) {
 	if err := journal.load(); err != nil {
 		return nil, err
 	}
+
 	return journal, nil
 }
 
@@ -95,19 +97,24 @@ func NewJournal(path string) (*Journal, error) {
 func (journal *Journal) Queued() map[string][]*Envelope {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+
 	queued := make(map[string][]*Envelope)
+
 	for _, record := range journal.records {
 		if record.State != JournalQueued {
 			continue
 		}
+
 		envelope := cloneEnvelope(record.Envelope)
 		queued[record.AgentID] = append(queued[record.AgentID], &envelope)
 	}
+
 	for agentID := range queued {
 		sort.Slice(queued[agentID], func(first, second int) bool {
 			return queued[agentID][first].IssuedAt.Before(queued[agentID][second].IssuedAt)
 		})
 	}
+
 	return queued
 }
 
@@ -116,28 +123,35 @@ func (journal *Journal) RecordQueued(agentID string, envelope Envelope) error {
 	if journal == nil || strings.TrimSpace(agentID) == "" {
 		return fmt.Errorf("record queued command: journal and agent ID are required")
 	}
+
 	if err := validateJournalEnvelope(agentID, envelope); err != nil {
 		return err
 	}
+
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
 	journal.pruneLocked()
+
 	if len(journal.records) >= maximumJournalRecords {
 		return fmt.Errorf("record queued command: journal capacity reached")
 	}
+
 	if _, exists := journal.records[envelope.CommandID]; exists {
 		return fmt.Errorf("record queued command: command ID already exists")
 	}
+
 	now := journal.now()
 	record := journalRecord{
 		AgentID: agentID, Envelope: cloneEnvelope(envelope), State: JournalQueued,
 		UpdatedAt: now, RetentionUntil: envelope.ExpiresAt.Add(terminalRetention),
 	}
+
 	journal.records[envelope.CommandID] = record
 	if err := journal.persistLocked(); err != nil {
 		delete(journal.records, envelope.CommandID)
 		return err
 	}
+
 	return nil
 }
 
@@ -151,26 +165,33 @@ func (journal *Journal) MarkAccepted(agentID, commandID string) error {
 	if journal == nil {
 		return fmt.Errorf("mark command accepted: journal is nil")
 	}
+
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+
 	record, exists := journal.records[commandID]
 	if !exists || record.AgentID != agentID {
 		return fmt.Errorf("mark command accepted: command audience mismatch")
 	}
+
 	if record.State == JournalAccepted {
 		return nil
 	}
+
 	if record.State != JournalDispatched {
 		return fmt.Errorf("mark command accepted: invalid command state")
 	}
+
 	previous := record
 	record.State = JournalAccepted
 	record.UpdatedAt = journal.now()
+
 	journal.records[commandID] = record
 	if err := journal.persistLocked(); err != nil {
 		journal.records[commandID] = previous
 		return err
 	}
+
 	return nil
 }
 
@@ -179,21 +200,26 @@ func (journal *Journal) MarkOutcomeUnknown(agentID, commandID string) error {
 	if journal == nil {
 		return fmt.Errorf("mark command outcome unknown: journal is nil")
 	}
+
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+
 	record, exists := journal.records[commandID]
 	if !exists || record.AgentID != agentID ||
 		(record.State != JournalDispatched && record.State != JournalAccepted) {
 		return fmt.Errorf("mark command outcome unknown: invalid command state")
 	}
+
 	previous := record
 	record.State = JournalOutcomeUnknown
 	record.UpdatedAt = journal.now()
+
 	journal.records[commandID] = record
 	if err := journal.persistLocked(); err != nil {
 		journal.records[commandID] = previous
 		return err
 	}
+
 	return nil
 }
 
@@ -202,14 +228,18 @@ func (journal *Journal) CommitResult(agentID, commandID string, canonicalResult 
 	if journal == nil || strings.TrimSpace(agentID) == "" || strings.TrimSpace(commandID) == "" {
 		return 0, fmt.Errorf("commit command result: journal, agent ID, and command ID are required")
 	}
+
 	digest := sha256.Sum256(canonicalResult)
 	digestText := hex.EncodeToString(digest[:])
+
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+
 	record, exists := journal.records[commandID]
 	if !exists || record.AgentID != agentID || record.Envelope.AudienceAgentID != agentID {
 		return 0, fmt.Errorf("commit command result: command audience mismatch")
 	}
+
 	return journal.commitResultLocked(commandID, record, digestText)
 }
 
@@ -219,17 +249,20 @@ func (journal *Journal) commitResultLocked(commandID string, record journalRecor
 		if record.ResultDigest == digestText {
 			return ResultDuplicate, nil
 		}
+
 		return 0, fmt.Errorf("commit command result: conflicting terminal result")
 	case JournalDispatched, JournalAccepted:
 		previous := record
 		record.State = JournalTerminal
 		record.ResultDigest = digestText
 		record.UpdatedAt = journal.now()
+
 		journal.records[commandID] = record
 		if err := journal.persistLocked(); err != nil {
 			journal.records[commandID] = previous
 			return 0, err
 		}
+
 		return ResultCommitted, nil
 	case JournalOutcomeUnknown:
 		return 0, fmt.Errorf("commit command result: operation outcome requires reconciliation")
@@ -243,12 +276,15 @@ func (journal *Journal) State(agentID, commandID string) (JournalState, bool) {
 	if journal == nil {
 		return "", false
 	}
+
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+
 	record, exists := journal.records[commandID]
 	if !exists || record.AgentID != agentID {
 		return "", false
 	}
+
 	return record.State, true
 }
 
@@ -257,12 +293,15 @@ func (journal *Journal) Envelope(agentID, commandID string) (Envelope, bool) {
 	if journal == nil {
 		return Envelope{}, false
 	}
+
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+
 	record, exists := journal.records[commandID]
 	if !exists || record.AgentID != agentID {
 		return Envelope{}, false
 	}
+
 	return cloneEnvelope(record.Envelope), true
 }
 
@@ -270,20 +309,25 @@ func (journal *Journal) transition(agentID, commandID string, from, to JournalSt
 	if journal == nil {
 		return fmt.Errorf("transition command journal: journal is nil")
 	}
+
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+
 	record, exists := journal.records[commandID]
 	if !exists || record.AgentID != agentID || record.State != from {
 		return fmt.Errorf("transition command journal: invalid command state")
 	}
+
 	previous := record
 	record.State = to
 	record.UpdatedAt = journal.now()
+
 	journal.records[commandID] = record
 	if err := journal.persistLocked(); err != nil {
 		journal.records[commandID] = previous
 		return err
 	}
+
 	return nil
 }
 
@@ -292,18 +336,24 @@ func (journal *Journal) load() error {
 	if err != nil || !exists {
 		return err
 	}
+
 	recovered := false
+
 	for _, record := range document.Records {
 		recordRecovered, err := journal.loadRecord(record)
 		if err != nil {
 			return err
 		}
+
 		recovered = recovered || recordRecovered
 	}
+
 	journal.pruneLocked()
+
 	if recovered {
 		return journal.persistLocked()
 	}
+
 	return nil
 }
 
@@ -312,18 +362,24 @@ func readJournalDocument(path string) (journalDocument, bool, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return journalDocument{}, false, nil
 	}
+
 	if err != nil {
 		return journalDocument{}, false, fmt.Errorf("read command journal: %w", err)
 	}
+
 	var document journalDocument
+
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
+
 	if err := decoder.Decode(&document); err != nil {
 		return journalDocument{}, false, fmt.Errorf("decode command journal: %w", err)
 	}
+
 	if document.Version != journalVersion || len(document.Records) > maximumJournalRecords {
 		return journalDocument{}, false, fmt.Errorf("decode command journal: unsupported version or record count")
 	}
+
 	return document, true, nil
 }
 
@@ -331,15 +387,19 @@ func (journal *Journal) loadRecord(record journalRecord) (bool, error) {
 	if err := validateJournalRecord(record); err != nil {
 		return false, err
 	}
+
 	if _, duplicate := journal.records[record.Envelope.CommandID]; duplicate {
 		return false, fmt.Errorf("decode command journal: duplicate command ID")
 	}
+
 	recovered := record.State == JournalDispatched || record.State == JournalAccepted
 	if recovered {
 		record.State = JournalOutcomeUnknown
 		record.UpdatedAt = journal.now()
 	}
+
 	journal.records[record.Envelope.CommandID] = record
+
 	return recovered, nil
 }
 
@@ -357,13 +417,16 @@ func (journal *Journal) persistLocked() error {
 	for _, record := range journal.records {
 		document.Records = append(document.Records, record)
 	}
+
 	sort.Slice(document.Records, func(first, second int) bool {
 		return document.Records[first].Envelope.CommandID < document.Records[second].Envelope.CommandID
 	})
+
 	data, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode command journal: %w", err)
 	}
+
 	return writeJournalAtomically(journal.path, append(data, '\n'))
 }
 
@@ -371,6 +434,7 @@ func writeJournalAtomically(path string, data []byte) error {
 	if err := atomicfile.Replace(path, data, journalDirectoryMode, journalFileMode); err != nil {
 		return fmt.Errorf("replace command journal: %w", err)
 	}
+
 	return nil
 }
 
@@ -378,12 +442,15 @@ func validateJournalRecord(record journalRecord) error {
 	if err := validateJournalEnvelope(record.AgentID, record.Envelope); err != nil {
 		return fmt.Errorf("decode command journal: %w", err)
 	}
+
 	if record.UpdatedAt.IsZero() || record.RetentionUntil.IsZero() || !validJournalState(record.State) {
 		return fmt.Errorf("decode command journal: invalid state metadata")
 	}
+
 	if record.State == JournalTerminal && len(record.ResultDigest) != sha256.Size*2 {
 		return fmt.Errorf("decode command journal: terminal result digest missing")
 	}
+
 	return nil
 }
 
@@ -391,12 +458,15 @@ func validateJournalEnvelope(agentID string, envelope Envelope) error {
 	if _, err := uuid.Parse(envelope.CommandID); err != nil {
 		return fmt.Errorf("validate journal command: invalid command ID")
 	}
+
 	if envelope.AudienceAgentID != agentID || envelope.Signature == "" || envelope.Nonce == "" || envelope.KeyID == "" {
 		return fmt.Errorf("validate journal command: incomplete audience or authenticity fields")
 	}
+
 	if envelope.IssuedAt.IsZero() || !envelope.ExpiresAt.After(envelope.IssuedAt) {
 		return fmt.Errorf("validate journal command: invalid validity window")
 	}
+
 	return nil
 }
 
@@ -408,5 +478,6 @@ func validJournalState(state JournalState) bool {
 func cloneEnvelope(envelope Envelope) Envelope {
 	clone := envelope
 	clone.Payload = append(json.RawMessage(nil), envelope.Payload...)
+
 	return clone
 }

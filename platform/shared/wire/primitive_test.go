@@ -30,16 +30,20 @@ func TestCanonicalUvarintBoundaries(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			got, width, err := decodeCanonicalUvarint(test.encoded, maxUint64VarintBytes)
 			if test.wantErr {
 				if err == nil || !errors.Is(err, ErrEncoding) {
 					t.Fatalf("decode error = %v, want ErrEncoding", err)
 				}
+
 				return
 			}
+
 			if err != nil {
 				t.Fatalf("decode failed: %v", err)
 			}
+
 			if got != test.want || width != len(test.encoded) {
 				t.Fatalf("decode = (%d, %d), want (%d, %d)", got, width, test.want, len(test.encoded))
 			}
@@ -60,6 +64,7 @@ func TestBuilderParserCanonicalBody(t *testing.T) { //nolint:cyclop // One round
 	builder.BytesField([]byte{1, 2, 3}, 3)
 	builder.Presence(0x101, 9)
 	builder.StringList([]string{"linux", "windows"}, 2, 16, 64)
+
 	body, err := builder.Bytes()
 	if err != nil {
 		t.Fatalf("encode body: %v", err)
@@ -69,30 +74,39 @@ func TestBuilderParserCanonicalBody(t *testing.T) { //nolint:cyclop // One round
 	if got := parser.Uint(300); got != 300 {
 		t.Fatalf("uint = %d, want 300", got)
 	}
+
 	if got := parser.SInt(42); got != -42 {
 		t.Fatalf("sint = %d, want -42", got)
 	}
+
 	if !parser.Bool() {
 		t.Fatal("bool = false, want true")
 	}
+
 	if got := parser.Fixed32(); got != 42 {
 		t.Fatalf("fixed32 = %d, want 42", got)
 	}
+
 	if got := parser.Fixed64(); got != 84 {
 		t.Fatalf("fixed64 = %d, want 84", got)
 	}
+
 	if got := parser.String(16); got != "agent" {
 		t.Fatalf("string = %q, want agent", got)
 	}
+
 	if got := parser.BytesField(3); !reflect.DeepEqual(got, []byte{1, 2, 3}) {
 		t.Fatalf("bytes = %v", got)
 	}
+
 	if got := parser.Presence(9); got != 0x101 {
 		t.Fatalf("presence = %#x, want 0x101", got)
 	}
+
 	if got := parser.StringList(2, 16, 64); !reflect.DeepEqual(got, []string{"linux", "windows"}) {
 		t.Fatalf("list = %v", got)
 	}
+
 	if err := parser.Done(); err != nil {
 		t.Fatalf("body has trailing data: %v", err)
 	}
@@ -118,8 +132,10 @@ func TestParserRejectsMalformedPrimitives(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			parser := NewParser(test.body)
 			test.parse(parser)
+
 			if err := parser.Done(); err == nil || !errors.Is(err, ErrEncoding) {
 				t.Fatalf("parse error = %v, want ErrEncoding", err)
 			}
@@ -142,8 +158,10 @@ func TestBuilderRejectsBoundsBeforeReturningBytes(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			builder := NewBuilder(0)
 			test.build(builder)
+
 			if _, err := builder.Bytes(); err == nil || !errors.Is(err, ErrLimit) {
 				t.Fatalf("encode error = %v, want ErrLimit", err)
 			}

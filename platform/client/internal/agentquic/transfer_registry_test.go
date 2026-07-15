@@ -12,6 +12,7 @@ import (
 
 func TestTransferRegistryBindsSignedCapabilityScope(t *testing.T) {
 	t.Parallel()
+
 	registry := newTransferRegistry()
 	request := fileprotocol.TransferRequest{
 		ProtocolVersion: fileprotocol.Version,
@@ -24,22 +25,28 @@ func TestTransferRegistryBindsSignedCapabilityScope(t *testing.T) {
 		},
 		Lease: fileprotocol.DataPlaneLease{Token: strings.Repeat("a", transferCapabilityHexLength), ExpiresAt: time.Now().Add(time.Hour)},
 	}
+
 	payload, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("encode transfer request: %v", err)
 	}
+
 	if err := registry.applySignedCommand(agent.CommandTypeFilesTransferPrepare, payload); err != nil {
 		t.Fatalf("register signed transfer contract: %v", err)
 	}
+
 	if _, err := registry.contract(request.Manifest.TransferID, request.Lease.Token); err != nil {
 		t.Fatalf("load matching transfer contract: %v", err)
 	}
+
 	if _, err := registry.contract(request.Manifest.TransferID, strings.Repeat("b", transferCapabilityHexLength)); err == nil {
 		t.Fatal("wrong capability token was accepted")
 	}
+
 	if err := registry.applySignedCommand(agent.CommandTypeFilesTransferAbort, payload); err != nil {
 		t.Fatalf("apply signed transfer abort: %v", err)
 	}
+
 	if _, err := registry.contract(request.Manifest.TransferID, request.Lease.Token); err == nil {
 		t.Fatal("aborted transfer contract remained usable")
 	}

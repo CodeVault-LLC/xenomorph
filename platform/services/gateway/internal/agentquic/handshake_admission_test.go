@@ -24,18 +24,24 @@ func TestHandshakeAdmissionBoundsIncompleteAndPrefixRate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first admission failed: %v", err)
 	}
+
 	if _, err := admission.connectionContext(context.Background(), address); err == nil {
 		t.Fatal("incomplete-handshake cap was not enforced")
 	}
+
 	ticketFromContext(firstContext).release()
+
 	if _, err := admission.connectionContext(context.Background(), address); err == nil {
 		t.Fatal("source-prefix rate was not enforced")
 	}
+
 	now = now.Add(time.Second)
+
 	refilledContext, err := admission.connectionContext(context.Background(), address)
 	if err != nil {
 		t.Fatalf("refilled admission failed: %v", err)
 	}
+
 	ticketFromContext(refilledContext).release()
 }
 
@@ -44,6 +50,7 @@ func TestSourcePrefixGroupsNetworkObservation(t *testing.T) {
 
 	first := sourcePrefix(&net.UDPAddr{IP: net.ParseIP("203.0.113.5"), Port: 1})
 	second := sourcePrefix(&net.UDPAddr{IP: net.ParseIP("203.0.113.200"), Port: 2})
+
 	if first != second {
 		t.Fatalf("same /24 produced %q and %q", first, second)
 	}

@@ -110,6 +110,7 @@ func NewServer(b *broker.NATS, commandQueue *command.Queue, statusProvider agent
 		quicTransfers:  newQUICTransferRegistry(),
 	}
 	s.routes()
+
 	return s
 }
 
@@ -192,6 +193,7 @@ func (s *Server) handleLogEntry(c *gin.Context) {
 			"error", err,
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue event"})
+
 		return
 	}
 
@@ -204,24 +206,30 @@ func (s *Server) commitHTTPCommandResult(agentID string, request commandResultRe
 	if s == nil || s.commandQueue == nil {
 		return 0, "", fmt.Errorf("commit HTTP command result: durable queue is unavailable")
 	}
+
 	envelope, exists := s.commandQueue.Command(agentID, request.CommandID)
 	if !exists || string(envelope.Type) != request.Type {
 		return 0, "", fmt.Errorf("commit HTTP command result: command audience or type mismatch")
 	}
+
 	operationID, err := uuid.Parse(request.CommandID)
 	if err != nil {
 		return 0, "", fmt.Errorf("commit HTTP command result: invalid gateway command ID: %w", err)
 	}
+
 	canonical, err := canonicalizeCommandResult(request)
 	if err != nil {
 		return 0, "", fmt.Errorf("commit HTTP command result: %w", err)
 	}
+
 	disposition, err := s.commandQueue.CommitResult(agentID, request.CommandID, canonical)
 	if err != nil {
 		return 0, "", err
 	}
+
 	receipt := agentquic.IngressReceipt{AgentID: agentID, OperationID: [16]byte(operationID)}
 	_, deterministicEventID := newDeterministicIngressEnvelope(receipt, "command-result")
+
 	return disposition, uuid.UUID(deterministicEventID).String(), nil
 }
 
@@ -236,6 +244,7 @@ func (s *Server) traceMiddleware(c *gin.Context) {
 	if traceID == "" {
 		traceID = uuid.New().String()
 	}
+
 	c.Set("trace_id", traceID)
 	c.Header("X-Trace-ID", traceID)
 	c.Request = c.Request.WithContext(sdk.WithTraceID(c.Request.Context(), traceID))
@@ -255,12 +264,14 @@ func (s *Server) traceMiddleware(c *gin.Context) {
 func (s *Server) mtlsMiddleware(c *gin.Context) {
 	if c.Request.TLS != nil && len(c.Request.TLS.PeerCertificates) > 0 {
 		cert := c.Request.TLS.PeerCertificates[0]
+
 		authenticatedAgent, err := identity.FromPeerCertificate(cert)
 		if err != nil {
 			slog.ErrorContext(c.Request.Context(), "invalid client certificate identity",
 				"error", err,
 			)
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid client certificate identity"})
+
 			return
 		}
 
@@ -271,6 +282,7 @@ func (s *Server) mtlsMiddleware(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "mTLS required"})
 		return
 	}
+
 	c.Next()
 }
 
@@ -317,6 +329,7 @@ func (s *Server) handleHeartbeat(c *gin.Context) {
 			"error", err,
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue event"})
+
 		return
 	}
 
@@ -417,6 +430,7 @@ func (s *Server) handleAttestation(c *gin.Context) {
 			"error", err,
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue event"})
+
 		return
 	}
 
@@ -447,6 +461,7 @@ func (s *Server) handleNextCommand(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "command state unavailable"})
 		return
 	}
+
 	if cmd == nil {
 		c.Status(http.StatusNoContent)
 		return
@@ -482,11 +497,14 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 	}
 
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxScreenMediaFrameBytes+maxTerminalOutputLen)
+
 	var req commandResultRequest
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schema"})
 		return
 	}
+
 	disposition, eventID, err := s.commitHTTPCommandResult(agentID, req)
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "command result does not match durable command state"})
@@ -528,10 +546,12 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 			"error", err,
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue event"})
+
 		return
 	}
 
 	s.storeLogEnvelope(env)
+
 	if err := s.recordSpecialCommandResult(agentID, req); err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "command result does not match an active operation"})
 		return
@@ -541,11 +561,13 @@ func (s *Server) handleCommandResult(c *gin.Context) {
 	if disposition == command.ResultDuplicate {
 		status = "duplicate"
 	}
+
 	c.JSON(http.StatusAccepted, gin.H{"status": status, "event_id": env.EventId})
 }
 
 func (s *Server) recordSpecialCommandResult(agentID string, req commandResultRequest) error {
 	commandType := CommandType(req.Type)
+
 	switch {
 	case commandType == CommandTypeRequestScreenshot:
 		s.recordScreenshotResult(agentID, req)
@@ -554,6 +576,7 @@ func (s *Server) recordSpecialCommandResult(agentID string, req commandResultReq
 	case strings.HasPrefix(req.Type, "files.") && s.fileWorkspace != nil:
 		return s.fileWorkspace.Complete(agentID, req.CommandID, req.Status, req.Result)
 	}
+
 	return nil
 }
 
@@ -582,8 +605,10 @@ func (s *Server) handleScreenMedia(c *gin.Context) {
 			"agent_id", agentID,
 			"error", err,
 		)
+
 		return
 	}
+
 	defer func() { _ = conn.Close() }()
 	conn.SetReadLimit(maxScreenMediaFrameBytes)
 
@@ -597,6 +622,7 @@ func (s *Server) handleScreenMedia(c *gin.Context) {
 		if err != nil {
 			return
 		}
+
 		if messageType != websocket.BinaryMessage || len(data) == 0 {
 			continue
 		}
@@ -614,6 +640,7 @@ func (s *Server) handleScreenMedia(c *gin.Context) {
 // dashboard direct access to the mTLS HTTP handlers.
 func (s *Server) DashboardRuntime() DashboardRuntime {
 	directory, _ := s.statusProvider.(ClientDirectory)
+
 	return DashboardRuntime{
 		Directory:       directory,
 		CommandQueue:    s.commandQueue,
@@ -645,6 +672,7 @@ func (s *Server) storeTerminalResult(agentID string, req commandResultRequest) {
 	if s == nil || s.terminalStore == nil {
 		return
 	}
+
 	s.terminalStore.Complete(agentID, req.CommandID, TerminalEntry{
 		AgentID:          agentID,
 		SessionID:        clampText(strings.TrimSpace(req.TerminalSessionID), maxCommandIDLen),
@@ -767,6 +795,7 @@ func normalizeAttestationRequest(agentID string, req attestationRequest) normali
 		if item == "" {
 			continue
 		}
+
 		apps = append(apps, item)
 	}
 
@@ -793,9 +822,11 @@ func clampText(value string, limit int) string {
 	if trimmed == "" {
 		return ""
 	}
+
 	if len(trimmed) <= limit {
 		return trimmed
 	}
+
 	return trimmed[:limit]
 }
 
@@ -835,5 +866,6 @@ func (s *Server) Run(addr, certPath string) error {
 		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
+
 	return server.ListenAndServeTLS(filepath.Join(certPath, "server.crt"), filepath.Join(certPath, "server.key"))
 }

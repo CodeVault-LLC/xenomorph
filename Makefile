@@ -137,7 +137,12 @@ clean:
 lint:
 	@set -euo pipefail; \
 	if [[ ! -x $(GOLANGCI_LINT) ]]; then printf '%s\n' "golangci-lint is not installed at $(GOLANGCI_LINT)"; exit 1; fi; \
-	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOLANGCI_LINT) run; done
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOLANGCI_LINT) run --config $(ROOT)/.golangci.yml; done
+
+lint-fix:
+	@set -euo pipefail; \
+	if [[ ! -x $(GOLANGCI_LINT) ]]; then printf '%s\n' "golangci-lint is not installed at $(GOLANGCI_LINT)"; exit 1; fi; \
+	for module in $(MODULES); do cd $(ROOT)/$$module && $(GOLANGCI_LINT) run --config $(ROOT)/.golangci.yml --fix; done
 
 install-tools:
 	@$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4

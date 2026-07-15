@@ -14,12 +14,15 @@ import (
 
 func TestNewRequiresStrictTLSProfile(t *testing.T) {
 	t.Parallel()
+
 	config := validClientConfig()
 	valid := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: config.ServerName,
 		RootCAs: x509.NewCertPool(), Certificates: []tls.Certificate{{Certificate: [][]byte{{1}}}}}
+
 	if _, err := New(config, valid, "agent-id", "command-key"); err != nil {
 		t.Fatalf("strict TLS profile rejected: %v", err)
 	}
+
 	tests := []struct {
 		name   string
 		mutate func(*tls.Config)
@@ -34,6 +37,7 @@ func TestNewRequiresStrictTLSProfile(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			profile := valid.Clone()
 			test.mutate(profile)
+
 			if _, err := New(config, profile, "agent-id", "command-key"); err == nil {
 				t.Fatal("insecure TLS profile was accepted")
 			}
@@ -43,10 +47,12 @@ func TestNewRequiresStrictTLSProfile(t *testing.T) {
 
 func TestSecurityFailureClassification(t *testing.T) {
 	t.Parallel()
+
 	if !IsSecurityFailure(ErrSecurityFailure) || !IsSecurityFailure(x509.UnknownAuthorityError{}) ||
 		!IsSecurityFailure(&quic.TransportError{ErrorCode: minimumQUICCryptoErrorCode}) {
 		t.Fatal("security failure was not classified as downgrade-prohibited")
 	}
+
 	if IsSecurityFailure(errors.New("network unreachable")) {
 		t.Fatal("ordinary network failure was classified as a security failure")
 	}
@@ -66,9 +72,11 @@ func validClientConfig() clientconfig.Config {
 
 func TestReconnectJitterRemainsBounded(t *testing.T) {
 	t.Parallel()
+
 	base := 10 * time.Second
 	minimum := base - base/jitterFractionDenominator
 	maximum := base + base/jitterFractionDenominator
+
 	for range 100 {
 		value := jitter(base)
 		if value < minimum || value > maximum {
@@ -83,12 +91,15 @@ func TestRemovePendingResponseReleasesAcknowledgementState(t *testing.T) {
 	session := &clientSession{pending: make(map[uint64]chan eventResponse)}
 	first := make(chan eventResponse, 1)
 	second := make(chan eventResponse, 1)
+
 	session.registerPending(1, first)
 	session.registerPending(2, second)
 	session.removePendingResponse(first)
+
 	if _, exists := session.pending[1]; exists {
 		t.Fatal("timed-out acknowledgement remained pending")
 	}
+
 	if session.pending[2] != second {
 		t.Fatal("unrelated acknowledgement state was removed")
 	}

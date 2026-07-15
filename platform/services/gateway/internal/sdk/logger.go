@@ -52,6 +52,7 @@ func InitLogger(filePath string) error {
 		if err != nil {
 			return err
 		}
+
 		writers = append(writers, f)
 	}
 
@@ -61,6 +62,7 @@ func InitLogger(filePath string) error {
 	})
 
 	slog.SetDefault(slog.New(&contextHandler{handler: handler}))
+
 	return nil
 }
 
@@ -80,9 +82,11 @@ func TraceIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
+
 	if id, ok := ctx.Value(traceIDKey).(string); ok {
 		return id
 	}
+
 	return ""
 }
 
@@ -104,6 +108,7 @@ func (h *contextHandler) Handle(ctx context.Context, r slog.Record) error {
 	if traceID := TraceIDFromContext(ctx); traceID != "" {
 		r.AddAttrs(slog.String("trace_id", traceID))
 	}
+
 	return h.handler.Handle(ctx, r)
 }
 

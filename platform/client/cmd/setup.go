@@ -50,6 +50,7 @@ func setupApp() (*appContext, error) {
 	if err := removeLegacyRuntimeState(); err != nil {
 		return nil, err
 	}
+
 	runtimeConfig, err := clientconfig.Load()
 	if err != nil {
 		return nil, err
@@ -59,12 +60,15 @@ func setupApp() (*appContext, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	httpClient := newHTTPClient(runtimeConfig.HTTPTimeout, tlsConfig)
 	httpAgent := agent.New(httpClient, runtimeConfig.GatewayURL)
+
 	audience, err := sharedidentity.AgentIDFromCertificate(clientCertificate)
 	if err != nil {
 		return nil, fmt.Errorf("derive command audience: %w", err)
 	}
+
 	ac := &appContext{
 		httpClient:        httpClient,
 		gatewayURL:        runtimeConfig.GatewayURL,
@@ -73,15 +77,19 @@ func setupApp() (*appContext, error) {
 		streamer:          newScreenStreamer(runtimeConfig.GatewayURL, tlsConfig),
 		heartbeatInterval: runtimeConfig.HeartbeatInterval,
 	}
+
 	validator, err := newCommandValidator(runtimeConfig, audience)
 	if err != nil {
 		return nil, fmt.Errorf("initialize command validator: %w", err)
 	}
+
 	ac.validator = validator
 	if err := selectControlTransport(ac, runtimeConfig, audience); err != nil {
 		return nil, err
 	}
+
 	ac.streamer.quicClient = ac.quicClient
+
 	return ac, nil
 }
 
@@ -90,26 +98,32 @@ func loadClientTLS(runtimeConfig clientconfig.Config) (*tls.Config, *x509.Certif
 	if err != nil {
 		return nil, nil, fmt.Errorf("load client certs: %w", err)
 	}
+
 	if len(certificate.Certificate) == 0 {
 		return nil, nil, fmt.Errorf("load client certs: identity certificate is missing")
 	}
+
 	clientCertificate, err := x509.ParseCertificate(certificate.Certificate[0])
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse client identity certificate: %w", err)
 	}
+
 	caData, err := os.ReadFile(filepath.Clean(runtimeConfig.CAFile))
 	if err != nil {
 		return nil, nil, fmt.Errorf("read CA cert: %w", err)
 	}
+
 	caPool := x509.NewCertPool()
 	if !caPool.AppendCertsFromPEM(caData) {
 		return nil, nil, fmt.Errorf("read CA cert: no certificates found")
 	}
+
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{certificate}, RootCAs: caPool,
 		ServerName: runtimeConfig.ServerName, MinVersion: tls.VersionTLS13,
 		CurvePreferences: []tls.CurveID{tls.CurveP384},
 	}
+
 	return tlsConfig, clientCertificate, nil
 }
 
@@ -125,10 +139,12 @@ func newCommandValidator(runtimeConfig clientconfig.Config, audience string) (*a
 	if err != nil {
 		return nil, err
 	}
+
 	replayLedger, err := replay.Open(runtimeConfig.ReplayLedgerFile, runtimeConfig.ReplayAuthenticationKeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("initialize command replay ledger: %w", err)
 	}
+
 	return agent.NewCommandValidatorWithReplayLedger(verificationKey, keyID, audience, replayLedger)
 }
 
@@ -136,31 +152,41 @@ func selectControlTransport(ac *appContext, runtimeConfig clientconfig.Config, a
 	if runtimeConfig.TransportMode == clientconfig.TransportHTTP {
 		ac.transport = ac.httpAgent
 		ac.transferPlane = ac.httpAgent
+
 		return nil
 	}
+
 	quicClient, err := agentquic.New(runtimeConfig, ac.tlsConfig, audience, ac.validator.KeyID())
 	if err != nil {
 		return err
 	}
+
 	startContext, cancel := context.WithTimeout(context.Background(), runtimeConfig.QUICHandshakeTimeout)
 	err = quicClient.Start(startContext)
+
 	cancel()
+
 	if err == nil {
 		ac.quicClient = quicClient
 		ac.transport = quicClient
 		ac.transferPlane = quicClient
+
 		return nil
 	}
+
 	quicClient.Close()
+
 	if runtimeConfig.TransportMode != clientconfig.TransportQUICFirst ||
 		agentquic.IsSecurityFailure(err) || !runtimeConfig.HTTPFallbackUntil.After(time.Now().UTC()) {
 		return fmt.Errorf("establish required QUIC transport: %w", err)
 	}
+
 	ac.transport = ac.httpAgent
 	ac.transferPlane = ac.httpAgent
 	_ = ac.httpAgent.SendLogEntry(agent.LogEntryPayload{
 		Level: "WARN", Component: "client.runtime", Message: "event=quic_network_fallback",
 	})
+
 	return nil
 }
 
@@ -172,6 +198,7 @@ func removeLegacyRuntimeState() error {
 	if err != nil {
 		return fmt.Errorf("resolve home directory for legacy state cleanup: %w", err)
 	}
+
 	return removeLegacyRuntimeStateAt(homeDir)
 }
 
@@ -180,6 +207,7 @@ func removeLegacyRuntimeStateAt(homeDir string) error {
 	if err := os.Remove(statePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove legacy runtime state: %w", err)
 	}
+
 	return nil
 }
 
@@ -188,25 +216,31 @@ func loadCommandVerificationKey(path string) (*rsa.PublicKey, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("read command verification key: %w", err)
 	}
+
 	block, remainder := pem.Decode(encoded)
 	if block == nil || len(remainder) != 0 {
 		return nil, "", fmt.Errorf("decode command verification key: invalid PEM data")
 	}
+
 	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse command verification key: %w", err)
 	}
+
 	publicKey, ok := parsed.(*rsa.PublicKey)
 	if !ok {
 		return nil, "", fmt.Errorf("parse command verification key: RSA key required")
 	}
+
 	if publicKey.N.BitLen() < commandVerificationKeyBits {
 		return nil, "", fmt.Errorf("parse command verification key: RSA key must contain at least 3072 bits")
 	}
+
 	keyID, err := commandauth.KeyID(publicKey)
 	if err != nil {
 		return nil, "", err
 	}
+
 	return publicKey, keyID, nil
 }
 
@@ -215,6 +249,7 @@ func authenticateDevice(ac *appContext) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("authentication failed: %w", err)
 	}
+
 	return auth.RequiresAttestation, nil
 }
 
@@ -234,6 +269,7 @@ func attestEndpoint(ac *appContext, requiresAttestation bool) error {
 func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 	ctx, cancel := context.WithDeadline(context.Background(), cmd.ExpiresAt)
 	defer cancel()
+
 	decision, err := agent.HandleCommandWithTransferPlane(ctx, *cmd, ac.validator, ac.transferPlane)
 	if err != nil {
 		return fmt.Errorf("command handling failed: %w", err)
@@ -250,6 +286,7 @@ func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 			}
 		case agent.CommandTypeStopScreenStream:
 			ac.streamer.Stop()
+
 			decision.Result.Reason = "screen stream stopped"
 		}
 	}
@@ -258,6 +295,7 @@ func processCommand(ac *appContext, cmd *agent.CommandEnvelope) error {
 		reportClientLog(ac, "ERROR", "client.command", "event=command_result_submission_failed")
 		return fmt.Errorf("command result submission failed: %w", err)
 	}
+
 	reportClientLog(ac, "INFO", "client.command", "event=command_completed")
 
 	return nil
@@ -283,7 +321,9 @@ func shutdown(ac *appContext) {
 	if ac == nil {
 		return
 	}
+
 	ac.streamer.Stop()
+
 	if ac.quicClient != nil {
 		ac.quicClient.Close()
 	}

@@ -35,6 +35,7 @@ func (metrics *Metrics) Snapshot() MetricsSnapshot {
 	if metrics == nil {
 		return MetricsSnapshot{}
 	}
+
 	return MetricsSnapshot{
 		HandshakeRejected: metrics.handshakeRejected.Load(),
 		CertificateFailed: metrics.certificateFailed.Load(),

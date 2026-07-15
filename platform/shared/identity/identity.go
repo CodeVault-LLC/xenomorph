@@ -24,6 +24,7 @@ func AgentIDFromCertificate(cert *x509.Certificate) (string, error) {
 	if cert == nil {
 		return "", fmt.Errorf("certificate is nil")
 	}
+
 	if len(cert.Raw) == 0 {
 		return "", fmt.Errorf("certificate has empty raw bytes")
 	}
@@ -32,5 +33,6 @@ func AgentIDFromCertificate(cert *x509.Certificate) (string, error) {
 	id := fingerprint[:16]
 	id[6] = (id[6] & versionValueMask) | versionFiveBits
 	id[8] = (id[8] & variantValueMask) | rfc4122Variant
+
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", id[:4], id[4:6], id[6:8], id[8:10], id[10:]), nil
 }

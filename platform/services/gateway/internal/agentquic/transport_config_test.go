@@ -12,6 +12,7 @@ func TestConfigValidation(t *testing.T) {
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
+
 	tests := []struct {
 		name   string
 		mutate func(*Config)
@@ -37,8 +38,10 @@ func TestConfigValidation(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			config := valid
 			test.mutate(&config)
+
 			if err := config.Validate(); err == nil {
 				t.Fatal("invalid config accepted")
 			}

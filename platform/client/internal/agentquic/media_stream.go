@@ -57,23 +57,28 @@ func (client *Client) OpenMediaStream(ctx context.Context, options MediaStreamOp
 	if err := validateMediaStreamOptions(options); err != nil {
 		return nil, err
 	}
+
 	session, err := client.waitSession(ctx)
 	if err != nil {
 		return nil, err
 	}
+
 	stream, codec, err := openMediaLane(ctx, session)
 	if err != nil {
 		return nil, err
 	}
+
 	if err := authorizeMediaLane(ctx, session, stream, codec, options); err != nil {
 		_ = stream.Close()
 		return nil, err
 	}
+
 	writeTimeout, err := mediaWriteTimeout(options.FrameRateCap)
 	if err != nil {
 		_ = stream.Close()
 		return nil, err
 	}
+
 	mediaStream := &MediaStream{
 		session: session, stream: stream, codec: codec,
 		generationID: options.GenerationID, maximumBytes: options.MaximumFrameBytes,
@@ -81,6 +86,7 @@ func (client *Client) OpenMediaStream(ctx context.Context, options MediaStreamOp
 		pendingFrame: make(chan mediaFrameSubmission, 1), writerDone: make(chan struct{}),
 	}
 	go mediaStream.runWriter()
+
 	return mediaStream, nil
 }
 
@@ -89,8 +95,10 @@ func mediaWriteTimeout(frameRateCap uint64) (time.Duration, error) {
 	if err != nil || frameRate <= 0 {
 		return 0, fmt.Errorf("calculate QUIC media write timeout: invalid frame rate")
 	}
+
 	frameInterval := time.Second / time.Duration(frameRate)
 	timeout := min(max(time.Duration(mediaFrameDeadlinePeriods)*frameInterval, minimumMediaWriteTimeout), maximumMediaWriteTimeout)
+
 	return timeout, nil
 }
 
@@ -101,6 +109,7 @@ func validateMediaStreamOptions(options MediaStreamOptions) error {
 		options.MaximumFrameBytes == 0 || options.MaximumFrameBytes > 10<<20 {
 		return fmt.Errorf("open QUIC media stream: invalid signed media contract")
 	}
+
 	return nil
 }
 
@@ -109,11 +118,14 @@ func openMediaLane(ctx context.Context, session *clientSession) (*quic.SendStrea
 	if err != nil {
 		return nil, wire.FrameCodec{}, fmt.Errorf("open QUIC media stream: %w", err)
 	}
+
 	if err := wire.WritePreamble(stream, wire.StreamMedia); err != nil {
 		return nil, wire.FrameCodec{}, err
 	}
+
 	specification, _ := wire.SpecificationForStream(wire.StreamMedia)
 	codec, err := wire.NewFrameCodec(specification.MaximumFrameBytes)
+
 	return stream, codec, err
 }
 
@@ -131,9 +143,11 @@ func authorizeMediaLane(
 	if err != nil {
 		return err
 	}
+
 	sequence := session.nextSequence()
 	response := make(chan eventResponse, 1)
 	session.registerPending(sequence, response)
+
 	if err := codec.WriteFrame(stream, wire.Frame{
 		Header: wire.FrameHeader{
 			Type: wire.MessageMediaOpen, SchemaRevision: 1,
@@ -153,6 +167,7 @@ func authorizeMediaLane(
 		session.completePending(sequence, eventResponse{err: ctx.Err()})
 		return fmt.Errorf("wait for QUIC media authorization: %w", ctx.Err())
 	}
+
 	return nil
 }
 
@@ -163,15 +178,18 @@ func (stream *MediaStream) WriteJPEG(data []byte, capturedAt time.Time) error {
 	if len(data) == 0 || uint64(len(data)) > stream.maximumBytes {
 		return fmt.Errorf("write QUIC media frame: encoded frame exceeds generation limit")
 	}
+
 	submission := mediaFrameSubmission{
 		data: append([]byte(nil), data...), capturedAt: capturedAt.UTC(),
 	}
 
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
+
 	if stream.closed {
 		return fmt.Errorf("write QUIC media frame: stream is closed")
 	}
+
 	if stream.writerError != nil {
 		return stream.writerError
 	}
@@ -186,6 +204,7 @@ func (stream *MediaStream) WriteJPEG(data []byte, capturedAt time.Time) error {
 	default:
 	}
 	stream.pendingFrame <- submission
+
 	return nil
 }
 
@@ -195,6 +214,7 @@ func (stream *MediaStream) StaleFramesDropped() uint64 {
 	if stream == nil {
 		return 0
 	}
+
 	return stream.staleFramesDropped.Load()
 }
 
@@ -213,9 +233,11 @@ func (stream *MediaStream) runWriter() {
 		if err := stream.writeFrame(submission, frameNumber); err != nil {
 			writerError = err
 			_ = stream.stream.Close()
+
 			return
 		}
 	}
+
 	writerError = stream.writeClose(frameNumber)
 }
 
@@ -223,10 +245,12 @@ func (stream *MediaStream) writeFrame(submission mediaFrameSubmission, frameNumb
 	if err := stream.stream.SetWriteDeadline(time.Now().Add(stream.writeTimeout)); err != nil {
 		return fmt.Errorf("set QUIC media write deadline: %w", err)
 	}
+
 	capturedAt, err := unixMilliseconds(submission.capturedAt, "media capture time")
 	if err != nil {
 		return err
 	}
+
 	body, err := (wire.MediaFrame{
 		GenerationID: stream.generationID, FrameNumber: frameNumber,
 		CapturedAtMilliseconds: capturedAt, Keyframe: true,
@@ -235,6 +259,7 @@ func (stream *MediaStream) writeFrame(submission mediaFrameSubmission, frameNumb
 	if err != nil {
 		return fmt.Errorf("encode QUIC media frame: %w", err)
 	}
+
 	if err := stream.codec.WriteFrame(stream.stream, wire.Frame{
 		Header: wire.FrameHeader{
 			Type: wire.MessageMediaFrame, SchemaRevision: 1,
@@ -244,6 +269,7 @@ func (stream *MediaStream) writeFrame(submission mediaFrameSubmission, frameNumb
 	}); err != nil {
 		return fmt.Errorf("write QUIC media frame: %w", err)
 	}
+
 	return nil
 }
 
@@ -254,19 +280,23 @@ func (stream *MediaStream) Close() error {
 		writerDone := stream.writerDone
 		stream.mu.Unlock()
 		<-writerDone
+
 		return stream.finalWriterError()
 	}
+
 	stream.closed = true
 	close(stream.pendingFrame)
 	writerDone := stream.writerDone
 	stream.mu.Unlock()
 	<-writerDone
+
 	return stream.finalWriterError()
 }
 
 func (stream *MediaStream) finalWriterError() error {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
+
 	return stream.writerError
 }
 
@@ -274,10 +304,12 @@ func (stream *MediaStream) writeClose(frameNumber uint64) error {
 	if err := stream.stream.SetWriteDeadline(time.Now().Add(stream.writeTimeout)); err != nil {
 		return fmt.Errorf("set QUIC media close deadline: %w", err)
 	}
+
 	body, err := (wire.MediaClose{Reason: 1, LastFrameNumber: frameNumber}).MarshalBinary()
 	if err != nil {
 		return err
 	}
+
 	writeError := stream.codec.WriteFrame(stream.stream, wire.Frame{
 		Header: wire.FrameHeader{
 			Type: wire.MessageMediaClose, SchemaRevision: 1,
@@ -287,8 +319,10 @@ func (stream *MediaStream) writeClose(frameNumber uint64) error {
 		Body: body,
 	})
 	closeError := stream.stream.Close()
+
 	if writeError != nil {
 		return fmt.Errorf("write QUIC media close: %w", writeError)
 	}
+
 	return closeError
 }

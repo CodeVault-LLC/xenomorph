@@ -82,6 +82,7 @@ func heartbeatFromAgent(payload agent.HeartbeatPayload) wire.Heartbeat {
 			Count:    usage.Count,
 		})
 	}
+
 	return wire.Heartbeat{
 		Presence: (uint64(1) << heartbeatOptionalFieldCount) - 1,
 		Hostname: payload.Hostname, OSVersion: payload.OsVersion,
@@ -109,6 +110,7 @@ func attestationFromAgent(payload agent.EndpointAttestation) wire.Attestation {
 			Name: browser.Name, BinaryPath: browser.BinaryPath, ProfileDirectory: browser.ProfileDir,
 		})
 	}
+
 	return wire.Attestation{
 		Hostname: payload.Hostname, OSVersion: payload.OSVersion,
 		RequiresAttestation: payload.RequiresAttestation, Browsers: browsers,
@@ -121,18 +123,22 @@ func logEntryFromAgent(payload agent.LogEntryPayload) (wire.LogEntry, error) {
 	if !ok {
 		return wire.LogEntry{}, fmt.Errorf("encode QUIC log entry: unregistered level %q", payload.Level)
 	}
+
 	component, ok := logComponent(payload.Component)
 	if !ok {
 		return wire.LogEntry{}, fmt.Errorf("encode QUIC log entry: unregistered component %q", payload.Component)
 	}
+
 	eventCode, detail, ok := logEvent(payload.Message)
 	if !ok {
 		return wire.LogEntry{}, fmt.Errorf("encode QUIC log entry: unregistered event metadata")
 	}
+
 	entry := wire.LogEntry{Level: uint64(level), Component: uint64(component), EventCode: uint64(eventCode), Detail: detail}
 	if err := wire.ValidateLogEntry(entry); err != nil {
 		return wire.LogEntry{}, err
 	}
+
 	return entry, nil
 }
 
@@ -141,29 +147,37 @@ func commandResultFromAgent(payload agent.CommandResultPayload) (wire.CommandRes
 	if payload.Reason != "" {
 		presence |= commandReasonPresence
 	}
+
 	if payload.TerminalSessionID != "" {
 		presence |= commandTerminalSessionPresence
 	}
+
 	if payload.TerminalShell != "" {
 		presence |= commandTerminalShellPresence
 	}
+
 	if payload.TerminalWorkingDirectory != "" {
 		presence |= commandTerminalDirectoryPresence
 	}
+
 	if payload.TerminalExitCode != 0 {
 		presence |= commandTerminalExitPresence
 	}
+
 	result := append([]byte(nil), payload.OutputData...)
 	if len(result) == 0 {
 		result = append(result, payload.Result...)
 	}
+
 	if len(result) > 0 {
 		presence |= commandResultPresence
 	}
+
 	respondedAt, err := unixMilliseconds(payload.RespondedAt, "command response time")
 	if err != nil {
 		return wire.CommandResult{}, err
 	}
+
 	return wire.CommandResult{
 		Presence: presence, CommandType: string(payload.Type), State: commandResultState(payload.Status),
 		ReasonCode: 0, ReasonText: payload.Reason,
@@ -179,10 +193,13 @@ func operationIDForPayload(domain, audience string, payload []byte) [16]byte {
 	_, _ = hash.Write([]byte("xenomorph/xbp/operation/" + domain + "\x00" + audience + "\x00"))
 	_, _ = hash.Write(payload)
 	digestBytes := hash.Sum(nil)
+
 	var identifier [16]byte
+
 	copy(identifier[:], digestBytes[:16])
 	identifier[6] = (identifier[6] & uuidVersionMask) | uuidVersionFive
 	identifier[8] = (identifier[8] & uuidVariantMask) | uuidRFC4122Variant
+
 	return identifier
 }
 
@@ -191,8 +208,11 @@ func parseOperationID(value string) ([16]byte, error) {
 	if err != nil {
 		return [16]byte{}, fmt.Errorf("parse operation ID %q: %w", value, err)
 	}
+
 	var result [16]byte
+
 	copy(result[:], identifier[:])
+
 	return result, nil
 }
 
@@ -200,9 +220,11 @@ func ratioPartsPerMillion(value float64) uint64 {
 	if math.IsNaN(value) || value <= 0 {
 		return 0
 	}
+
 	if value >= 1 {
 		return partsPerMillion
 	}
+
 	return uint64(math.Round(value * partsPerMillion))
 }
 
@@ -210,6 +232,7 @@ func nonnegativeInteger(value int32) uint64 {
 	if value < 0 {
 		return 0
 	}
+
 	return uint64(value)
 }
 
@@ -274,6 +297,7 @@ func commandResultState(status agent.CommandStatus) uint64 {
 	if status == agent.CommandStatusExecuted {
 		return uint64(wire.CommandResultStateExecuted)
 	}
+
 	return uint64(wire.CommandResultStateRejected)
 }
 
@@ -312,14 +336,18 @@ func logComponent(value string) (wire.LogComponent, bool) {
 func logEvent(value string) (wire.LogEvent, string, bool) {
 	metadata := strings.TrimSpace(value)
 	eventField, detail, found := strings.Cut(metadata, " detail=")
+
 	if !found {
 		eventField = metadata
 		detail = ""
 	}
+
 	eventName, ok := strings.CutPrefix(eventField, "event=")
 	if !ok {
 		return 0, "", false
 	}
+
 	event, found := logEventRegistry[eventName]
+
 	return event, detail, found
 }

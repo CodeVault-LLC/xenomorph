@@ -13,14 +13,17 @@ func TestPreambleRoundTrip(t *testing.T) {
 		kind := kind
 		t.Run(string(rune('0'+kind)), func(t *testing.T) {
 			t.Parallel()
+
 			var encoded bytes.Buffer
 			if err := WritePreamble(&encoded, kind); err != nil {
 				t.Fatalf("write preamble: %v", err)
 			}
+
 			got, err := ReadPreamble(&encoded)
 			if err != nil {
 				t.Fatalf("read preamble: %v", err)
 			}
+
 			if got.Kind != kind {
 				t.Fatalf("kind = %d, want %d", got.Kind, kind)
 			}
@@ -48,8 +51,10 @@ func TestReadPreambleRejectsInvalidFields(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			encoded := append([]byte(nil), valid...)
 			encoded[test.index] = test.value
+
 			if _, err := ReadPreamble(bytes.NewReader(encoded)); err == nil ||
 				(!errors.Is(err, ErrEncoding) && !errors.Is(err, ErrUnexpectedMessage)) {
 				t.Fatalf("read error = %v", err)

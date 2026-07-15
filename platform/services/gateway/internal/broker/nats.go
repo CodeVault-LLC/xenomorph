@@ -87,9 +87,11 @@ func (n *NATS) PublishContext(ctx context.Context, subject string, msg proto.Mes
 	if ctx == nil {
 		return fmt.Errorf("publish context is nil")
 	}
+
 	if n == nil || n.js == nil {
 		return fmt.Errorf("JetStream context is nil; call New before Publish")
 	}
+
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("protobuf marshal failed: %w", err)
@@ -99,9 +101,11 @@ func (n *NATS) PublishContext(ctx context.Context, subject string, msg proto.Mes
 	if envelope, ok := msg.(interface{ GetEventId() string }); ok && envelope.GetEventId() != "" {
 		options = append(options, nats.MsgId(envelope.GetEventId()))
 	}
+
 	if _, err := n.js.Publish(subject, data, options...); err != nil {
 		return fmt.Errorf("JetStream publish failed: %w", err)
 	}
+
 	return nil
 }
 
@@ -127,10 +131,12 @@ func ensureSystemEventsStream(js jetStream) error {
 	if js == nil {
 		return fmt.Errorf("JetStream context is nil")
 	}
+
 	_, err := js.StreamInfo(systemEventsStream)
 	if err == nil {
 		return nil
 	}
+
 	if !errors.Is(err, nats.ErrStreamNotFound) {
 		return fmt.Errorf("%s stream lookup failed: %w", systemEventsStream, err)
 	}

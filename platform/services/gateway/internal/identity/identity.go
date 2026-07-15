@@ -53,11 +53,13 @@ func FromPeerCertificate(cert *x509.Certificate) (AuthenticatedAgent, error) {
 	if cert == nil {
 		return AuthenticatedAgent{}, fmt.Errorf("peer certificate is nil")
 	}
+
 	if len(cert.Raw) == 0 {
 		return AuthenticatedAgent{}, fmt.Errorf("peer certificate has empty raw bytes")
 	}
 
 	fingerprint := sha256.Sum256(cert.Raw)
+
 	deterministicID, err := sharedidentity.AgentIDFromCertificate(cert)
 	if err != nil {
 		return AuthenticatedAgent{}, fmt.Errorf("derive agent ID: %w", err)

@@ -30,10 +30,12 @@ func canonicalizeCommandResult(request commandResultRequest) ([]byte, error) {
 	if err := validateCanonicalCommandResult(request); err != nil {
 		return nil, err
 	}
+
 	result := append([]byte(nil), request.OutputData...)
 	if len(result) == 0 {
 		result = append(result, request.Result...)
 	}
+
 	encoded, err := json.Marshal(canonicalCommandResult{
 		CommandID: request.CommandID, Type: request.Type, Status: request.Status,
 		Reason: request.Reason, ClientHostname: request.ClientHostname, Result: result,
@@ -43,6 +45,7 @@ func canonicalizeCommandResult(request commandResultRequest) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode canonical command result: %w", err)
 	}
+
 	return encoded, nil
 }
 
@@ -50,15 +53,19 @@ func validateCanonicalCommandResult(request commandResultRequest) error {
 	if strings.TrimSpace(request.CommandID) == "" || strings.TrimSpace(request.Type) == "" {
 		return fmt.Errorf("validate canonical command result: command ID and type are required")
 	}
+
 	if !isRegisteredCommandResultStatus(request.Status) {
 		return fmt.Errorf("validate canonical command result: unregistered status")
 	}
+
 	if err := validateCanonicalCommandResultLengths(request); err != nil {
 		return err
 	}
+
 	if int64(request.TerminalExitCode) < -2147483648 || int64(request.TerminalExitCode) > 2147483647 {
 		return fmt.Errorf("validate canonical command result: exit code exceeds protocol bound")
 	}
+
 	return nil
 }
 
@@ -78,5 +85,6 @@ func validateCanonicalCommandResultLengths(request commandResultRequest) error {
 		len(request.OutputData) > maximumCanonicalCommandResultBytes || len(request.Result) > maximumCanonicalCommandResultBytes {
 		return fmt.Errorf("validate canonical command result: field exceeds protocol bound")
 	}
+
 	return nil
 }

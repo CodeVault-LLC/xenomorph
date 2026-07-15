@@ -28,11 +28,14 @@ func decodeIngressMessage(frame wire.Frame) (IngressMessage, error) {
 	if !exists {
 		return IngressMessage{}, wire.ErrUnexpectedMessage
 	}
+
 	message, err := decode(frame.Body)
 	if err != nil {
 		return IngressMessage{}, fmt.Errorf("decode %d body: %w", frame.Header.Type, err)
 	}
+
 	message.Type = frame.Header.Type
+
 	return message, nil
 }
 
@@ -51,6 +54,7 @@ func decodeLogEntry(body []byte) (IngressMessage, error) {
 	if err := message.UnmarshalBinary(body); err != nil {
 		return IngressMessage{}, err
 	}
+
 	return IngressMessage{LogEntry: message}, wire.ValidateLogEntry(*message)
 }
 
@@ -59,6 +63,7 @@ func decodeCommandResult(body []byte) (IngressMessage, error) {
 	if err := message.UnmarshalBinary(body); err != nil {
 		return IngressMessage{}, err
 	}
+
 	return IngressMessage{CommandResult: message}, wire.ValidateCommandResult(*message)
 }
 
@@ -77,6 +82,7 @@ func decodeTransferChunk(body []byte) (IngressMessage, error) {
 	if err := message.UnmarshalBinary(body); err != nil {
 		return IngressMessage{}, err
 	}
+
 	return IngressMessage{TransferChunk: message}, wire.ValidateTransferChunk(*message)
 }
 
@@ -100,6 +106,7 @@ func decodeMediaFrame(body []byte) (IngressMessage, error) {
 	if err := message.UnmarshalBinary(body); err != nil {
 		return IngressMessage{}, err
 	}
+
 	return IngressMessage{MediaFrame: message}, wire.ValidateMediaFrame(*message)
 }
 

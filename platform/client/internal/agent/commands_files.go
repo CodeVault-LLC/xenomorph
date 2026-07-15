@@ -18,14 +18,17 @@ func executeFileCommand(ctx context.Context, commandType CommandType, payload js
 	if err != nil {
 		return fileCommandError(err)
 	}
+
 	data, err := json.Marshal(result)
 	if err != nil {
 		return fileCommandError(fmt.Errorf("encode file command result: %w", err))
 	}
+
 	wrapped, err := json.Marshal(fileprotocol.CommandResult{ProtocolVersion: fileprotocol.Version, Data: data})
 	if err != nil {
 		return fileCommandError(fmt.Errorf("encode file result envelope: %w", err))
 	}
+
 	return commandOutcome{reason: "file operation completed", resultData: wrapped}
 }
 
@@ -68,6 +71,7 @@ func runRootsList(payload json.RawMessage) (any, error) {
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return clientfs.ListRoots(request)
 }
 func runDirectoryList(payload json.RawMessage) (any, error) {
@@ -75,6 +79,7 @@ func runDirectoryList(payload json.RawMessage) (any, error) {
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return clientfs.ListDirectory(request)
 }
 func runDirectorySearch(ctx context.Context, payload json.RawMessage) (any, error) {
@@ -82,6 +87,7 @@ func runDirectorySearch(ctx context.Context, payload json.RawMessage) (any, erro
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return clientfs.SearchDirectory(ctx, request)
 }
 func runMetadataGet(ctx context.Context, payload json.RawMessage) (any, error) {
@@ -89,6 +95,7 @@ func runMetadataGet(ctx context.Context, payload json.RawMessage) (any, error) {
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return clientfs.GetMetadata(ctx, request)
 }
 func runMetadataSet(payload json.RawMessage) (any, error) {
@@ -96,6 +103,7 @@ func runMetadataSet(payload json.RawMessage) (any, error) {
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return clientfs.SetMetadata(request)
 }
 func runArchive(ctx context.Context, payload json.RawMessage) (any, error) {
@@ -103,6 +111,7 @@ func runArchive(ctx context.Context, payload json.RawMessage) (any, error) {
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return clientfs.ExecuteArchive(ctx, request)
 }
 func runPreviewRead(payload json.RawMessage) (any, error) {
@@ -110,6 +119,7 @@ func runPreviewRead(payload json.RawMessage) (any, error) {
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return clientfs.ReadPreview(request)
 }
 func runMutation(payload json.RawMessage) (any, error) {
@@ -117,6 +127,7 @@ func runMutation(payload json.RawMessage) (any, error) {
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return clientfs.ExecuteMutation(request)
 }
 
@@ -125,17 +136,21 @@ func runTransfer(ctx context.Context, commandType CommandType, payload json.RawM
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	if commandType == CommandTypeFilesTransferPrepare && request.Manifest.Direction == fileprotocol.TransferDownload && len(request.Manifest.Chunks) == 0 {
 		result, err := clientfs.PrepareDownload(request)
 		if err != nil {
 			return clientfs.TransferFailureResult(request, err), nil
 		}
+
 		return result, nil
 	}
+
 	result, err := clientfs.ExecuteTransfer(ctx, request, plane)
 	if err != nil {
 		return clientfs.TransferFailureResult(request, err), nil
 	}
+
 	return result, nil
 }
 
@@ -144,6 +159,7 @@ func runTransferAbort(payload json.RawMessage) (any, error) {
 	if err := decodeFileRequest(payload, &request); err != nil {
 		return nil, err
 	}
+
 	return fileprotocol.TransferResult{ProtocolVersion: fileprotocol.Version, TransferID: request.Manifest.TransferID, State: "cancelled", Scanning: "not_scanned"}, nil
 }
 
@@ -151,15 +167,19 @@ func decodeFileRequest(payload json.RawMessage, destination any) error {
 	if len(payload) == 0 {
 		return fmt.Errorf("file command payload is required")
 	}
+
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
+
 	if err := decoder.Decode(destination); err != nil {
 		return fmt.Errorf("decode file command payload: %w", err)
 	}
+
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return fmt.Errorf("file command payload contains trailing data")
 	}
+
 	return nil
 }
 
@@ -170,6 +190,7 @@ func fileCommandError(err error) commandOutcome {
 	} else if errors.Is(err, fs.ErrPermission) {
 		class = "forbidden"
 	}
+
 	wrapped, marshalErr := json.Marshal(fileprotocol.CommandResult{
 		ProtocolVersion: fileprotocol.Version,
 		Error:           &fileprotocol.Error{Class: class, Message: "filesystem operation could not be completed"},
@@ -177,5 +198,6 @@ func fileCommandError(err error) commandOutcome {
 	if marshalErr != nil {
 		return commandOutcome{reason: "file operation failed"}
 	}
+
 	return commandOutcome{reason: "file operation failed", resultData: wrapped}
 }

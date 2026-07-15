@@ -31,6 +31,7 @@ func BuildEndpointAttestation(requiresAttestation bool, hostnameProvider func() 
 	if hostnameProvider == nil {
 		hostnameProvider = os.Hostname
 	}
+
 	if homeProvider == nil {
 		homeProvider = os.UserHomeDir
 	}
@@ -71,6 +72,7 @@ func collectBrowsers(homeProvider func() (string, error)) []BrowserInstallation 
 	}
 
 	browsers := make([]BrowserInstallation, 0, len(candidates))
+
 	for _, c := range candidates {
 		binaryPath, err := exec.LookPath(c.binary)
 		if err != nil {
@@ -105,5 +107,6 @@ func dirExists(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	return stat.IsDir()
 }

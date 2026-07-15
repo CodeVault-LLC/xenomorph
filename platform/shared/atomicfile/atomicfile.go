@@ -17,27 +17,35 @@ func Replace(path string, data []byte, directoryMode, fileMode fs.FileMode) erro
 	if err != nil {
 		return err
 	}
+
 	temporary, err := os.CreateTemp(directory, "."+filepath.Base(cleaned)+"-*")
 	if err != nil {
 		return fmt.Errorf("create atomic temporary file: %w", err)
 	}
+
 	temporaryPath := temporary.Name()
 	committed := false
+
 	defer func() {
 		if !committed {
 			_ = os.Remove(temporaryPath)
 		}
 	}()
+
 	if err := writeSynchronizedFile(temporary, data, fileMode); err != nil {
 		return err
 	}
+
 	if err := os.Rename(temporaryPath, cleaned); err != nil {
 		return fmt.Errorf("replace atomic state file: %w", err)
 	}
+
 	if err := syncDirectory(directory); err != nil {
 		return fmt.Errorf("synchronize atomic state directory: %w", err)
 	}
+
 	committed = true
+
 	return nil
 }
 
@@ -48,17 +56,21 @@ func Create(path string, data []byte, directoryMode, fileMode fs.FileMode) error
 	if err != nil {
 		return err
 	}
+
 	file, err := os.OpenFile(cleaned, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode) // #nosec G304 -- callers supply validated immutable state paths.
 	if err != nil {
 		return fmt.Errorf("create atomic state file: %w", err)
 	}
+
 	if err := writeSynchronizedFile(file, data, fileMode); err != nil {
 		_ = os.Remove(cleaned)
 		return err
 	}
+
 	if err := syncDirectory(directory); err != nil {
 		return fmt.Errorf("synchronize atomic state directory: %w", err)
 	}
+
 	return nil
 }
 
@@ -66,11 +78,14 @@ func preparePath(path string, directoryMode fs.FileMode) (string, string, error)
 	if strings.TrimSpace(path) == "" {
 		return "", "", fmt.Errorf("prepare atomic state file: path is required")
 	}
+
 	cleaned := filepath.Clean(path)
+
 	directory := filepath.Dir(cleaned)
 	if err := os.MkdirAll(directory, directoryMode); err != nil {
 		return "", "", fmt.Errorf("create atomic state directory: %w", err)
 	}
+
 	return cleaned, directory, nil
 }
 
@@ -79,16 +94,20 @@ func writeSynchronizedFile(file *os.File, data []byte, mode fs.FileMode) error {
 		_ = file.Close()
 		return fmt.Errorf("protect atomic state file: %w", err)
 	}
+
 	if _, err := file.Write(data); err != nil {
 		_ = file.Close()
 		return fmt.Errorf("write atomic state file: %w", err)
 	}
+
 	if err := file.Sync(); err != nil {
 		_ = file.Close()
 		return fmt.Errorf("synchronize atomic state file: %w", err)
 	}
+
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close atomic state file: %w", err)
 	}
+
 	return nil
 }

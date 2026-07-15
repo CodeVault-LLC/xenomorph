@@ -58,9 +58,11 @@ func executeTerminalCommand(raw json.RawMessage) commandOutcome {
 
 	payload.SessionID = strings.TrimSpace(payload.SessionID)
 	payload.Command = strings.TrimSpace(payload.Command)
+
 	if payload.SessionID == "" {
 		return commandOutcome{reason: "terminal payload rejected: missing session_id"}
 	}
+
 	if payload.Command == "" {
 		return commandOutcome{reason: "terminal payload rejected: missing command"}
 	}
@@ -68,6 +70,7 @@ func executeTerminalCommand(raw json.RawMessage) commandOutcome {
 	state := terminalRuntime.session(payload)
 	if changed, output, err := terminalRuntime.applyBuiltinCD(payload.SessionID, payload.Command, state); changed {
 		state = terminalRuntime.session(terminalCommandPayload{SessionID: payload.SessionID})
+
 		return commandOutcome{
 			reason:     reasonForTerminalExit(err),
 			outputData: output,
@@ -86,9 +89,11 @@ func executeTerminalCommand(raw json.RawMessage) commandOutcome {
 
 	cmd := buildShellCommand(ctx, state.Shell, payload.Command)
 	cmd.Dir = state.WorkingDirectory
+
 	var output limitedBuffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
+
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		err = ctx.Err()
@@ -115,16 +120,21 @@ func (s *terminalRuntimeState) session(payload terminalCommandPayload) terminalS
 	if strings.TrimSpace(payload.Shell) != "" {
 		state.Shell = normalizeShellName(payload.Shell)
 	}
+
 	if state.Shell == "" {
 		state.Shell = defaultShellName()
 	}
+
 	if dir := strings.TrimSpace(payload.WorkingDirectory); dir != "" {
 		state.WorkingDirectory = cleanWorkingDirectory(dir)
 	}
+
 	if state.WorkingDirectory == "" {
 		state.WorkingDirectory = defaultWorkingDirectory()
 	}
+
 	s.sessions[payload.SessionID] = state
+
 	return state
 }
 
@@ -137,14 +147,18 @@ func (s *terminalRuntimeState) applyBuiltinCD(sessionID, command string, state t
 	if target == "" {
 		target = defaultWorkingDirectory()
 	}
+
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(state.WorkingDirectory, target)
 	}
+
 	target = cleanWorkingDirectory(target)
+
 	info, err := os.Stat(target)
 	if err != nil {
 		return true, []byte(err.Error() + "\n"), err
 	}
+
 	if !info.IsDir() {
 		err := fmt.Errorf("%s is not a directory", target)
 		return true, []byte(err.Error() + "\n"), err
@@ -156,6 +170,7 @@ func (s *terminalRuntimeState) applyBuiltinCD(sessionID, command string, state t
 	next.WorkingDirectory = target
 	s.sessions[sessionID] = next
 	s.mu.Unlock()
+
 	return true, []byte(target + "\n"), nil
 }
 
@@ -188,20 +203,25 @@ func defaultShellName() string {
 		if _, err := exec.LookPath("pwsh"); err == nil {
 			return string(ShellPowerShellCore)
 		}
+
 		if _, err := exec.LookPath("powershell.exe"); err == nil {
 			return string(ShellPowerShell)
 		}
+
 		return string(ShellCmd)
 	}
+
 	if shell := filepath.Base(os.Getenv("SHELL")); shell != "" {
 		switch ShellName(shell) {
 		case ShellBash, ShellZsh, ShellSh:
 			return shell
 		}
 	}
+
 	if _, err := os.Stat("/bin/bash"); err == nil {
 		return string(ShellBash)
 	}
+
 	return string(ShellSh)
 }
 
@@ -226,9 +246,11 @@ func defaultWorkingDirectory() string {
 	if dir, err := os.UserHomeDir(); err == nil && dir != "" {
 		return cleanWorkingDirectory(dir)
 	}
+
 	if dir, err := os.Getwd(); err == nil && dir != "" {
 		return cleanWorkingDirectory(dir)
 	}
+
 	return "."
 }
 
@@ -236,9 +258,11 @@ func cleanWorkingDirectory(value string) string {
 	if value == "" {
 		return ""
 	}
+
 	if abs, err := filepath.Abs(value); err == nil {
 		return filepath.Clean(abs)
 	}
+
 	return filepath.Clean(value)
 }
 
@@ -247,12 +271,15 @@ func parseCDCommand(command string) (string, bool) {
 	if len(fields) == 0 || strings.ToLower(fields[0]) != "cd" {
 		return "", false
 	}
+
 	if len(fields) == 1 {
 		return "", true
 	}
+
 	if len(fields) > cdCommandArgCount {
 		return "", false
 	}
+
 	return strings.Trim(fields[1], `"'`), true
 }
 
@@ -260,9 +287,11 @@ func reasonForTerminalExit(err error) string {
 	if err == nil {
 		return "terminal command completed"
 	}
+
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "terminal command timed out"
 	}
+
 	return fmt.Sprintf("terminal command failed: %v", err)
 }
 
@@ -270,10 +299,12 @@ func exitCodeForError(err error) int {
 	if err == nil {
 		return 0
 	}
+
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		return exitErr.ExitCode()
 	}
+
 	return 1
 }
 
@@ -291,6 +322,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 			_, _ = b.buf.Write(p)
 		}
 	}
+
 	return len(p), nil
 }
 

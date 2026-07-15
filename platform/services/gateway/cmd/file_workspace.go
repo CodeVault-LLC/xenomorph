@@ -14,9 +14,11 @@ func buildFileWorkspace(cfg config.GatewayConfig, queue *command.Queue) (*filewo
 	if err != nil {
 		return nil, fmt.Errorf("file workspace store setup: %w", err)
 	}
+
 	service, err := fileworkspace.NewService(queue, store)
 	if err != nil {
 		return nil, fmt.Errorf("file workspace service setup: %w", err)
 	}
+
 	return service, nil
 }

@@ -36,11 +36,13 @@ func unixIdentity(info os.FileInfo) (uint64, uint64) {
 	if !ok {
 		return 0, 0
 	}
+
 	return uint64(stat.Dev), stat.Ino
 }
 
 func unixFileMode(mode uint32) fs.FileMode {
 	result := fs.FileMode(mode & unixPermissionBits)
+
 	switch mode & unix.S_IFMT {
 	case unix.S_IFDIR:
 		result |= fs.ModeDir
@@ -55,5 +57,6 @@ func unixFileMode(mode uint32) fs.FileMode {
 	case unix.S_IFBLK:
 		result |= fs.ModeDevice
 	}
+
 	return result
 }

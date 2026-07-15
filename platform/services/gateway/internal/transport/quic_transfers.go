@@ -41,24 +41,30 @@ func (registry *quicTransferRegistry) authorize(
 	if registry == nil {
 		return quicTransferCapability{}, fmt.Errorf("authorize QUIC transfer: registry is unavailable")
 	}
+
 	transferID, token, transfer, err := loadTransferContract(service, receipt, open)
 	if err != nil {
 		return quicTransferCapability{}, err
 	}
+
 	if err := validateTransferManifestContract(transfer.Manifest, open); err != nil {
 		return quicTransferCapability{}, err
 	}
+
 	expiresAt, err := validateTransferExpiry(transfer.LeaseExpiresAt, open.ExpiresAtMilliseconds)
 	if err != nil {
 		return quicTransferCapability{}, err
 	}
+
 	if err := service.ValidateAgentTransferLease(receipt.AgentID, transferID, token); err != nil {
 		return quicTransferCapability{}, err
 	}
+
 	capability := quicTransferCapability{transferID: transferID, token: token, direction: open.Direction, expiresAt: expiresAt}
 	if err := registry.store(receipt.AgentID, capability); err != nil {
 		return quicTransferCapability{}, err
 	}
+
 	return capability, nil
 }
 
@@ -71,15 +77,19 @@ func loadTransferContract(
 		receipt.OperationID != open.TransferID || len(open.SignedCapability) != 64 {
 		return "", "", fileworkspace.Transfer{}, fmt.Errorf("authorize QUIC transfer: invalid operation or capability")
 	}
+
 	transferID := uuid.UUID(open.TransferID).String()
+
 	token := string(open.SignedCapability)
 	if _, err := hex.DecodeString(token); err != nil {
 		return "", "", fileworkspace.Transfer{}, fmt.Errorf("authorize QUIC transfer: malformed capability")
 	}
+
 	transfer, exists := service.Transfer(receipt.AgentID, transferID)
 	if !exists {
 		return "", "", fileworkspace.Transfer{}, fmt.Errorf("authorize QUIC transfer: transfer scope mismatch")
 	}
+
 	return transferID, token, transfer, nil
 }
 
@@ -88,22 +98,27 @@ func validateTransferManifestContract(manifest fileprotocol.TransferManifest, op
 	if err != nil {
 		return err
 	}
+
 	expectedDirection := uint64(wire.TransferAgentToGateway)
 	if manifest.Direction == fileprotocol.TransferUpload {
 		expectedDirection = uint64(wire.TransferGatewayToAgent)
 	}
+
 	expectedTotalSize, err := uint64FromNonnegativeInt64(manifest.Size, "transfer total size")
 	if err != nil {
 		return err
 	}
+
 	chunkSize, err := uint64FromNonnegativeInt64(manifest.ChunkSize, "transfer chunk size")
 	if err != nil {
 		return err
 	}
+
 	if open.ManifestDigest != digest || open.Direction != expectedDirection ||
 		open.ExpectedTotalSize != expectedTotalSize || open.ChunkSize != chunkSize {
 		return fmt.Errorf("authorize QUIC transfer: signed manifest mismatch")
 	}
+
 	return nil
 }
 
@@ -112,10 +127,12 @@ func validateTransferExpiry(leaseExpiry time.Time, expiryMilliseconds uint64) (t
 	if err != nil {
 		return time.Time{}, err
 	}
+
 	expiresAt := time.UnixMilli(expiresMilliseconds).UTC()
 	if time.Now().UTC().After(expiresAt) || expiresAt.Sub(leaseExpiry.UTC()).Abs() >= time.Millisecond {
 		return time.Time{}, fmt.Errorf("authorize QUIC transfer: capability expiry mismatch")
 	}
+
 	return expiresAt, nil
 }
 
@@ -123,11 +140,14 @@ func (registry *quicTransferRegistry) store(agentID string, capability quicTrans
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	registry.pruneLocked(time.Now().UTC())
+
 	key := transferCapabilityKey(agentID, capability.transferID)
 	if _, exists := registry.entries[key]; !exists && len(registry.entries) >= maximumQUICTransferCapabilities {
 		return fmt.Errorf("authorize QUIC transfer: capability registry full")
 	}
+
 	registry.entries[key] = capability
+
 	return nil
 }
 
@@ -135,14 +155,18 @@ func (registry *quicTransferRegistry) capability(agentID string, operationID [16
 	if registry == nil || operationID == [16]byte{} {
 		return quicTransferCapability{}, fmt.Errorf("load QUIC transfer capability: invalid operation")
 	}
+
 	transferID := uuid.UUID(operationID).String()
+
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	registry.pruneLocked(time.Now().UTC())
+
 	capability, exists := registry.entries[transferCapabilityKey(agentID, transferID)]
 	if !exists {
 		return quicTransferCapability{}, fmt.Errorf("load QUIC transfer capability: operation not authorized")
 	}
+
 	return capability, nil
 }
 
@@ -169,7 +193,10 @@ func manifestObjectDigest(manifest fileprotocol.TransferManifest) ([sha256.Size]
 	if err != nil || len(decoded) != sha256.Size {
 		return [sha256.Size]byte{}, fmt.Errorf("decode transfer object digest")
 	}
+
 	var result [sha256.Size]byte
+
 	copy(result[:], decoded)
+
 	return result, nil
 }

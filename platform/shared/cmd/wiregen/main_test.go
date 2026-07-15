@@ -8,6 +8,7 @@ import (
 
 func TestValidateSchemaRejectsRegistryAndCompatibilityViolations(t *testing.T) {
 	t.Parallel()
+
 	base := protocolSchema{
 		Protocol: protocolDefinition{Name: "XBP", Major: 1, Minor: 0, ALPN: "xenomorph-agent/1"},
 		Streams: []streamDefinition{{Name: "events", GoName: "Events", Code: 1, MaximumFrameBytes: 1024,
@@ -20,9 +21,11 @@ func TestValidateSchemaRejectsRegistryAndCompatibilityViolations(t *testing.T) {
 	}
 	history := registryHistory{Major: 1, Assigned: map[string]string{"256": "Event"},
 		Compatibility: map[string]string{"256": messageCompatibilitySignature(base.Messages[0])}, Tombstoned: map[string]string{}}
+
 	if err := validateSchema(base, history); err != nil {
 		t.Fatalf("valid schema rejected: %v", err)
 	}
+
 	tests := []struct {
 		name   string
 		mutate func(*protocolSchema, *registryHistory)
@@ -51,6 +54,7 @@ func TestValidateSchemaRejectsRegistryAndCompatibilityViolations(t *testing.T) {
 			historyCopy := registryHistory{Major: history.Major, Assigned: cloneMap(history.Assigned),
 				Compatibility: cloneMap(history.Compatibility), Tombstoned: cloneMap(history.Tombstoned)}
 			test.mutate(&schemaCopy, &historyCopy)
+
 			if err := validateSchema(schemaCopy, historyCopy); err == nil {
 				t.Fatal("invalid schema was accepted")
 			}
@@ -60,18 +64,22 @@ func TestValidateSchemaRejectsRegistryAndCompatibilityViolations(t *testing.T) {
 
 func TestGenerationIsDeterministic(t *testing.T) {
 	t.Parallel()
+
 	schema, err := readJSONFile[protocolSchema]("../../protocol/xbp-v1.yaml")
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
 	}
+
 	first, err := generateMessages(schema)
 	if err != nil {
 		t.Fatalf("first generation: %v", err)
 	}
+
 	second, err := generateMessages(schema)
 	if err != nil {
 		t.Fatalf("second generation: %v", err)
 	}
+
 	if !bytes.Equal(first, second) || !strings.HasPrefix(string(first), generatedHeader) {
 		t.Fatal("message generation is not deterministic generated source")
 	}
@@ -83,9 +91,11 @@ func cloneSchema(source protocolSchema) protocolSchema {
 	clone := source
 	clone.Streams = append([]streamDefinition(nil), source.Streams...)
 	clone.Messages = append([]messageDefinition(nil), source.Messages...)
+
 	for index := range clone.Messages {
 		clone.Messages[index].Fields = append([]fieldDefinition(nil), source.Messages[index].Fields...)
 	}
+
 	return clone
 }
 
@@ -94,5 +104,6 @@ func cloneMap(source map[string]string) map[string]string {
 	for key, value := range source {
 		clone[key] = value
 	}
+
 	return clone
 }

@@ -9,6 +9,7 @@ import (
 
 func TestScreenSessionsTracksViewers(t *testing.T) {
 	sessions := NewScreenSessions()
+
 	tests := []struct {
 		name        string
 		update      func(string) (int, int)
@@ -42,7 +43,9 @@ func TestScreenSessionsAuthorizesExactMediaGeneration(t *testing.T) {
 	if sessions.AuthorizeMediaGeneration("agent-1", authorization) {
 		t.Fatal("AuthorizeMediaGeneration without viewer = true, want false")
 	}
+
 	sessions.BeginViewer("agent-1")
+
 	if !sessions.AuthorizeMediaGeneration("agent-1", authorization) {
 		t.Fatal("AuthorizeMediaGeneration with viewer = false, want true")
 	}
@@ -66,9 +69,11 @@ func TestScreenSessionsAuthorizesExactMediaGeneration(t *testing.T) {
 			t.Errorf("%s authorization = %t, want %t", test.name, got, test.want)
 		}
 	}
+
 	if !sessions.AuthorizesMediaFrame("agent-1", authorization.GenerationID) {
 		t.Fatal("AuthorizesMediaFrame for active generation = false, want true")
 	}
+
 	if sessions.AuthorizesMediaFrame("agent-1", [16]byte{2}) {
 		t.Fatal("AuthorizesMediaFrame for wrong generation = true, want false")
 	}
@@ -81,19 +86,25 @@ func TestScreenSessionsRevokesMediaGeneration(t *testing.T) {
 		FrameRateCap:      60,
 		MaximumFrameBytes: 10 << 20,
 	}
+
 	sessions.BeginViewer("agent-1")
+
 	if !sessions.AuthorizeMediaGeneration("agent-1", authorization) {
 		t.Fatal("AuthorizeMediaGeneration = false, want true")
 	}
 
 	sessions.RevokeMediaGeneration("agent-1")
+
 	if sessions.AuthorizesMediaFrame("agent-1", authorization.GenerationID) {
 		t.Fatal("authorization remained after explicit revocation")
 	}
+
 	if !sessions.AuthorizeMediaGeneration("agent-1", authorization) {
 		t.Fatal("AuthorizeMediaGeneration after revocation = false, want true")
 	}
+
 	sessions.EndViewer("agent-1")
+
 	if sessions.AuthorizesMediaFrame("agent-1", authorization.GenerationID) {
 		t.Fatal("authorization remained after final viewer disconnected")
 	}
@@ -102,6 +113,7 @@ func TestScreenSessionsRevokesMediaGeneration(t *testing.T) {
 func TestQUICMediaIngressRequiresGatewayAuthorizedGeneration(t *testing.T) {
 	sessions := NewScreenSessions()
 	sessions.BeginViewer("agent-1")
+
 	authorization := MediaGenerationAuthorization{
 		GenerationID:      [16]byte{1},
 		FrameRateCap:      60,
@@ -110,6 +122,7 @@ func TestQUICMediaIngressRequiresGatewayAuthorizedGeneration(t *testing.T) {
 	if !sessions.AuthorizeMediaGeneration("agent-1", authorization) {
 		t.Fatal("AuthorizeMediaGeneration = false, want true")
 	}
+
 	server := &Server{screenSessions: sessions, screenStore: NewScreenStore()}
 	receipt := agentquic.IngressReceipt{AgentID: "agent-1"}
 
@@ -120,8 +133,10 @@ func TestQUICMediaIngressRequiresGatewayAuthorizedGeneration(t *testing.T) {
 	if _, err := server.commitQUICMediaOpen(receipt, validOpen); err != nil {
 		t.Fatalf("commitQUICMediaOpen(valid) error = %v", err)
 	}
+
 	wrongLimit := *validOpen
 	wrongLimit.MaximumFrameBytes--
+
 	if _, err := server.commitQUICMediaOpen(receipt, &wrongLimit); err == nil {
 		t.Fatal("commitQUICMediaOpen(wrong limit) error = nil, want authorization failure")
 	}
@@ -132,12 +147,15 @@ func TestQUICMediaIngressRequiresGatewayAuthorizedGeneration(t *testing.T) {
 	if _, err := server.commitQUICMediaFrame(receipt, validFrame); err != nil {
 		t.Fatalf("commitQUICMediaFrame(valid) error = %v", err)
 	}
+
 	frame, exists := server.screenStore.Latest("agent-1")
 	if !exists || string(frame.Content) != "jpeg" {
 		t.Fatalf("Latest frame = %q/%t, want committed JPEG", frame.Content, exists)
 	}
+
 	wrongGeneration := *validFrame
 	wrongGeneration.GenerationID = [16]byte{2}
+
 	if _, err := server.commitQUICMediaFrame(receipt, &wrongGeneration); err == nil {
 		t.Fatal("commitQUICMediaFrame(wrong generation) error = nil, want authorization failure")
 	}

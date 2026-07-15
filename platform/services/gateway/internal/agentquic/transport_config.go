@@ -72,6 +72,7 @@ func (config Config) Validate() error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -85,6 +86,7 @@ func (config Config) validateRequiredValues() error {
 			return fmt.Errorf("validate QUIC config: %s file is required", name)
 		}
 	}
+
 	return nil
 }
 
@@ -93,9 +95,11 @@ func (config Config) validateTimeouts() error {
 		config.ControlStreamTimeout < minimumControlTimeout || config.DrainTimeout <= 0 {
 		return fmt.Errorf("validate QUIC config: timeout outside secure minimum")
 	}
+
 	if err := config.validateOperationTimeouts(); err != nil {
 		return err
 	}
+
 	return config.validateLivenessTimeouts()
 }
 
@@ -103,10 +107,12 @@ func (config Config) validateLivenessTimeouts() error {
 	if config.KeepAlivePeriod <= 0 || config.KeepAlivePeriod >= config.MaximumIdleTimeout/2 {
 		return fmt.Errorf("validate QUIC config: keepalive must be positive and below half the idle timeout")
 	}
+
 	if config.HeartbeatInterval < 10*time.Second || config.HeartbeatInterval > 30*time.Second ||
 		config.MaximumIdleTimeout <= config.HeartbeatInterval {
 		return fmt.Errorf("validate QUIC config: heartbeat and idle policy are inconsistent")
 	}
+
 	return nil
 }
 
@@ -114,6 +120,7 @@ func (config Config) validateOperationTimeouts() error {
 	if config.TransferStreamIOTimeout < minimumControlTimeout || config.MediaFrameTimeout < minimumControlTimeout {
 		return fmt.Errorf("validate QUIC config: operation timeout outside secure minimum")
 	}
+
 	return nil
 }
 
@@ -122,6 +129,7 @@ func (config Config) validateConnectionBounds() error {
 		config.MaximumIncompleteHandshakes < 1 || config.MaximumActiveSessions < 1 {
 		return fmt.Errorf("validate QUIC config: stream, handshake, or session bound is invalid")
 	}
+
 	return nil
 }
 
@@ -129,12 +137,15 @@ func (config Config) validateAdmissionBounds() error {
 	if config.MaximumRegistryEntries < config.MaximumActiveSessions {
 		return fmt.Errorf("validate QUIC config: registry bound is below session capacity")
 	}
+
 	if config.SourcePrefixRatePerSecond <= 0 || config.SourcePrefixBurst < 1 || config.MaximumSourcePrefixes < 1 {
 		return fmt.Errorf("validate QUIC config: source-prefix admission bound is invalid")
 	}
+
 	if config.MaximumClientChainBytes < 1024 || config.MaximumClientChainDepth < 1 {
 		return fmt.Errorf("validate QUIC config: client certificate-chain bound is invalid")
 	}
+
 	return nil
 }
 
@@ -142,6 +153,7 @@ func (config Config) validateApplicationBounds() error {
 	if int64(config.ConcurrentTransferStreams) > config.MaximumIncomingStreams || config.EventFrameMaximum < 4096 {
 		return fmt.Errorf("validate QUIC config: application stream or frame bound is invalid")
 	}
+
 	return nil
 }
 
@@ -149,13 +161,16 @@ func (config Config) validateDiagnostics() error {
 	if !config.EnableTransportDiagnostics {
 		return nil
 	}
+
 	if strings.TrimSpace(config.TransportDiagnosticDirectory) == "" {
 		return fmt.Errorf("validate QUIC config: diagnostic directory is required when diagnostics are enabled")
 	}
+
 	if config.TransportDiagnosticFileLimit == 0 || config.TransportDiagnosticFileLimit > maximumDiagnosticFiles ||
 		config.TransportDiagnosticByteLimit < minimumDiagnosticBytes || config.TransportDiagnosticByteLimit > maximumDiagnosticBytes {
 		return fmt.Errorf("validate QUIC config: diagnostic retention bound is invalid")
 	}
+
 	return nil
 }
 
@@ -171,10 +186,12 @@ func validateReceiveWindows(config Config) error {
 			return fmt.Errorf("validate QUIC config: receive window outside bounded range")
 		}
 	}
+
 	if config.InitialStreamReceiveWindow > config.MaximumStreamReceiveWindow ||
 		config.InitialConnectionWindow > config.MaximumConnectionWindow ||
 		config.MaximumStreamReceiveWindow > config.MaximumConnectionWindow {
 		return fmt.Errorf("validate QUIC config: receive-window ordering is invalid")
 	}
+
 	return nil
 }

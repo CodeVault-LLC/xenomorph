@@ -107,8 +107,10 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+
 		return
 	}
+
 	if err := run(*root, *check); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -120,13 +122,16 @@ func printCompatibilitySignatures(root string) error {
 	if err != nil {
 		return err
 	}
+
 	for _, message := range schema.Messages {
 		signature := messageCompatibilitySignature(message)
 		if signature == "" {
 			return fmt.Errorf("encode compatibility signature for %s", message.Name)
 		}
+
 		fmt.Printf("%d %s\n", message.ID, signature)
 	}
+
 	return nil
 }
 
@@ -135,10 +140,12 @@ func run(root string, check bool) error {
 	if err != nil {
 		return err
 	}
+
 	history, err := readJSONFile[registryHistory](filepath.Join(root, "protocol", "registry-history.yaml"))
 	if err != nil {
 		return err
 	}
+
 	if err := validateSchema(schema, history); err != nil {
 		return fmt.Errorf("validate XBP schema: %w", err)
 	}
@@ -147,17 +154,21 @@ func run(root string, check bool) error {
 	if err != nil {
 		return err
 	}
+
 	for _, file := range files {
 		if check {
 			if err := compareGenerated(file); err != nil {
 				return err
 			}
+
 			continue
 		}
+
 		if err := writeGeneratedFile(file); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -166,14 +177,17 @@ func buildGeneratedFiles(root string, schema protocolSchema) ([]generatedFile, e
 	if err != nil {
 		return nil, err
 	}
+
 	messages, err := generateMessages(schema)
 	if err != nil {
 		return nil, err
 	}
+
 	goldenVectors, err := generateStructuralGoldenVectors(root, schema)
 	if err != nil {
 		return nil, err
 	}
+
 	files := make([]generatedFile, 0, baseGeneratedFileCount+len(goldenVectors))
 	files = append(files,
 		generatedFile{path: filepath.Join(root, "wire", "registry_generated.go"), data: registry},
@@ -182,6 +196,7 @@ func buildGeneratedFiles(root string, schema protocolSchema) ([]generatedFile, e
 		generatedFile{path: filepath.Join(root, "wire", "testdata", "golden", "v1", "log_entry_minimal.bin"), data: []byte{0x09, 0x82, 0x02, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00}},
 		generatedFile{path: filepath.Join(root, "wire", "testdata", "golden", "v1", "log_entry_minimal.json"), data: []byte("{\n  \"stream\": \"events\",\n  \"message_type\": 258,\n  \"schema_revision\": 1,\n  \"flags\": 1,\n  \"sequence\": 1,\n  \"level\": 1,\n  \"component\": 1,\n  \"event_code\": 1,\n  \"detail\": \"\"\n}\n")},
 	)
+
 	return append(files, goldenVectors...), nil
 }
 
@@ -204,13 +219,17 @@ type structuralGoldenField struct {
 func generateStructuralGoldenVectors(root string, schema protocolSchema) ([]generatedFile, error) {
 	directory := filepath.Join(root, "wire", "testdata", "golden", "v1")
 	files := make([]generatedFile, 0, len(schema.Messages)*structuralGoldenArtifacts)
+
 	for _, message := range schema.Messages {
 		body, fields := encodeStructuralMinimum(message)
+
 		flags := uint8(0)
 		if message.Acknowledgement == "required" {
 			flags = 1
 		}
+
 		frame := encodeReferenceFrame(message.ID, message.Revision, flags, body)
+
 		metadata, err := json.MarshalIndent(structuralGoldenMetadata{
 			Message: message.Name, Stream: message.Stream, MessageType: message.ID,
 			SchemaRevision: message.Revision, Flags: flags, Sequence: 1, Fields: fields,
@@ -218,30 +237,36 @@ func generateStructuralGoldenVectors(root string, schema protocolSchema) ([]gene
 		if err != nil {
 			return nil, fmt.Errorf("encode %s golden metadata: %w", message.Name, err)
 		}
+
 		name := snakeCaseIdentifier(message.Name) + "_structural_minimum"
 		files = append(files,
 			generatedFile{path: filepath.Join(directory, name+".bin"), data: frame},
 			generatedFile{path: filepath.Join(directory, name+".json"), data: append(metadata, '\n')},
 		)
 	}
+
 	return files, nil
 }
 
 func encodeStructuralMinimum(message messageDefinition) ([]byte, []structuralGoldenField) {
 	body := make([]byte, 0, len(message.Fields)+1)
 	fields := make([]structuralGoldenField, 0, len(message.Fields)+1)
+
 	if message.PresenceBits > 0 {
 		body = append(body, 0)
 		fields = append(fields, structuralGoldenField{Name: "presence", Encoding: "presence", Value: uint64(0)})
 	}
+
 	for _, field := range message.Fields {
 		if field.OptionalBit != nil {
 			continue
 		}
+
 		encoded, value := encodeStructuralMinimumField(field.Type)
 		body = append(body, encoded...)
 		fields = append(fields, structuralGoldenField{Name: field.Name, Encoding: field.Type, Value: value})
 	}
+
 	return body, fields
 }
 
@@ -269,20 +294,25 @@ func encodeReferenceFrame(messageType uint16, revision, flags uint8, body []byte
 	payload = binary.AppendUvarint(payload, 1)
 	payload = append(payload, body...)
 	frame := binary.AppendUvarint(nil, uint64(len(payload)))
+
 	return append(frame, payload...)
 }
 
 func snakeCaseIdentifier(value string) string {
 	var result strings.Builder
+
 	for index, character := range value {
 		if character >= 'A' && character <= 'Z' {
 			if index > 0 {
 				result.WriteByte('_')
 			}
+
 			character += 'a' - 'A'
 		}
+
 		result.WriteRune(character)
 	}
+
 	return result.String()
 }
 
@@ -290,26 +320,33 @@ func writeGeneratedFile(file generatedFile) error {
 	if err := os.MkdirAll(filepath.Dir(file.path), generatedDirectoryMode); err != nil { // #nosec G301 -- generated repository source directories must be traversable by contributors.
 		return fmt.Errorf("create generated directory for %s: %w", file.path, err)
 	}
+
 	if err := os.WriteFile(file.path, file.data, generatedFileMode); err != nil { // #nosec G306 -- generated repository artifacts use normal source-file permissions.
 		return fmt.Errorf("write %s: %w", file.path, err)
 	}
+
 	return nil
 }
 
 func readJSONFile[T any](path string) (T, error) {
 	var result T
+
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return result, fmt.Errorf("read %s: %w", path, err)
 	}
+
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
+
 	if err := decoder.Decode(&result); err != nil {
 		return result, fmt.Errorf("decode %s: %w", path, err)
 	}
+
 	if decoder.More() {
 		return result, fmt.Errorf("decode %s: trailing document", path)
 	}
+
 	return result, nil
 }
 
@@ -317,17 +354,21 @@ func validateSchema(schema protocolSchema, history registryHistory) error {
 	if err := validateProtocolIdentity(schema.Protocol, history); err != nil {
 		return err
 	}
+
 	streams, err := validateStreams(schema.Streams)
 	if err != nil {
 		return err
 	}
+
 	messageIDs, err := validateMessages(schema.Messages, streams, history)
 	if err != nil {
 		return err
 	}
+
 	if len(history.Assigned) != len(messageIDs) {
 		return errors.New("registry history contains an assigned ID absent from the schema")
 	}
+
 	return nil
 }
 
@@ -335,62 +376,79 @@ func validateProtocolIdentity(protocol protocolDefinition, history registryHisto
 	if protocol.Major != 1 || protocol.Minor != 0 || protocol.ALPN != "xenomorph-agent/1" {
 		return errors.New("protocol identity differs from the approved XBP/1 profile")
 	}
+
 	if history.Major != protocol.Major {
 		return errors.New("registry history major version mismatch")
 	}
+
 	return nil
 }
 
 func validateStreams(definitions []streamDefinition) (map[string]streamDefinition, error) {
 	streams := make(map[string]streamDefinition, len(definitions))
 	streamCodes := make(map[uint8]struct{}, len(definitions))
+
 	for _, stream := range definitions {
 		if stream.Name == "" || stream.GoName == "" || stream.MaximumFrameBytes == 0 {
 			return nil, fmt.Errorf("stream %q has incomplete identity or bounds", stream.Name)
 		}
+
 		if _, exists := streams[stream.Name]; exists {
 			return nil, fmt.Errorf("duplicate stream name %q", stream.Name)
 		}
+
 		if _, exists := streamCodes[stream.Code]; exists {
 			return nil, fmt.Errorf("duplicate stream code %d", stream.Code)
 		}
+
 		if !oneOf(stream.Initiator, "agent", "gateway", "either") || !oneOf(stream.Direction, "unidirectional", "bidirectional") {
 			return nil, fmt.Errorf("stream %q has invalid topology", stream.Name)
 		}
+
 		streams[stream.Name] = stream
 		streamCodes[stream.Code] = struct{}{}
 	}
+
 	return streams, nil
 }
 
 func validateMessages(definitions []messageDefinition, streams map[string]streamDefinition, history registryHistory) (map[uint16]string, error) {
 	messageIDs := make(map[uint16]string, len(definitions))
+
 	for _, message := range definitions {
 		if err := validateMessage(message, streams); err != nil {
 			return nil, err
 		}
+
 		if previous, exists := messageIDs[message.ID]; exists {
 			return nil, fmt.Errorf("message ID %#04x reused by %s and %s", message.ID, previous, message.Name)
 		}
+
 		messageIDs[message.ID] = message.Name
+
 		key := strconv.FormatUint(uint64(message.ID), 10)
 		if historical, exists := history.Assigned[key]; !exists || historical != message.Name {
 			return nil, fmt.Errorf("message %s ID %#04x does not match registry history", message.Name, message.ID)
 		}
+
 		if _, tombstoned := history.Tombstoned[key]; tombstoned {
 			return nil, fmt.Errorf("message %s reuses tombstoned ID %#04x", message.Name, message.ID)
 		}
+
 		signature := messageCompatibilitySignature(message)
 		if signature == "" {
 			return nil, fmt.Errorf("encode message %s compatibility signature", message.Name)
 		}
+
 		if historical := history.Compatibility[key]; historical != signature {
 			return nil, fmt.Errorf("message %s revision or field layout differs from compatibility history", message.Name)
 		}
 	}
+
 	if len(history.Compatibility) != len(messageIDs) {
 		return nil, errors.New("compatibility history contains an assignment absent from the schema")
 	}
+
 	return messageIDs, nil
 }
 
@@ -404,6 +462,7 @@ func messageCompatibilitySignature(message messageDefinition) string {
 		AggregateMaximum int    `json:"aggregate_maximum"`
 		OptionalBit      *uint8 `json:"optional_bit"`
 	}
+
 	contract := struct {
 		Revision     uint8                `json:"revision"`
 		PresenceBits uint8                `json:"presence_bits"`
@@ -416,10 +475,12 @@ func messageCompatibilitySignature(message messageDefinition) string {
 			AggregateMaximum: field.AggregateMaximum, OptionalBit: field.OptionalBit,
 		})
 	}
+
 	encoded, err := json.Marshal(contract)
 	if err != nil {
 		return ""
 	}
+
 	return fmt.Sprintf("sha256:%x", sha256.Sum256(encoded))
 }
 
@@ -427,19 +488,24 @@ func validateMessage(message messageDefinition, streams map[string]streamDefinit
 	if message.ID == 0 || message.ID >= 0x4000 || message.Name == "" || message.GoName == "" || message.Revision == 0 {
 		return fmt.Errorf("message %q has invalid identity or revision", message.Name)
 	}
+
 	if _, exists := streams[message.Stream]; !exists {
 		return fmt.Errorf("message %s references unknown stream %q", message.Name, message.Stream)
 	}
+
 	if len(message.Fields) == 0 {
 		return fmt.Errorf("message %s has no fields", message.Name)
 	}
+
 	optionalBits := make(map[uint8]string)
 	fieldNames := make(map[string]struct{}, len(message.Fields))
+
 	for _, field := range message.Fields {
 		if err := validateField(message, field, optionalBits, fieldNames); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -447,9 +513,11 @@ func validateField(message messageDefinition, field fieldDefinition, optionalBit
 	if err := validateFieldIdentity(message, field, fieldNames); err != nil {
 		return err
 	}
+
 	if err := validateFieldBounds(message, field); err != nil {
 		return err
 	}
+
 	return validateOptionalField(message, field, optionalBits)
 }
 
@@ -457,10 +525,13 @@ func validateFieldIdentity(message messageDefinition, field fieldDefinition, fie
 	if field.Name == "" || field.GoName == "" || field.Trust == "" {
 		return fmt.Errorf("message %s contains an incomplete field", message.Name)
 	}
+
 	if _, exists := fieldNames[field.Name]; exists {
 		return fmt.Errorf("message %s repeats field %s", message.Name, field.Name)
 	}
+
 	fieldNames[field.Name] = struct{}{}
+
 	return nil
 }
 
@@ -470,12 +541,15 @@ func validateFieldBounds(message messageDefinition, field fieldDefinition) error
 	if !validType {
 		return fmt.Errorf("message %s field %s has unknown type %q", message.Name, field.Name, field.Type)
 	}
+
 	if oneOf(field.Type, "uint", "sint", fieldTypeString, fieldTypeBytes) && field.Maximum == 0 {
 		return fmt.Errorf("message %s field %s has no bound", message.Name, field.Name)
 	}
+
 	if field.Type == fieldTypeStringList && (field.CountMaximum <= 0 || field.ItemMaximum <= 0 || field.AggregateMaximum <= 0) {
 		return fmt.Errorf("message %s field %s has incomplete list bounds", message.Name, field.Name)
 	}
+
 	return nil
 }
 
@@ -483,18 +557,23 @@ func validateOptionalField(message messageDefinition, field fieldDefinition, opt
 	if field.OptionalBit == nil {
 		return nil
 	}
+
 	if *field.OptionalBit >= message.PresenceBits {
 		return fmt.Errorf("message %s field %s uses unassigned optional bit", message.Name, field.Name)
 	}
+
 	if previous, exists := optionalBits[*field.OptionalBit]; exists {
 		return fmt.Errorf("message %s optional bit %d reused by %s and %s", message.Name, *field.OptionalBit, previous, field.Name)
 	}
+
 	optionalBits[*field.OptionalBit] = field.Name
+
 	return nil
 }
 
 func generateRegistry(schema protocolSchema) ([]byte, error) {
 	var output strings.Builder
+
 	output.WriteString(generatedHeader)
 	output.WriteString("\npackage wire\n\n")
 	output.WriteString("// StreamInitiator identifies which authenticated peer may open a stream.\ntype StreamInitiator uint8\n\n")
@@ -503,84 +582,111 @@ func generateRegistry(schema protocolSchema) ([]byte, error) {
 	output.WriteString("const (\n\t// DirectionUnidirectional carries bytes from its initiator only.\n\tDirectionUnidirectional StreamDirection = iota + 1\n\t// DirectionBidirectional carries bytes in both directions.\n\tDirectionBidirectional\n)\n\n")
 	output.WriteString("// StreamSpecification is the immutable topology and frame bound for a stream kind.\ntype StreamSpecification struct {\n\tName string\n\tMaximumFrameBytes uint32\n\tInitiator StreamInitiator\n\tDirection StreamDirection\n\tMandatory bool\n}\n\n")
 	output.WriteString("// SpecificationForStream returns the reviewed XBP stream contract.\nfunc SpecificationForStream(kind StreamKind) (StreamSpecification, bool) {\n\tswitch kind {\n")
+
 	for _, stream := range schema.Streams {
 		fmt.Fprintf(&output, "\tcase Stream%s:\n\t\treturn StreamSpecification{Name: %q, MaximumFrameBytes: %d, Initiator: %s, Direction: %s, Mandatory: %t}, true\n", stream.GoName, stream.Name, stream.MaximumFrameBytes, initiatorConstant(stream.Initiator), directionConstant(stream.Direction), stream.Mandatory)
 	}
+
 	output.WriteString("\tdefault:\n\t\treturn StreamSpecification{}, false\n\t}\n}\n\n")
 	output.WriteString("const (\n")
+
 	for _, message := range schema.Messages {
 		fmt.Fprintf(&output, "\t// Message%s identifies %s revision %d.\n\tMessage%s MessageType = %#x\n", message.GoName, message.Name, message.Revision, message.GoName, message.ID)
 	}
+
 	output.WriteString(")\n\n")
 	output.WriteString("// MessageDescriptor describes one immutable registry assignment.\ntype MessageDescriptor struct {\n\tType MessageType\n\tName string\n\tStream StreamKind\n\tRevision uint8\n\tAcknowledgement string\n\tCommitPoint string\n\tRetryContract string\n}\n\n")
 	output.WriteString("// DescriptorForMessage returns the immutable assignment for a message type.\nfunc DescriptorForMessage(messageType MessageType) (MessageDescriptor, bool) {\n\tswitch messageType {\n")
+
 	for _, message := range schema.Messages {
 		stream := findStream(schema.Streams, message.Stream)
 		fmt.Fprintf(&output, "\tcase Message%s:\n\t\treturn MessageDescriptor{Type: Message%s, Name: %q, Stream: Stream%s, Revision: %d, Acknowledgement: %q, CommitPoint: %q, RetryContract: %q}, true\n", message.GoName, message.GoName, message.Name, stream.GoName, message.Revision, message.Acknowledgement, message.Commit, message.Retry)
 	}
+
 	output.WriteString("\tdefault:\n\t\treturn MessageDescriptor{}, false\n\t}\n}\n\n")
 	output.WriteString("// ValidateMessageForStream rejects unassigned types, wrong lanes, and revisions.\nfunc ValidateMessageForStream(kind StreamKind, messageType MessageType, revision uint8) error {\n\tdescriptor, ok := DescriptorForMessage(messageType)\n\tif !ok || descriptor.Stream != kind || descriptor.Revision != revision {\n\t\treturn ErrUnexpectedMessage\n\t}\n\treturn nil\n}\n")
+
 	return format.Source([]byte(output.String()))
 }
 
 func generateMessages(schema protocolSchema) ([]byte, error) {
 	var output strings.Builder
+
 	output.WriteString(generatedHeader)
 	output.WriteString("\npackage wire\n\n")
+
 	for _, message := range schema.Messages {
 		fmt.Fprintf(&output, "// %s is the canonical revision %d body for Message%s.\ntype %s struct {\n", message.GoName, message.Revision, message.GoName, message.GoName)
+
 		if message.PresenceBits > 0 {
 			output.WriteString("\t// Presence selects assigned optional fields; unassigned bits are rejected.\n\tPresence uint64\n")
 		}
+
 		for _, field := range message.Fields {
 			fmt.Fprintf(&output, "\t%s %s\n", field.GoName, goType(field.Type))
 		}
+
 		output.WriteString("}\n\n")
 		fmt.Fprintf(&output, "// MarshalBinary returns the canonical bounded %s body.\nfunc (message %s) MarshalBinary() ([]byte, error) {\n\tbuilder := NewBuilder(256)\n", message.Name, message.GoName)
+
 		if message.PresenceBits > 0 {
 			fmt.Fprintf(&output, "\tbuilder.Presence(message.Presence, %d)\n", message.PresenceBits)
 		}
+
 		for _, field := range message.Fields {
 			writeOptionalStart(&output, field, "message.Presence")
 			fmt.Fprintf(&output, "\t%s\n", encodeStatement(field))
 			writeOptionalEnd(&output, field)
 		}
+
 		output.WriteString("\treturn builder.Bytes()\n}\n\n")
 		fmt.Fprintf(&output, "// UnmarshalBinary replaces the message with one exact canonical %s body.\nfunc (message *%s) UnmarshalBinary(body []byte) error {\n\tparser := NewParser(body)\n\tvar decoded %s\n", message.Name, message.GoName, message.GoName)
+
 		if message.PresenceBits > 0 {
 			fmt.Fprintf(&output, "\tdecoded.Presence = parser.Presence(%d)\n", message.PresenceBits)
 		}
+
 		for _, field := range message.Fields {
 			writeOptionalStart(&output, field, "decoded.Presence")
 			fmt.Fprintf(&output, "\t%s\n", decodeStatement(field))
 			writeOptionalEnd(&output, field)
 		}
+
 		output.WriteString("\tif err := parser.Done(); err != nil {\n\t\treturn err\n\t}\n\t*message = decoded\n\treturn nil\n}\n\n")
 	}
+
 	return format.Source([]byte(output.String()))
 }
 
 func generateReference(schema protocolSchema) []byte {
 	var output strings.Builder
+
 	output.WriteString("<!-- Code generated by go run ./cmd/wiregen; DO NOT EDIT. -->\n\n")
 	fmt.Fprintf(&output, "# %s v%d.%d Wire Reference\n\n", schema.Protocol.Name, schema.Protocol.Major, schema.Protocol.Minor)
 	fmt.Fprintf(&output, "ALPN: `%s`. Integers use canonical unsigned LEB128 unless a field says otherwise. Optional fields are preceded by the message's canonical little-bit-order presence map.\n\n", schema.Protocol.ALPN)
 	output.WriteString("## Streams\n\n| Code | Kind | Initiator | Direction | Maximum frame bytes | Mandatory |\n| ---: | --- | --- | --- | ---: | --- |\n")
+
 	for _, stream := range schema.Streams {
 		fmt.Fprintf(&output, "| `0x%02x` | %s | %s | %s | %d | %t |\n", stream.Code, stream.Name, stream.Initiator, stream.Direction, stream.MaximumFrameBytes, stream.Mandatory)
 	}
+
 	output.WriteString("\n## Messages\n")
+
 	for _, message := range schema.Messages {
 		fmt.Fprintf(&output, "\n### `%s` (`0x%04x`, revision %d)\n\nStream: `%s`. Acknowledgement: `%s`. Commit: `%s`. Retry: `%s`.\n\n| Order | Field | Encoding | Bound | Optional bit | Classification |\n| ---: | --- | --- | ---: | ---: | --- |\n", message.Name, message.ID, message.Revision, message.Stream, message.Acknowledgement, message.Commit, message.Retry)
+
 		for index, field := range message.Fields {
 			bound := fieldBound(field)
+
 			optional := "required"
 			if field.OptionalBit != nil {
 				optional = strconv.Itoa(int(*field.OptionalBit))
 			}
+
 			fmt.Fprintf(&output, "| %d | `%s` | `%s` | %s | %s | %s |\n", index+1, field.Name, field.Type, bound, optional, field.Trust)
 		}
 	}
+
 	return []byte(output.String())
 }
 
@@ -589,9 +695,11 @@ func compareGenerated(file generatedFile) error {
 	if err != nil {
 		return fmt.Errorf("read generated file %s: %w", file.path, err)
 	}
+
 	if !bytes.Equal(current, file.data) {
 		return fmt.Errorf("generated file %s is stale; run make wire-generate", file.path)
 	}
+
 	return nil
 }
 
@@ -601,6 +709,7 @@ func oneOf(value string, allowed ...string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -610,6 +719,7 @@ func findStream(streams []streamDefinition, name string) streamDefinition {
 			return stream
 		}
 	}
+
 	return streamDefinition{}
 }
 
@@ -640,6 +750,7 @@ func encodeStatement(field fieldDefinition) string {
 	}[field.Type]; exists {
 		return statement
 	}
+
 	switch field.Type {
 	case "uint":
 		return fmt.Sprintf("builder.BoundedUint(%s, %d)", name, field.Maximum)
@@ -667,6 +778,7 @@ func decodeStatement(field fieldDefinition) string {
 	}[field.Type]; exists {
 		return statement
 	}
+
 	switch field.Type {
 	case "uint":
 		return fmt.Sprintf("%s = parser.Uint(%d)", name, field.Maximum)

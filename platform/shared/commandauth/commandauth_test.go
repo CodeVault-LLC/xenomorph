@@ -14,6 +14,7 @@ func TestSignAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rsa.GenerateKey() error = %v", err)
 	}
+
 	envelope := Envelope{
 		ProtocolVersion: ProtocolVersion,
 		CommandID:       "command-1",
@@ -27,6 +28,7 @@ func TestSignAndVerify(t *testing.T) {
 	if err := Sign(&envelope, privateKey); err != nil {
 		t.Fatalf("Sign() error = %v", err)
 	}
+
 	if err := Verify(envelope, &privateKey.PublicKey); err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
@@ -39,10 +41,12 @@ func TestVerifyRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rsa.GenerateKey() error = %v", err)
 	}
+
 	envelope := Envelope{ProtocolVersion: ProtocolVersion, CommandID: "command-1"}
 	if err := Sign(&envelope, privateKey); err != nil {
 		t.Fatalf("Sign() error = %v", err)
 	}
+
 	envelope.CommandID = "command-2"
 	if err := Verify(envelope, &privateKey.PublicKey); err == nil {
 		t.Fatal("Verify() error = nil, want tampering error")

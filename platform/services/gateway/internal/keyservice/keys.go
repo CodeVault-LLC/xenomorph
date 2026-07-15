@@ -112,29 +112,36 @@ func (key *DEK) Metadata() Metadata { key.mu.RLock(); defer key.mu.RUnlock(); re
 func (key *DEK) Seal(ctx context.Context, plaintext []byte, authenticated AuthenticatedContext) (ProtectedData, error) {
 	key.mu.Lock()
 	defer key.mu.Unlock()
+
 	if key.metadata.State != StateActive || key.aead == nil {
 		return ProtectedData{}, fmt.Errorf("DEK is not active")
 	}
+
 	if ctx == nil || ctx.Err() != nil {
 		return ProtectedData{}, fmt.Errorf("DEK operation context is invalid")
 	}
+
 	additionalData, err := key.authenticatedData(authenticated)
 	if err != nil {
 		return ProtectedData{}, err
 	}
+
 	plaintextBytes := uint64(len(plaintext))
 	if key.operatingLimitReached(plaintextBytes) {
 		key.metadata.State = StateRetired
 		return ProtectedData{}, fmt.Errorf("DEK operating limit reached")
 	}
+
 	nonce, err := key.allocator.NextNonce(ctx, key.metadata)
 	if err != nil || len(nonce) != key.aead.NonceSize() {
 		key.metadata.State = StateRetired
 		return ProtectedData{}, fmt.Errorf("allocate DEK nonce")
 	}
+
 	ciphertext := key.aead.Seal(nil, nonce, plaintext, additionalData)
 	key.invocations++
 	key.bytesSealed += plaintextBytes
+
 	return ProtectedData{Nonce: append([]byte(nil), nonce...), Ciphertext: ciphertext}, nil
 }
 
@@ -142,9 +149,11 @@ func (key *DEK) operatingLimitReached(plaintextBytes uint64) bool {
 	if key.metadata.NotAfter.IsZero() || !time.Now().UTC().Before(key.metadata.NotAfter) {
 		return true
 	}
+
 	if key.invocations >= key.invocationLimit || key.bytesSealed >= key.byteLimit {
 		return true
 	}
+
 	return plaintextBytes > key.byteLimit-key.bytesSealed
 }
 
@@ -153,10 +162,13 @@ func (key *DEK) operatingLimitReached(plaintextBytes uint64) bool {
 func (key *DEK) MakeVerifyOnly() error {
 	key.mu.Lock()
 	defer key.mu.Unlock()
+
 	if key.metadata.State != StateActive {
 		return fmt.Errorf("only an active DEK can become verify-only")
 	}
+
 	key.metadata.State = StateVerifyOnly
+
 	return nil
 }
 
@@ -171,20 +183,25 @@ func (key *DEK) Revoke() {
 func (key *DEK) Open(protected ProtectedData, authenticated AuthenticatedContext) ([]byte, error) {
 	key.mu.RLock()
 	defer key.mu.RUnlock()
+
 	if (key.metadata.State != StateActive && key.metadata.State != StateVerifyOnly) || key.aead == nil {
 		return nil, fmt.Errorf("DEK is not available for decryption")
 	}
+
 	if len(protected.Nonce) != key.aead.NonceSize() {
 		return nil, fmt.Errorf("DEK nonce or authenticated context is invalid")
 	}
+
 	additionalData, err := key.authenticatedData(authenticated)
 	if err != nil {
 		return nil, err
 	}
+
 	plaintext, err := key.aead.Open(nil, protected.Nonce, protected.Ciphertext, additionalData)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt protected data")
 	}
+
 	return plaintext, nil
 }
 
@@ -192,18 +209,23 @@ func (key *DEK) authenticatedData(authenticated AuthenticatedContext) ([]byte, e
 	if authenticated.KeyID != key.metadata.ID || authenticated.Algorithm != key.metadata.Algorithm {
 		return nil, fmt.Errorf("authenticated key context does not match DEK")
 	}
+
 	if authenticated.SecurityDomain != key.metadata.SecurityDomain || authenticated.Direction != key.metadata.Direction {
 		return nil, fmt.Errorf("authenticated scope does not match DEK")
 	}
+
 	if err := validateAuthenticatedContext(authenticated); err != nil {
 		return nil, err
 	}
+
 	authenticated.IssuedAt = authenticated.IssuedAt.UTC()
 	authenticated.ExpiresAt = authenticated.ExpiresAt.UTC()
+
 	encoded, err := json.Marshal(authenticated)
 	if err != nil {
 		return nil, fmt.Errorf("encode authenticated context: %w", err)
 	}
+
 	return encoded, nil
 }
 
@@ -213,20 +235,25 @@ func validateAuthenticatedContext(authenticated AuthenticatedContext) error {
 		authenticated.SecurityDomain, authenticated.SessionID, authenticated.EventID,
 		string(authenticated.Direction), authenticated.Operation, authenticated.KeyID, authenticated.Algorithm,
 	}
+
 	if authenticated.ProtocolVersion == 0 || authenticated.Sequence == 0 {
 		return fmt.Errorf("authenticated protocol version and sequence are required")
 	}
+
 	if authenticated.IssuedAt.IsZero() || !authenticated.ExpiresAt.After(authenticated.IssuedAt) {
 		return fmt.Errorf("authenticated validity window is invalid")
 	}
+
 	if !validDirection(authenticated.Direction) {
 		return fmt.Errorf("authenticated direction is invalid")
 	}
+
 	for _, field := range fields {
 		if field == "" || len(field) > maxAuthenticatedFieldBytes {
 			return fmt.Errorf("authenticated context field is invalid")
 		}
 	}
+
 	return nil
 }
 
@@ -261,9 +288,11 @@ func (key *P384Key) Metadata() Metadata { key.mu.RLock(); defer key.mu.RUnlock()
 func (key *P384Key) PublicKey() []byte {
 	key.mu.RLock()
 	defer key.mu.RUnlock()
+
 	if key.privateKey == nil {
 		return nil
 	}
+
 	return append([]byte(nil), key.privateKey.PublicKey().Bytes()...)
 }
 
@@ -272,27 +301,35 @@ func (key *P384Key) PublicKey() []byte {
 func (key *P384Key) Derive(peerPublicKey, salt, contextInfo []byte, length int) ([]byte, error) {
 	key.mu.Lock()
 	defer key.mu.Unlock()
+
 	if key.metadata.State != StateActive || key.privateKey == nil {
 		return nil, fmt.Errorf("P-384 key is not active")
 	}
+
 	if len(salt) == 0 || len(contextInfo) == 0 || length <= 0 || length > maxDerivedKeyBytes {
 		return nil, fmt.Errorf("P-384 derivation context is invalid")
 	}
+
 	peer, err := ecdh.P384().NewPublicKey(peerPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("parse P-384 peer public key: %w", err)
 	}
+
 	secret, err := key.privateKey.ECDH(peer)
 	key.privateKey = nil
 	key.metadata.State = StateDestroyed
+
 	if err != nil {
 		return nil, fmt.Errorf("derive P-384 shared secret: %w", err)
 	}
+
 	defer clear(secret)
+
 	derived, err := hkdf.Key(sha512.New384, secret, salt, string(contextInfo), length)
 	if err != nil {
 		return nil, fmt.Errorf("derive P-384 traffic key: %w", err)
 	}
+
 	return derived, nil
 }
 
@@ -315,6 +352,7 @@ type MLKEM768Key struct {
 func (key *MLKEM768Key) Metadata() Metadata {
 	key.mu.Lock()
 	defer key.mu.Unlock()
+
 	return key.metadata
 }
 
@@ -322,9 +360,11 @@ func (key *MLKEM768Key) Metadata() Metadata {
 func (key *MLKEM768Key) EncapsulationKey() []byte {
 	key.mu.Lock()
 	defer key.mu.Unlock()
+
 	if key.privateKey == nil {
 		return nil
 	}
+
 	return append([]byte(nil), key.privateKey.EncapsulationKey().Bytes()...)
 }
 
@@ -333,23 +373,30 @@ func (key *MLKEM768Key) EncapsulationKey() []byte {
 func (key *MLKEM768Key) DecapsulateAndDerive(ciphertext, salt, contextInfo []byte, length int) ([]byte, error) {
 	key.mu.Lock()
 	defer key.mu.Unlock()
+
 	if key.metadata.State != StateActive || key.privateKey == nil {
 		return nil, fmt.Errorf("ML-KEM-768 key is not active")
 	}
+
 	if len(salt) == 0 || len(contextInfo) == 0 || length <= 0 || length > maxDerivedKeyBytes {
 		return nil, fmt.Errorf("ML-KEM-768 derivation context is invalid")
 	}
+
 	secret, err := key.privateKey.Decapsulate(ciphertext)
 	key.privateKey = nil
 	key.metadata.State = StateDestroyed
+
 	if err != nil {
 		return nil, fmt.Errorf("decapsulate ML-KEM-768 ciphertext")
 	}
+
 	defer clear(secret)
+
 	derived, err := hkdf.Key(sha512.New384, secret, salt, string(contextInfo), length)
 	if err != nil {
 		return nil, fmt.Errorf("derive ML-KEM-768 traffic key: %w", err)
 	}
+
 	return derived, nil
 }
 
@@ -373,13 +420,17 @@ type CommandSigner struct {
 func (signer *CommandSigner) Activate() error {
 	signer.mu.Lock()
 	defer signer.mu.Unlock()
+
 	if signer.signer == nil || signer.metadata.State != StatePreactive {
 		return fmt.Errorf("only a preactive command signing key can be activated")
 	}
+
 	if !time.Now().UTC().Before(signer.metadata.NotAfter) {
 		return fmt.Errorf("command signing key has expired")
 	}
+
 	signer.metadata.State = StateActive
+
 	return nil
 }
 
@@ -388,10 +439,13 @@ func (signer *CommandSigner) Activate() error {
 func (signer *CommandSigner) MakeVerifyOnly() error {
 	signer.mu.Lock()
 	defer signer.mu.Unlock()
+
 	if signer.metadata.State != StateActive {
 		return fmt.Errorf("only an active command signing key can become verify-only")
 	}
+
 	signer.metadata.State = StateVerifyOnly
+
 	return nil
 }
 
@@ -407,12 +461,15 @@ func (signer *CommandSigner) Revoke() {
 func (signer *CommandSigner) Ready() error {
 	signer.mu.RLock()
 	defer signer.mu.RUnlock()
+
 	if signer.signer == nil || signer.metadata.State != StateActive {
 		return fmt.Errorf("command signing key is not active")
 	}
+
 	if signer.metadata.NotAfter.IsZero() || !time.Now().UTC().Before(signer.metadata.NotAfter) {
 		return fmt.Errorf("command signing key has expired")
 	}
+
 	return nil
 }
 
@@ -420,6 +477,7 @@ func (signer *CommandSigner) Ready() error {
 func (signer *CommandSigner) Metadata() Metadata {
 	signer.mu.RLock()
 	defer signer.mu.RUnlock()
+
 	return signer.metadata
 }
 
@@ -427,6 +485,7 @@ func (signer *CommandSigner) Metadata() Metadata {
 func (signer *CommandSigner) KeyID() string {
 	signer.mu.RLock()
 	defer signer.mu.RUnlock()
+
 	return signer.metadata.ID
 }
 
@@ -434,13 +493,16 @@ func (signer *CommandSigner) KeyID() string {
 func (signer *CommandSigner) PublicKey() *rsa.PublicKey {
 	signer.mu.RLock()
 	defer signer.mu.RUnlock()
+
 	if signer.signer == nil {
 		return nil
 	}
+
 	key, _ := signer.signer.Public().(*rsa.PublicKey)
 	if key == nil {
 		return nil
 	}
+
 	return &rsa.PublicKey{N: new(big.Int).Set(key.N), E: key.E}
 }
 
@@ -448,9 +510,11 @@ func (signer *CommandSigner) PublicKey() *rsa.PublicKey {
 func (signer *CommandSigner) SignCommand(envelope *commandauth.Envelope) error {
 	signer.mu.RLock()
 	defer signer.mu.RUnlock()
+
 	if signer.metadata.State != StateActive || signer.signer == nil || !time.Now().UTC().Before(signer.metadata.NotAfter) {
 		return fmt.Errorf("command signing key is not active")
 	}
+
 	return commandauth.SignWithSigner(envelope, signer.signer)
 }
 

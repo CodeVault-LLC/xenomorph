@@ -13,5 +13,6 @@ func TransferManifestDigest(manifest TransferManifest) ([sha256.Size]byte, error
 	if err != nil {
 		return [sha256.Size]byte{}, fmt.Errorf("encode transfer manifest digest input: %w", err)
 	}
+
 	return sha256.Sum256(canonical), nil
 }

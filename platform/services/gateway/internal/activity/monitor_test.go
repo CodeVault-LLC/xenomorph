@@ -36,6 +36,7 @@ func TestMonitorFirstHeartbeatMarksAgentOnline(t *testing.T) {
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("first heartbeat failed: %v", err)
 	}
+
 	snapshot, ok := monitor.Snapshot("agent-1")
 	if !ok || !snapshot.IsOnline {
 		t.Fatal("expected agent to be online after first heartbeat")
@@ -45,9 +46,11 @@ func TestMonitorFirstHeartbeatMarksAgentOnline(t *testing.T) {
 func TestMonitorDuplicateHeartbeatKeepsAgentOnline(t *testing.T) {
 	monitor, envelope, now := testSetup()
 	setNow(now, envelope, monitor, time.Second)
+
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("duplicate heartbeat failed: %v", err)
 	}
+
 	snapshot, ok := monitor.Snapshot("agent-1")
 	if !ok || !snapshot.LastSeen.Equal(*now) {
 		t.Fatal("expected latest heartbeat to update online agent state")
@@ -63,9 +66,11 @@ func TestMonitorSweepDetectsOffline(t *testing.T) {
 	}
 
 	setNow(now, envelope, monitor, 3*time.Second)
+
 	if err := monitor.Sweep(context.Background()); err != nil {
 		t.Fatalf("sweep failed: %v", err)
 	}
+
 	if _, ok := monitor.Snapshot("agent-1"); ok {
 		t.Fatal("expected stale agent to be removed from online state")
 	}
@@ -80,14 +85,17 @@ func TestMonitorHeartbeatAfterOfflineRecoversOnline(t *testing.T) {
 	}
 
 	setNow(now, envelope, monitor, 3*time.Second)
+
 	if err := monitor.Sweep(context.Background()); err != nil {
 		t.Fatalf("sweep failed: %v", err)
 	}
 
 	setNow(now, envelope, monitor, time.Second)
+
 	if err := monitor.ProcessHeartbeat(context.Background(), envelope); err != nil {
 		t.Fatalf("heartbeat after offline failed: %v", err)
 	}
+
 	if _, ok := monitor.Snapshot("agent-1"); !ok {
 		t.Fatal("expected heartbeat after sweep to restore online state")
 	}
@@ -95,6 +103,7 @@ func TestMonitorHeartbeatAfterOfflineRecoversOnline(t *testing.T) {
 
 func TestMonitorRejectsEnvelopeWithoutAgentID(t *testing.T) {
 	monitor := NewMonitor(5 * time.Second)
+
 	err := monitor.ProcessHeartbeat(context.Background(), &pb.EventEnvelope{})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -113,6 +122,7 @@ func TestMonitorListClientsKeepsOfflineClients(t *testing.T) {
 	assertClientTelemetry(t, clients, *now, true)
 
 	setNow(now, envelope, monitor, 3*time.Second)
+
 	if err := monitor.Sweep(context.Background()); err != nil {
 		t.Fatalf("sweep failed: %v", err)
 	}
@@ -139,6 +149,7 @@ func populateTelemetry(envelope *pb.EventEnvelope) {
 
 func assertClientTelemetry(t *testing.T, clients []ClientSnapshot, observedAt time.Time, online bool) {
 	t.Helper()
+
 	want := []ClientSnapshot{{
 		AgentID: "agent-1", Hostname: "edge-01", ClientIP: "192.0.2.10", OSVersion: "linux-test",
 		CPULoad: 0.42, RAMUsage: 0.73, UptimeSeconds: 1234, CPUModel: "test cpu", CPUCores: 4, CPUThreads: 8,

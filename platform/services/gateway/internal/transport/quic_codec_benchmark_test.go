@@ -17,6 +17,7 @@ func BenchmarkHeartbeatCodecs(b *testing.B) {
 	for name, heartbeat := range heartbeatBenchmarkCorpus() {
 		heartbeat := heartbeat
 		protobufHeartbeat := heartbeatToProtobuf(heartbeat)
+
 		b.Run(name+"/json", func(b *testing.B) {
 			benchmarkCodec(b, func() ([]byte, error) { return json.Marshal(protobufHeartbeat) })
 		})
@@ -33,13 +34,16 @@ func BenchmarkHeartbeatCodecs(b *testing.B) {
 
 func TestHeartbeatBenchmarkCorpusIsValid(t *testing.T) {
 	t.Parallel()
+
 	for name, heartbeat := range heartbeatBenchmarkCorpus() {
 		if _, err := heartbeat.MarshalBinary(); err != nil {
 			t.Errorf("%s XBP corpus value: %v", name, err)
 		}
+
 		if _, err := json.Marshal(heartbeatToProtobuf(heartbeat)); err != nil {
 			t.Errorf("%s JSON corpus value: %v", name, err)
 		}
+
 		if _, err := (proto.MarshalOptions{Deterministic: true}).Marshal(heartbeatToProtobuf(heartbeat)); err != nil {
 			t.Errorf("%s protobuf corpus value: %v", name, err)
 		}
@@ -48,18 +52,22 @@ func TestHeartbeatBenchmarkCorpusIsValid(t *testing.T) {
 
 func benchmarkCodec(b *testing.B, encode func() ([]byte, error)) {
 	b.Helper()
+
 	encoded, err := encode()
 	if err != nil {
 		b.Fatalf("encode benchmark value: %v", err)
 	}
+
 	b.ReportAllocs()
 	b.ResetTimer()
+
 	for range b.N {
 		benchmarkEncodedBytes, err = encode()
 		if err != nil {
 			b.Fatalf("encode benchmark value: %v", err)
 		}
 	}
+
 	b.StopTimer()
 	b.ReportMetric(float64(len(encoded)), "encoded-bytes/op")
 }
@@ -72,19 +80,23 @@ func heartbeatBenchmarkCorpus() map[string]wire.Heartbeat {
 	maximum.CPUModel = strings.Repeat("c", 160)
 	maximum.StorageMountpoint = strings.Repeat("/", 4096)
 	maximum.NetworkSSID = strings.Repeat("s", 128)
+
 	return map[string]wire.Heartbeat{"minimum": minimum, "median": median, "p95": p95, "maximum-valid": maximum}
 }
 
 func benchmarkHeartbeat(textLength, gpuCount, addressCount int) wire.Heartbeat {
 	text := strings.Repeat("x", textLength)
 	gpus := make([]string, 0, gpuCount)
+
 	for index := range gpuCount {
 		gpus = append(gpus, fmt.Sprintf("gpu-%02d-%s", index, text))
 	}
+
 	addresses := make([]string, 0, addressCount)
 	for index := range addressCount {
 		addresses = append(addresses, fmt.Sprintf("2001:db8::%x", index))
 	}
+
 	return wire.Heartbeat{
 		Presence: (uint64(1) << 29) - 1,
 		Hostname: text, OSVersion: text, CPULoadPPM: 500_000, RAMUsagePPM: 500_000,

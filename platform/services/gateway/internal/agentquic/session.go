@@ -54,14 +54,17 @@ func newSession(listener *Listener, connection *quic.Conn, agentID string, sessi
 	if !ok {
 		return nil, fmt.Errorf("create QUIC session: missing control stream specification")
 	}
+
 	controlCodec, err := wire.NewFrameCodec(controlSpec.MaximumFrameBytes)
 	if err != nil {
 		return nil, err
 	}
+
 	replay, err := wire.NewReplayWindow(replayWindowWidth, maximumSequenceGap)
 	if err != nil {
 		return nil, err
 	}
+
 	return &session{
 		listener:       listener,
 		connection:     connection,
@@ -79,20 +82,26 @@ func newSession(listener *Listener, connection *quic.Conn, agentID string, sessi
 func (current *session) negotiate(ctx context.Context) error {
 	negotiationContext, cancel := context.WithTimeout(ctx, current.listener.config.ControlStreamTimeout)
 	defer cancel()
+
 	stream, err := current.acceptControlStream(negotiationContext)
 	if err != nil {
 		return err
 	}
+
 	if err := current.readClientHello(stream); err != nil {
 		return err
 	}
+
 	if err := current.writeServerHello(stream); err != nil {
 		return err
 	}
+
 	if err := stream.SetDeadline(time.Time{}); err != nil {
 		return fmt.Errorf("clear control negotiation deadline: %w", err)
 	}
+
 	current.controlStream = stream
+
 	return nil
 }
 
@@ -101,17 +110,21 @@ func (current *session) acceptControlStream(ctx context.Context) (*quic.Stream, 
 	if err != nil {
 		return nil, fmt.Errorf("accept control stream: %w", err)
 	}
+
 	streamID, err := streamIDValue(int64(stream.StreamID()))
 	if err != nil || streamID&0x3 != 0 {
 		return nil, fmt.Errorf("accept control stream: %w: wrong initiator or direction", wire.ErrUnexpectedMessage)
 	}
+
 	if err := stream.SetDeadline(time.Now().Add(current.listener.config.ControlStreamTimeout)); err != nil {
 		return nil, fmt.Errorf("set control negotiation deadline: %w", err)
 	}
+
 	preamble, err := wire.ReadPreamble(stream)
 	if err != nil || preamble.Kind != wire.StreamControl {
 		return nil, fmt.Errorf("read control preamble: %w", wire.ErrUnexpectedMessage)
 	}
+
 	return stream, nil
 }
 
@@ -120,39 +133,48 @@ func (current *session) readClientHello(stream *quic.Stream) error {
 	if err != nil {
 		return err
 	}
+
 	if err := wire.ValidateMessageForStream(wire.StreamControl, frame.Header.Type, frame.Header.SchemaRevision); err != nil || frame.Header.Type != wire.MessageClientHello {
 		return fmt.Errorf("read client hello: %w", wire.ErrUnexpectedMessage)
 	}
+
 	if err := current.replay.Accept(frame.Header.Sequence); err != nil {
 		return err
 	}
+
 	if err := current.hello.UnmarshalBinary(frame.Body); err != nil {
 		return fmt.Errorf("decode client hello: %w", err)
 	}
+
 	if err := wire.ValidateClientHello(current.hello); err != nil {
 		return err
 	}
+
 	return nil
 }
 
 func (current *session) writeServerHello(stream *quic.Stream) error {
 	serverHello := current.serverHello()
+
 	body, err := serverHello.MarshalBinary()
 	if err != nil {
 		return fmt.Errorf("encode server hello: %w", err)
 	}
+
 	if err := current.controlCodec.WriteFrame(stream, wire.Frame{
 		Header: wire.FrameHeader{Type: wire.MessageServerHello, SchemaRevision: 1, Sequence: current.nextSequence()},
 		Body:   body,
 	}); err != nil {
 		return fmt.Errorf("write server hello: %w", err)
 	}
+
 	return nil
 }
 
 func (current *session) serverHello() wire.ServerHello {
 	heartbeatMilliseconds, _ := durationMilliseconds(current.listener.config.HeartbeatInterval)
 	idleMilliseconds, _ := durationMilliseconds(current.listener.config.MaximumIdleTimeout)
+
 	return wire.ServerHello{
 		SelectedMinor:                 uint64(wire.ProtocolMinor),
 		NegotiatedFeatures:            0,
@@ -168,17 +190,23 @@ func (current *session) serverHello() wire.ServerHello {
 func (current *session) run(parent context.Context) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	defer cancel()
+
 	commandStream, err := current.openCommandStream(ctx)
 	if err != nil {
 		closeConnection(current.connection, wire.ApplicationInternal, "command lane unavailable")
 		return
 	}
+
 	errors := make(chan error, sessionWorkerCount)
+
 	var workers sync.WaitGroup
+
 	start := func(operation func(context.Context) error) {
 		workers.Add(1)
+
 		go func() {
 			defer workers.Done()
+
 			if err := operation(ctx); err != nil && ctx.Err() == nil {
 				select {
 				case errors <- err:
@@ -200,6 +228,7 @@ func (current *session) run(parent context.Context) {
 		current.sendDrain()
 	case replacementID := <-current.replacement:
 		current.sendReplacement(replacementID)
+
 		closeCode = wire.ApplicationSessionReplaced
 		closeDescription = "session replaced"
 	case <-current.connection.Context().Done():
@@ -229,9 +258,11 @@ func (current *session) openCommandStream(ctx context.Context) (*quic.SendStream
 	if err != nil {
 		return nil, fmt.Errorf("open command stream: %w", err)
 	}
+
 	if err := wire.WritePreamble(stream, wire.StreamCommands); err != nil {
 		return nil, err
 	}
+
 	return stream, nil
 }
 
@@ -248,10 +279,12 @@ func (current *session) writeControl(ctx context.Context) error {
 				Sequence:            current.nextSequence(),
 				CorrelationSequence: outbound.correlation,
 			}
+
 			err := current.controlCodec.WriteFrame(current.controlStream, wire.Frame{Header: header, Body: outbound.body})
 			if outbound.done != nil {
 				outbound.done <- err
 			}
+
 			if err != nil {
 				return fmt.Errorf("write control frame: %w", err)
 			}
@@ -266,14 +299,18 @@ func (current *session) readControl(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+
 			return fmt.Errorf("read control frame: %w", err)
 		}
+
 		if err := current.replay.Accept(frame.Header.Sequence); err != nil {
 			return err
 		}
+
 		if err := wire.ValidateMessageForStream(wire.StreamControl, frame.Header.Type, frame.Header.SchemaRevision); err != nil {
 			return err
 		}
+
 		if err := current.handleControlFrame(ctx, frame); err != nil {
 			return err
 		}
@@ -303,13 +340,16 @@ func decodeCorrelatedControl(frame wire.Frame, body binaryUnmarshaler, originalS
 	if err := body.UnmarshalBinary(frame.Body); err != nil {
 		return err
 	}
+
 	correlatedFlags := wire.FlagIsResponse | wire.FlagHasCorrelation
 	if frame.Header.Flags&correlatedFlags != correlatedFlags {
 		return wire.ErrUnexpectedMessage
 	}
+
 	if acknowledgement, ok := body.(*wire.MessageAck); ok && acknowledgement.OriginalSequence != originalSequence {
 		return wire.ErrUnexpectedMessage
 	}
+
 	return nil
 }
 
@@ -318,10 +358,12 @@ func (current *session) respondToPing(ctx context.Context, frame wire.Frame) err
 	if err := ping.UnmarshalBinary(frame.Body); err != nil {
 		return err
 	}
+
 	body, err := wire.Pong(ping).MarshalBinary()
 	if err != nil {
 		return err
 	}
+
 	return current.enqueueControl(ctx, outboundControl{
 		messageType: wire.MessagePong,
 		flags:       wire.FlagIsResponse | wire.FlagHasCorrelation,
@@ -332,28 +374,35 @@ func (current *session) respondToPing(ctx context.Context, frame wire.Frame) err
 
 func (current *session) writeCommands(ctx context.Context, stream *quic.SendStream) error {
 	specification, _ := wire.SpecificationForStream(wire.StreamCommands)
+
 	codec, err := wire.NewFrameCodec(specification.MaximumFrameBytes)
 	if err != nil {
 		return err
 	}
+
 	for {
 		if current.fenced.Load() {
 			return nil
 		}
+
 		command, err := current.listener.commands.WaitDispatch(ctx, current.agentID)
 		if err != nil {
 			return err
 		}
+
 		if command == nil {
 			return nil
 		}
+
 		if current.fenced.Load() {
 			return nil
 		}
+
 		frame, err := current.commandFrame(command)
 		if err != nil {
 			return current.failDispatchedCommand(command.CommandID, err)
 		}
+
 		if err := codec.WriteFrame(stream, frame); err != nil {
 			return current.failDispatchedCommand(command.CommandID, fmt.Errorf("write command frame: %w", err))
 		}
@@ -365,14 +414,17 @@ func (current *session) commandFrame(command *commandauth.Envelope) (wire.Frame,
 	if err != nil {
 		return wire.Frame{}, fmt.Errorf("encode signed command envelope: %w", err)
 	}
+
 	messageBody, err := (wire.Command{SignedEnvelope: body}).MarshalBinary()
 	if err != nil {
 		return wire.Frame{}, err
 	}
+
 	operationID, err := uuid.Parse(command.CommandID)
 	if err != nil {
 		return wire.Frame{}, fmt.Errorf("parse gateway command ID: %w", err)
 	}
+
 	return wire.Frame{
 		Header: wire.FrameHeader{
 			Type: wire.MessageCommand, SchemaRevision: 1,
@@ -387,6 +439,7 @@ func (current *session) failDispatchedCommand(commandID string, cause error) err
 	if err := current.listener.commands.MarkOutcomeUnknown(current.agentID, commandID); err != nil {
 		return fmt.Errorf("%v; persist ambiguous command outcome: %w", cause, err)
 	}
+
 	return cause
 }
 
@@ -406,10 +459,12 @@ func (current *session) sendDrain() {
 	if err != nil {
 		return
 	}
+
 	body, err := (wire.Drain{DeadlineMilliseconds: deadlineMilliseconds, Reason: 1}).MarshalBinary()
 	if err != nil {
 		return
 	}
+
 	current.sendTerminalControl(outboundControl{messageType: wire.MessageDrain, flags: wire.FlagAckRequired, body: body})
 }
 
@@ -418,12 +473,14 @@ func (current *session) sendReplacement(replacementID [16]byte) {
 	if err != nil {
 		return
 	}
+
 	current.sendTerminalControl(outboundControl{messageType: wire.MessageSessionReplaced, body: body})
 }
 
 func (current *session) sendTerminalControl(outbound outboundControl) {
 	done := make(chan error, 1)
 	outbound.done = done
+
 	timer := time.NewTimer(current.listener.config.ControlStreamTimeout)
 	defer timer.Stop()
 	select {

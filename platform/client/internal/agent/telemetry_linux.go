@@ -29,6 +29,7 @@ func collectSystemTelemetry() SystemTelemetry {
 	ramUsage, totalRAMBytes := linuxRAMUsage()
 	network := linuxNetwork()
 	storage := collectDiskTelemetry()
+
 	return SystemTelemetry{
 		OSVersion:             linuxOSVersion(),
 		CPULoad:               linuxLoadAverage(),
@@ -69,12 +70,14 @@ func linuxOSVersion() string {
 	file, err := os.Open("/etc/os-release")
 	if err == nil {
 		defer func() { _ = file.Close() }()
+
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			key, value, ok := strings.Cut(scanner.Text(), "=")
 			if !ok {
 				continue
 			}
+
 			value = strings.Trim(value, `"`)
 			switch key {
 			case "PRETTY_NAME":
@@ -88,6 +91,7 @@ func linuxOSVersion() string {
 	if name == "" {
 		name = "Linux"
 	}
+
 	if version != "" && !strings.Contains(name, version) {
 		name = fmt.Sprintf("%s %s", name, version)
 	}
@@ -124,9 +128,11 @@ func linuxRAMUsage() (float64, uint64) {
 	if err != nil {
 		return 0, 0
 	}
+
 	defer func() { _ = file.Close() }()
 
 	var total, available float64
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
@@ -178,6 +184,7 @@ func linuxCPUModel() string {
 	if err != nil {
 		return ""
 	}
+
 	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
@@ -186,6 +193,7 @@ func linuxCPUModel() string {
 		if !ok {
 			continue
 		}
+
 		switch strings.TrimSpace(key) {
 		case "model name", "Hardware", "Processor":
 			model := strings.TrimSpace(value)
@@ -202,6 +210,7 @@ func linuxCPUFrequencyMHz() uint64 {
 	if frequency := sysfsCPUFrequencyMHz(); frequency > 0 {
 		return frequency
 	}
+
 	return procCPUFrequencyMHz()
 }
 
@@ -210,19 +219,25 @@ func sysfsCPUFrequencyMHz() uint64 {
 	if err != nil || len(paths) == 0 {
 		return 0
 	}
+
 	var total uint64
+
 	var count uint64
+
 	for _, path := range paths {
 		value, err := strconv.ParseUint(readTrimmed(path), 10, 64)
 		if err != nil || value == 0 {
 			continue
 		}
+
 		total += value / megahertzPerGHz
 		count++
 	}
+
 	if count == 0 {
 		return 0
 	}
+
 	return total / count
 }
 
@@ -231,25 +246,31 @@ func procCPUFrequencyMHz() uint64 {
 	if err != nil {
 		return 0
 	}
+
 	defer func() { _ = file.Close() }()
 
 	var total float64
+
 	var count uint64
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		key, value, ok := strings.Cut(scanner.Text(), ":")
 		if !ok || strings.TrimSpace(key) != "cpu MHz" {
 			continue
 		}
+
 		mhz, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 		if err == nil && mhz > 0 {
 			total += mhz
 			count++
 		}
 	}
+
 	if count == 0 {
 		return 0
 	}
+
 	return uint64(total / float64(count))
 }
 
@@ -258,10 +279,12 @@ func linuxCPUCores() int {
 	if err != nil {
 		return runtime.NumCPU()
 	}
+
 	defer func() { _ = file.Close() }()
 
 	coreIDs := make(map[string]struct{})
 	physicalID := "0"
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -269,10 +292,12 @@ func linuxCPUCores() int {
 			physicalID = "0"
 			continue
 		}
+
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
 		}
+
 		switch strings.TrimSpace(key) {
 		case "physical id":
 			physicalID = strings.TrimSpace(value)
@@ -287,17 +312,21 @@ func linuxCPUCores() int {
 	if len(coreIDs) == 0 {
 		return runtime.NumCPU()
 	}
+
 	return len(coreIDs)
 }
 
 func cpuCountInt32(count int) int32 {
 	const maxInt32 = int(^uint32(0) >> 1)
+
 	if count <= 0 {
 		return 0
 	}
+
 	if count > maxInt32 {
 		return int32(maxInt32)
 	}
+
 	return int32(count)
 }
 
@@ -309,6 +338,7 @@ func linuxGPUDevices() []string {
 
 	devices := make([]string, 0, len(paths))
 	seen := make(map[string]struct{})
+
 	for _, path := range paths {
 		if strings.Contains(filepath.Base(filepath.Dir(path)), "-") {
 			continue
@@ -316,6 +346,7 @@ func linuxGPUDevices() []string {
 
 		vendor := readTrimmed(filepath.Join(path, "vendor"))
 		device := readTrimmed(filepath.Join(path, "device"))
+
 		if vendor == "" && device == "" {
 			continue
 		}
@@ -324,13 +355,17 @@ func linuxGPUDevices() []string {
 		if label == "" {
 			label = strings.TrimSpace(strings.Join([]string{vendor, device}, " "))
 		}
+
 		if label == "" {
 			continue
 		}
+
 		if _, ok := seen[label]; ok {
 			continue
 		}
+
 		seen[label] = struct{}{}
+
 		devices = append(devices, label)
 	}
 
@@ -375,6 +410,7 @@ func linuxNetwork() linuxNetworkTelemetry {
 	}
 
 	addresses := make([]string, 0, len(addrs))
+
 	for _, addr := range addrs {
 		address := addr.String()
 		if strings.TrimSpace(address) != "" {
@@ -383,6 +419,7 @@ func linuxNetwork() linuxNetworkTelemetry {
 	}
 
 	telemetry.addresses = addresses
+
 	return telemetry
 }
 
@@ -397,7 +434,9 @@ func linuxWirelessLink(ifaceName string) (string, uint64) {
 	}
 
 	ssid := ""
+
 	var speedMbps uint64
+
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -405,6 +444,7 @@ func linuxWirelessLink(ifaceName string) (string, uint64) {
 			ssid = strings.TrimSpace(value)
 			continue
 		}
+
 		if value, ok := strings.CutPrefix(line, "tx bitrate: "); ok {
 			speedMbps = parseLinkSpeedMbps(value)
 		}
@@ -418,10 +458,12 @@ func parseLinkSpeedMbps(value string) uint64 {
 	if len(fields) < telemetryValueFields {
 		return 0
 	}
+
 	speed, err := strconv.ParseFloat(fields[0], 64)
 	if err != nil || speed <= 0 {
 		return 0
 	}
+
 	switch strings.ToLower(fields[1]) {
 	case "mbit/s", "mbps":
 		return uint64(speed)
@@ -435,6 +477,7 @@ func parseLinkSpeedMbps(value string) uint64 {
 func linuxPCIDeviceName(vendorID, deviceID string) string {
 	vendorID = strings.TrimPrefix(strings.ToLower(vendorID), "0x")
 	deviceID = strings.TrimPrefix(strings.ToLower(deviceID), "0x")
+
 	if vendorID == "" || deviceID == "" {
 		return ""
 	}
@@ -445,6 +488,7 @@ func linuxPCIDeviceName(vendorID, deviceID string) string {
 			return name
 		}
 	}
+
 	return ""
 }
 
@@ -455,26 +499,32 @@ func pciDeviceName(path, vendorID, deviceID string) string {
 	if err != nil {
 		return ""
 	}
+
 	defer func() { _ = file.Close() }()
 
 	vendorName := ""
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, pciScannerBuffer), pciScannerMaxToken)
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
 			continue
 		}
+
 		if strings.HasPrefix(line, "\t\t") {
 			continue
 		}
+
 		if strings.HasPrefix(line, "\t") {
 			if vendorName == "" || len(line) < pciIDLength+1 || strings.ToLower(line[1:pciIDLength+1]) != deviceID {
 				continue
 			}
+
 			if name := strings.TrimSpace(line[5:]); name != "" {
 				return vendorName + " " + name
 			}
+
 			continue
 		}
 
@@ -483,8 +533,10 @@ func pciDeviceName(path, vendorID, deviceID string) string {
 			vendorName = ""
 			continue
 		}
+
 		vendorName = strings.TrimSpace(line[4:])
 	}
+
 	return ""
 }
 
@@ -493,6 +545,7 @@ func linuxLinkSpeedMbps(ifaceName string) uint64 {
 	if err != nil || speed == 0 || speed > 1_000_000 {
 		return 0
 	}
+
 	return speed
 }
 
@@ -501,6 +554,7 @@ func linuxDefaultInterface() string {
 	if err != nil {
 		return ""
 	}
+
 	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
@@ -509,6 +563,7 @@ func linuxDefaultInterface() string {
 		if len(fields) < 2 || fields[1] != "00000000" {
 			continue
 		}
+
 		if fields[0] != "Iface" {
 			return fields[0]
 		}
@@ -527,5 +582,6 @@ func readTrimmed(path string) string {
 	if err != nil {
 		return ""
 	}
+
 	return strings.TrimSpace(string(data))
 }

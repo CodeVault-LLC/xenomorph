@@ -13,21 +13,26 @@ func run() int {
 	if err != nil {
 		return 1
 	}
+
 	reportClientLog(ac, "INFO", "client.runtime", "event=runtime_started")
 
 	requiresAttestation, err := authenticateDevice(ac)
 	if err != nil {
 		reportClientLog(ac, "ERROR", "client.authentication", "event=authentication_failed")
 		shutdown(ac)
+
 		return 1
 	}
+
 	reportClientLog(ac, "INFO", "client.authentication", "event=authentication_succeeded")
 
 	if err := attestEndpoint(ac, requiresAttestation); err != nil {
 		reportClientLog(ac, "ERROR", "client.attestation", "event=attestation_failed")
 		shutdown(ac)
+
 		return 1
 	}
+
 	if requiresAttestation {
 		reportClientLog(ac, "INFO", "client.attestation", "event=attestation_submitted")
 	}
@@ -35,6 +40,7 @@ func run() int {
 	if err := runRuntimeLoops(ac); err != nil {
 		reportClientLog(ac, "ERROR", "client.runtime", "event=runtime_loop_failed")
 		shutdown(ac)
+
 		return 1
 	}
 
@@ -78,6 +84,7 @@ func runCommandLoop(ac *appContext) error {
 		if cmd == nil {
 			continue
 		}
+
 		reportClientLog(ac, "INFO", "client.command", "event=command_received")
 
 		if err := processCommand(ac, cmd); err != nil {

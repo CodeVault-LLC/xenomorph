@@ -18,9 +18,11 @@ func TestConfigValidation(t *testing.T) {
 		QUICHandshakeTimeout: 5 * time.Second, QUICIdleTimeout: 45 * time.Second, QUICKeepAlive: 10 * time.Second,
 		ReconnectMinimumBackoff: time.Second, ReconnectMaximumBackoff: 30 * time.Second,
 	}
+
 	if err := valid.Validate(now); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
+
 	tests := []struct {
 		name   string
 		mutate func(*Config)
@@ -36,8 +38,10 @@ func TestConfigValidation(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			config := valid
 			test.mutate(&config)
+
 			if err := config.Validate(now); err == nil {
 				t.Fatal("invalid config accepted")
 			}

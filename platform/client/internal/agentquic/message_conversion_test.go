@@ -10,16 +10,19 @@ import (
 
 func TestLogEntryUsesFixedRegistryIncludingFallbackAudit(t *testing.T) {
 	t.Parallel()
+
 	entry, err := logEntryFromAgent(agent.LogEntryPayload{
 		Level: "WARN", Component: "client.runtime", Message: "event=quic_network_fallback",
 	})
 	if err != nil {
 		t.Fatalf("encode fallback audit event: %v", err)
 	}
+
 	if entry.Level != uint64(wire.LogLevelWarn) || entry.Component != uint64(wire.LogComponentRuntime) ||
 		entry.EventCode != uint64(wire.LogEventQUICNetworkFallback) || entry.Detail != "" {
 		t.Fatalf("unexpected fixed log entry: %#v", entry)
 	}
+
 	if _, err := logEntryFromAgent(agent.LogEntryPayload{
 		Level: "INFO", Component: "client.runtime", Message: "raw unregistered text",
 	}); err == nil {
@@ -29,6 +32,7 @@ func TestLogEntryUsesFixedRegistryIncludingFallbackAudit(t *testing.T) {
 
 func TestRatioPartsPerMillionIsCanonicalAndBounded(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name  string
 		value float64
@@ -49,11 +53,14 @@ func TestRatioPartsPerMillionIsCanonicalAndBounded(t *testing.T) {
 
 func TestOperationIDBindsDomainAudienceAndPayload(t *testing.T) {
 	t.Parallel()
+
 	payload := []byte("canonical body")
 	first := operationIDForPayload("attestation", "agent-a", payload)
+
 	if first == [16]byte{} || first != operationIDForPayload("attestation", "agent-a", payload) {
 		t.Fatal("operation identifier is not stable and nonzero")
 	}
+
 	if first == operationIDForPayload("attestation", "agent-b", payload) ||
 		first == operationIDForPayload("other", "agent-a", payload) ||
 		first == operationIDForPayload("attestation", "agent-a", []byte("different")) {

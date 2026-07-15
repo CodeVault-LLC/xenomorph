@@ -9,10 +9,13 @@ func syncDirectory(path string) error {
 	if err != nil {
 		return err
 	}
+
 	syncError := directory.Sync()
 	closeError := directory.Close()
+
 	if syncError != nil {
 		return syncError
 	}
+
 	return closeError
 }

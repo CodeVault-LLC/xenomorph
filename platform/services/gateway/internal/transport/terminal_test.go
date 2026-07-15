@@ -7,7 +7,9 @@ import (
 
 func TestTerminalStoreCreatesAndCompletesEntry(t *testing.T) {
 	const executedStatus = "executed"
+
 	store := NewTerminalStore()
+
 	session := store.CreateSession("agent-1", "Ops", "bash", "/tmp")
 	if session.SessionID == "" {
 		t.Fatal("expected generated session id")
@@ -40,9 +42,11 @@ func TestTerminalStoreCreatesAndCompletesEntry(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("expected one entry, got %d", len(entries))
 	}
+
 	if entries[0].Status != executedStatus || entries[0].OutputLog != "/tmp\n" {
 		t.Fatalf("expected completed entry, got %#v", entries[0])
 	}
+
 	if entries[0].CompletedAt == nil {
 		t.Fatal("expected completed_at timestamp")
 	}
@@ -74,9 +78,11 @@ func TestTerminalStoreDeletesSessionAndEntries(t *testing.T) {
 	if !store.DeleteSession("agent-1", session.SessionID) {
 		t.Fatal("expected session delete")
 	}
+
 	if _, ok := store.Session("agent-1", session.SessionID); ok {
 		t.Fatal("expected deleted session to be absent")
 	}
+
 	if entries := store.ListEntries("agent-1", session.SessionID, 10); len(entries) != 0 {
 		t.Fatalf("expected deleted entries to be absent, got %#v", entries)
 	}

@@ -12,6 +12,7 @@ func TestValidateCommandResult(t *testing.T) {
 	if err := ValidateCommandResult(valid); err != nil {
 		t.Fatalf("valid result rejected: %v", err)
 	}
+
 	tests := []struct {
 		name   string
 		mutate func(*CommandResult)
@@ -25,8 +26,10 @@ func TestValidateCommandResult(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			candidate := valid
 			test.mutate(&candidate)
+
 			if err := ValidateCommandResult(candidate); err == nil {
 				t.Fatal("invalid command result accepted")
 			}

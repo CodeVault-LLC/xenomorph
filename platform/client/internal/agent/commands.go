@@ -90,6 +90,7 @@ func (validator *CommandValidator) KeyID() string {
 	if validator == nil {
 		return ""
 	}
+
 	return validator.keyID
 }
 
@@ -105,6 +106,7 @@ func NewCommandValidatorWithReplayLedger(publicKey *rsa.PublicKey, keyID, audien
 	if publicKey == nil || strings.TrimSpace(keyID) == "" || strings.TrimSpace(audience) == "" {
 		return nil, fmt.Errorf("command verification key, key ID, and audience are required")
 	}
+
 	return &CommandValidator{
 		publicKey:  publicKey,
 		keyID:      keyID,
@@ -140,6 +142,7 @@ func handleCommand(ctx context.Context, cmd CommandEnvelope, validator *CommandV
 	if reason := validateCommand(cmd, validator); reason != "" {
 		decision.Result.Status = CommandStatusRejected
 		decision.Result.Reason = reason
+
 		return decision, nil
 	}
 
@@ -153,9 +156,11 @@ func handleCommand(ctx context.Context, cmd CommandEnvelope, validator *CommandV
 	decision.Result.TerminalWorkingDirectory = outcome.terminalMetadata.WorkingDirectory
 	decision.Result.TerminalExitCode = outcome.terminalMetadata.ExitCode
 	decision.Result.Result = outcome.resultData
+
 	if err := validator.recordTerminalResult(cmd.CommandID, decision.Result); err != nil {
 		return decision, fmt.Errorf("persist terminal command replay state: %w", err)
 	}
+
 	return decision, nil
 }
 
@@ -163,15 +168,19 @@ func validateCommand(cmd CommandEnvelope, validator *CommandValidator) string {
 	if validator == nil {
 		return "command validator unavailable"
 	}
+
 	if reason := validateCommandShape(cmd, validator); reason != "" {
 		return reason
 	}
+
 	if reason := validateCommandWindow(cmd, validator.now()); reason != "" {
 		return reason
 	}
+
 	if !hasValidCommandSignature(cmd, validator.publicKey) {
 		return "invalid command signature"
 	}
+
 	return validator.recordVerifiedCommand(cmd)
 }
 
@@ -183,24 +192,31 @@ func validateCommandShape(cmd CommandEnvelope, validator *CommandValidator) stri
 	if strings.TrimSpace(cmd.CommandID) == "" {
 		return "missing command_id"
 	}
+
 	if strings.TrimSpace(string(cmd.Type)) == "" {
 		return "missing command type"
 	}
+
 	if _, ok := allowedCommandTypes[cmd.Type]; !ok {
 		return fmt.Sprintf("command type %q is not allowed", cmd.Type)
 	}
+
 	if cmd.ProtocolVersion != commandauth.ProtocolVersion {
 		return "unsupported command protocol version"
 	}
+
 	if cmd.AudienceAgentID != validator.audience {
 		return "command audience mismatch"
 	}
+
 	if cmd.KeyID != validator.keyID {
 		return "command signing key mismatch"
 	}
+
 	if strings.TrimSpace(cmd.Nonce) == "" || strings.TrimSpace(cmd.Signature) == "" {
 		return "missing command authenticity fields"
 	}
+
 	return ""
 }
 
@@ -208,33 +224,41 @@ func validateCommandWindow(cmd CommandEnvelope, now time.Time) string {
 	if cmd.IssuedAt.IsZero() || cmd.ExpiresAt.IsZero() || !cmd.ExpiresAt.After(cmd.IssuedAt) {
 		return "invalid command validity window"
 	}
+
 	if now.After(cmd.ExpiresAt) {
 		return "command expired"
 	}
+
 	if cmd.IssuedAt.After(now.Add(commandClockSkew)) {
 		return "command issued_at is in the future"
 	}
+
 	if cmd.ExpiresAt.Sub(cmd.IssuedAt) > commandExpiry {
 		return "command validity window exceeds limit"
 	}
+
 	return ""
 }
 
 func (validator *CommandValidator) recordVerifiedCommand(command CommandEnvelope) string {
 	validator.mu.Lock()
 	defer validator.mu.Unlock()
+
 	if _, exists := validator.seenNonces[command.Nonce]; exists {
 		return ErrCommandReplay.Error()
 	}
+
 	validator.seenNonces[command.Nonce] = struct{}{}
 	if validator.ledger == nil {
 		return ""
 	}
+
 	nonceDigest := sha256.Sum256([]byte(command.Nonce))
 	err := validator.ledger.Reserve(CommandReplayEntry{
 		CommandID: command.CommandID, NonceDigest: nonceDigest, KeyID: command.KeyID,
 		Audience: command.AudienceAgentID, IssuedAt: command.IssuedAt, ExpiresAt: command.ExpiresAt,
 	})
+
 	switch {
 	case errors.Is(err, ErrCommandReplay):
 		return ErrCommandReplay.Error()
@@ -243,11 +267,13 @@ func (validator *CommandValidator) recordVerifiedCommand(command CommandEnvelope
 	case err != nil:
 		return "command replay state unavailable"
 	}
+
 	if command.AcknowledgePersistence != nil {
 		if err := command.AcknowledgePersistence(); err != nil {
 			return "command persistence acknowledgement unavailable"
 		}
 	}
+
 	return ""
 }
 
@@ -255,11 +281,14 @@ func (validator *CommandValidator) recordTerminalResult(commandID string, result
 	if validator == nil || validator.ledger == nil {
 		return nil
 	}
+
 	canonical, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("encode terminal result digest input: %w", err)
 	}
+
 	digest := sha256.Sum256(canonical)
+
 	return validator.ledger.Complete(commandID, digest)
 }
 
@@ -289,6 +318,7 @@ func executeAllowedCommand(ctx context.Context, cmd CommandEnvelope, plane clien
 		if err != nil {
 			return commandOutcome{reason: fmt.Sprintf("screenshot failed: %v", err)}
 		}
+
 		return commandOutcome{reason: "screenshot captured", outputData: data}
 	case CommandTypeStartScreenStream:
 		return commandOutcome{reason: "screen stream start acknowledged"}

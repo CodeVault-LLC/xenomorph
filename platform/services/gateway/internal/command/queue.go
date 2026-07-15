@@ -52,9 +52,11 @@ func NewQueue(signingKey *rsa.PrivateKey, keyID string) (*Queue, error) {
 	if signingKey == nil {
 		return nil, fmt.Errorf("command signing key is required")
 	}
+
 	if keyID == "" {
 		return nil, fmt.Errorf("command signing key ID is required")
 	}
+
 	return NewQueueWithSigner(&rsaSigner{privateKey: signingKey, keyID: keyID})
 }
 
@@ -70,6 +72,7 @@ func NewDurableQueueWithSigner(signer Signer, journalPath string) (*Queue, error
 	if err != nil {
 		return nil, err
 	}
+
 	return newQueueWithSigner(signer, journal)
 }
 
@@ -77,13 +80,16 @@ func newQueueWithSigner(signer Signer, journal *Journal) (*Queue, error) {
 	if signer == nil {
 		return nil, fmt.Errorf("command signer is required")
 	}
+
 	if signer.KeyID() == "" {
 		return nil, fmt.Errorf("command signing key ID is required")
 	}
+
 	entries := make(map[string][]*Envelope)
 	if journal != nil {
 		entries = journal.Queued()
 	}
+
 	return &Queue{
 		notify:  make(chan struct{}),
 		entries: entries,
@@ -105,27 +111,34 @@ func (q *Queue) Enqueue(agentID string, cmd *Envelope) error {
 	if q == nil || cmd == nil {
 		return fmt.Errorf("command queue and envelope are required")
 	}
+
 	if agentID == "" {
 		return fmt.Errorf("command audience agent ID is required")
 	}
+
 	if err := q.prepareEnvelope(agentID, cmd); err != nil {
 		return fmt.Errorf("sign command: %w", err)
 	}
 
 	stored := cloneEnvelope(*cmd)
+
 	q.mu.Lock()
 	defer q.mu.Unlock()
+
 	if len(q.entries[agentID]) >= maxQueueDepth {
 		return fmt.Errorf("command queue for agent is full")
 	}
+
 	if q.journal != nil {
 		if err := q.journal.RecordQueued(agentID, stored); err != nil {
 			return fmt.Errorf("persist queued command: %w", err)
 		}
 	}
+
 	q.entries[agentID] = append(q.entries[agentID], &stored)
 	close(q.notify)
 	q.notify = make(chan struct{})
+
 	return nil
 }
 
@@ -133,17 +146,21 @@ func (q *Queue) prepareEnvelope(agentID string, envelope *Envelope) error {
 	if envelope.CommandID == "" {
 		envelope.CommandID = uuid.New().String()
 	}
+
 	if envelope.IssuedAt.IsZero() {
 		envelope.IssuedAt = time.Now().UTC()
 	}
+
 	if envelope.ExpiresAt.IsZero() {
 		envelope.ExpiresAt = envelope.IssuedAt.Add(defaultExpiryDuration)
 	}
+
 	envelope.ProtocolVersion = commandauth.ProtocolVersion
 	envelope.AudienceAgentID = agentID
 	envelope.Nonce = uuid.New().String()
 	envelope.KeyID = q.signer.KeyID()
 	envelope.Signature = ""
+
 	return q.signer.SignCommand(envelope)
 }
 
@@ -161,6 +178,7 @@ func (q *Queue) Dequeue(agentID string) *Envelope {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	command, _ := q.dispatchLocked(agentID)
+
 	return command
 }
 
@@ -178,8 +196,10 @@ func (q *Queue) WaitDispatch(ctx context.Context, agentID string) (*Envelope, er
 		if len(q.entries[agentID]) > 0 {
 			cmd, err := q.dispatchLocked(agentID)
 			q.mu.Unlock()
+
 			return cmd, err
 		}
+
 		notify := q.notify
 		q.mu.Unlock()
 
@@ -203,7 +223,9 @@ func (q *Queue) dispatchLocked(agentID string) (*Envelope, error) {
 			return nil, fmt.Errorf("persist command dispatch: %w", err)
 		}
 	}
+
 	q.entries[agentID] = queue[1:]
+
 	return cmd, nil
 }
 
@@ -212,6 +234,7 @@ func (q *Queue) CommitResult(agentID, commandID string, canonicalResult []byte) 
 	if q == nil || q.journal == nil {
 		return 0, fmt.Errorf("commit command result: durable journal is unavailable")
 	}
+
 	return q.journal.CommitResult(agentID, commandID, canonicalResult)
 }
 
@@ -220,6 +243,7 @@ func (q *Queue) MarkOutcomeUnknown(agentID, commandID string) error {
 	if q == nil || q.journal == nil {
 		return fmt.Errorf("mark command outcome unknown: durable journal is unavailable")
 	}
+
 	return q.journal.MarkOutcomeUnknown(agentID, commandID)
 }
 
@@ -228,6 +252,7 @@ func (q *Queue) MarkAccepted(agentID, commandID string) error {
 	if q == nil || q.journal == nil {
 		return fmt.Errorf("mark command accepted: durable journal is unavailable")
 	}
+
 	return q.journal.MarkAccepted(agentID, commandID)
 }
 
@@ -236,5 +261,6 @@ func (q *Queue) Command(agentID, commandID string) (Envelope, bool) {
 	if q == nil || q.journal == nil {
 		return Envelope{}, false
 	}
+
 	return q.journal.Envelope(agentID, commandID)
 }

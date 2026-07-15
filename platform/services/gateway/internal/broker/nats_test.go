@@ -21,7 +21,9 @@ type fakeJetStream struct {
 
 func (f *fakeJetStream) Publish(_ string, data []byte, _ ...nats.PubOpt) (*nats.PubAck, error) {
 	f.publishCalled = true
+
 	f.published = append([]byte(nil), data...)
+
 	return &nats.PubAck{Stream: systemEventsStream}, f.publishErr
 }
 
@@ -36,6 +38,7 @@ func (f *fakeJetStream) AddStream(config *nats.StreamConfig, _ ...nats.JSOpt) (*
 
 func TestEnsureSystemEventsStream(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name       string
 		jetStream  *fakeJetStream
@@ -59,6 +62,7 @@ func TestEnsureSystemEventsStream(t *testing.T) {
 			if (err != nil) != test.wantError {
 				t.Fatalf("ensureSystemEventsStream() error = %v, wantError %t", err, test.wantError)
 			}
+
 			if !reflect.DeepEqual(test.jetStream.addedConfig, test.wantConfig) {
 				t.Errorf("created config = %#v, want %#v", test.jetStream.addedConfig, test.wantConfig)
 			}
@@ -68,11 +72,14 @@ func TestEnsureSystemEventsStream(t *testing.T) {
 
 func TestPublishWaitsForJetStreamAcknowledgement(t *testing.T) {
 	t.Parallel()
+
 	jetStream := &fakeJetStream{}
+
 	broker := &NATS{js: jetStream}
 	if err := broker.Publish("sys.in.test", &emptypb.Empty{}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
+
 	if !jetStream.publishCalled {
 		t.Fatal("Publish() did not call the synchronous JetStream publisher")
 	}
@@ -80,6 +87,7 @@ func TestPublishWaitsForJetStreamAcknowledgement(t *testing.T) {
 
 func TestPublishRejectsUnavailableJetStream(t *testing.T) {
 	t.Parallel()
+
 	if err := (&NATS{}).Publish("sys.in.test", &emptypb.Empty{}); err == nil {
 		t.Fatal("Publish() error = nil, want unavailable JetStream error")
 	}
@@ -87,6 +95,7 @@ func TestPublishRejectsUnavailableJetStream(t *testing.T) {
 
 func TestPublishReturnsAcknowledgementFailure(t *testing.T) {
 	t.Parallel()
+
 	broker := &NATS{js: &fakeJetStream{publishErr: errors.New("no acknowledgement")}}
 	if err := broker.Publish("sys.in.test", &emptypb.Empty{}); err == nil {
 		t.Fatal("Publish() error = nil, want acknowledgement error")

@@ -50,20 +50,26 @@ type HeartbeatPayload struct {
 // PutChunk uploads one checksum-bound chunk through the mTLS gateway plane.
 func (a *Agent) PutChunk(ctx context.Context, transferID, token string, index int, data []byte) error {
 	endpoint := a.transferChunkURL(transferID, index)
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("build transfer chunk upload: %w", err)
 	}
+
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/octet-stream")
+
 	response, err := a.client.Do(request)
 	if err != nil {
 		return fmt.Errorf("upload transfer chunk: %w", err)
 	}
+
 	defer func() { _ = response.Body.Close() }()
+
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("upload transfer chunk rejected: status %d", response.StatusCode)
 	}
+
 	return nil
 }
 
@@ -72,45 +78,59 @@ func (a *Agent) GetChunk(ctx context.Context, transferID, token string, index in
 	if expectedSize <= 0 || expectedSize > 4<<20 {
 		return nil, fmt.Errorf("transfer chunk size is outside limit")
 	}
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.transferChunkURL(transferID, index), nil)
 	if err != nil {
 		return nil, fmt.Errorf("build transfer chunk download: %w", err)
 	}
+
 	request.Header.Set("Authorization", "Bearer "+token)
+
 	response, err := a.client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("download transfer chunk: %w", err)
 	}
+
 	defer func() { _ = response.Body.Close() }()
+
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download transfer chunk rejected: status %d", response.StatusCode)
 	}
+
 	data, err := io.ReadAll(io.LimitReader(response.Body, expectedSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("read transfer chunk: %w", err)
 	}
+
 	if int64(len(data)) != expectedSize {
 		return nil, fmt.Errorf("transfer chunk size mismatch")
 	}
+
 	return data, nil
 }
 
 // Finalize asks the gateway to verify the complete staged transfer object.
 func (a *Agent) Finalize(ctx context.Context, transferID, token string) error {
 	endpoint := a.gatewayURL + "/files/transfers/" + url.PathEscape(transferID) + "/finalize"
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("build transfer finalization: %w", err)
 	}
+
 	request.Header.Set("Authorization", "Bearer "+token)
+
 	response, err := a.client.Do(request)
 	if err != nil {
 		return fmt.Errorf("finalize transfer: %w", err)
 	}
+
 	defer func() { _ = response.Body.Close() }()
+
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("transfer finalization rejected: status %d", response.StatusCode)
 	}
+
 	return nil
 }
 
@@ -202,12 +222,14 @@ func (a *Agent) Authenticate() (DeviceAuthResult, error) {
 	if err != nil {
 		return DeviceAuthResult{}, err
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return DeviceAuthResult{}, err
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 202 && resp.StatusCode != 200 {
@@ -218,10 +240,12 @@ func (a *Agent) Authenticate() (DeviceAuthResult, error) {
 		EventID             string `json:"event_id"`
 		RequiresAttestation bool   `json:"requires_attestation"`
 	}
+
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, heartbeatResponseSize))
 	if readErr != nil {
 		return DeviceAuthResult{}, fmt.Errorf("read heartbeat response: %w", readErr)
 	}
+
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &ack); err != nil {
 			return DeviceAuthResult{}, fmt.Errorf("decode heartbeat response: %w", err)
@@ -242,12 +266,14 @@ func (a *Agent) SubmitAttestation(payload EndpointAttestation) error {
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
@@ -268,11 +294,13 @@ func (a *Agent) PollNextCommand() (*CommandEnvelope, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNoContent {
 		return nil, nil
 	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("command poll failed: status %d", resp.StatusCode)
 	}
@@ -296,12 +324,14 @@ func (a *Agent) SendCommandResult(payload CommandResultPayload) error {
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
@@ -323,12 +353,14 @@ func (a *Agent) SendLogEntry(payload LogEntryPayload) error {
 	if err != nil {
 		return fmt.Errorf("build client log entry request: %w", err)
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("submit client log entry: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {

@@ -35,6 +35,7 @@ func StartStream(ctx context.Context, natsBroker *broker.NATS, monitor *Monitor,
 				"error", err,
 				"subject", msg.Subject,
 			)
+
 			return
 		}
 
@@ -52,6 +53,7 @@ func StartStream(ctx context.Context, natsBroker *broker.NATS, monitor *Monitor,
 	ticker := time.NewTicker(sweepInterval)
 	go func() {
 		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():

@@ -13,12 +13,15 @@ func TestBuildHeartbeatPayloadUsesProvidedHostname(t *testing.T) {
 	if payload.Hostname != "edge-host-01" {
 		t.Fatalf("expected hostname edge-host-01, got %q", payload.Hostname)
 	}
+
 	if payload.OsVersion == "" {
 		t.Fatal("expected non-empty os version")
 	}
+
 	if payload.CPULoad < 0 || payload.CPULoad > 1 {
 		t.Fatalf("expected cpu load ratio in [0,1], got %f", payload.CPULoad)
 	}
+
 	if payload.RAMUsage < 0 || payload.RAMUsage > 1 {
 		t.Fatalf("expected ram usage ratio in [0,1], got %f", payload.RAMUsage)
 	}

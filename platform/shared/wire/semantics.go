@@ -167,15 +167,19 @@ func ValidateClientHello(hello ClientHello) error {
 		hello.MinimumMinor > hello.MaximumMinor {
 		return fmt.Errorf("validate client hello: %w: incompatible minor range", ErrUnexpectedMessage)
 	}
+
 	if strings.TrimSpace(hello.ImplementationVersion) == "" || isZero16(hello.ClientInstanceNonce) {
 		return fmt.Errorf("validate client hello: %w: missing build label or instance nonce", ErrEncoding)
 	}
+
 	if Platform(hello.Platform) < PlatformLinux || Platform(hello.Platform) > PlatformWindows {
 		return fmt.Errorf("validate client hello: %w: unknown platform", ErrEncoding)
 	}
+
 	if Architecture(hello.Architecture) < ArchitectureAMD64 || Architecture(hello.Architecture) > ArchitectureARM64 {
 		return fmt.Errorf("validate client hello: %w: unknown architecture", ErrEncoding)
 	}
+
 	return nil
 }
 
@@ -184,18 +188,23 @@ func ValidateServerHello(hello ServerHello, offered ClientHello) error {
 	if hello.SelectedMinor < offered.MinimumMinor || hello.SelectedMinor > offered.MaximumMinor {
 		return fmt.Errorf("validate server hello: %w: selected minor outside offer", ErrUnexpectedMessage)
 	}
+
 	if hello.NegotiatedFeatures&^offered.Features != 0 || isZero16(hello.SessionID) {
 		return fmt.Errorf("validate server hello: %w: invalid features or session ID", ErrEncoding)
 	}
+
 	if hello.HeartbeatIntervalMilliseconds < minimumHeartbeatMilliseconds || hello.HeartbeatIntervalMilliseconds > maximumHeartbeatMilliseconds {
 		return fmt.Errorf("validate server hello: %w: heartbeat interval outside policy", ErrLimit)
 	}
+
 	if hello.MaximumIdleMilliseconds <= hello.HeartbeatIntervalMilliseconds || hello.EventFrameMaximum == 0 {
 		return fmt.Errorf("validate server hello: %w: invalid liveness or frame limit", ErrLimit)
 	}
+
 	if strings.TrimSpace(hello.CommandVerificationKeyID) == "" {
 		return fmt.Errorf("validate server hello: %w: missing command key ID", ErrEncoding)
 	}
+
 	return nil
 }
 
@@ -204,12 +213,15 @@ func ValidateLogEntry(entry LogEntry) error {
 	if LogLevel(entry.Level) < LogLevelDebug || LogLevel(entry.Level) > LogLevelError {
 		return fmt.Errorf("validate log entry: %w: unknown level", ErrEncoding)
 	}
+
 	if LogComponent(entry.Component) < LogComponentRuntime || LogComponent(entry.Component) > LogComponentCommand {
 		return fmt.Errorf("validate log entry: %w: unknown component", ErrEncoding)
 	}
+
 	if LogEvent(entry.EventCode) < LogEventRuntimeStarted || LogEvent(entry.EventCode) > LogEventQUICNetworkFallback {
 		return fmt.Errorf("validate log entry: %w: unknown event", ErrEncoding)
 	}
+
 	return nil
 }
 
@@ -219,16 +231,20 @@ func ValidateCommandResult(result CommandResult) error {
 	if strings.TrimSpace(result.CommandType) == "" {
 		return fmt.Errorf("validate command result: %w: missing command type", ErrEncoding)
 	}
+
 	if CommandResultState(result.State) < CommandResultStateExecuted ||
 		CommandResultState(result.State) > CommandResultStateOutcomeUnknown {
 		return fmt.Errorf("validate command result: %w: unknown result state", ErrEncoding)
 	}
+
 	if result.RespondedAtMilliseconds == 0 {
 		return fmt.Errorf("validate command result: %w: missing response time", ErrEncoding)
 	}
+
 	if result.ResultRevision != 1 {
 		return fmt.Errorf("validate command result: %w: unsupported payload revision", ErrUnexpectedMessage)
 	}
+
 	return nil
 }
 
@@ -237,13 +253,16 @@ func ValidateTransferChunk(chunk TransferChunk) error {
 	if chunk.DigestAlgorithm != 1 {
 		return fmt.Errorf("validate transfer chunk: %w: unsupported digest algorithm", ErrEncoding)
 	}
+
 	if chunk.ChunkLength != uint64(len(chunk.Data)) {
 		return fmt.Errorf("validate transfer chunk: %w: declared length mismatch", ErrEncoding)
 	}
+
 	digest := sha256.Sum256(chunk.Data)
 	if digest != chunk.Digest {
 		return fmt.Errorf("validate transfer chunk: %w: digest mismatch", ErrEncoding)
 	}
+
 	return nil
 }
 
@@ -252,5 +271,6 @@ func ValidateMediaFrame(frame MediaFrame) error {
 	if isZero16(frame.GenerationID) || frame.FrameNumber == 0 || len(frame.Data) == 0 {
 		return fmt.Errorf("validate media frame: %w: missing generation, sequence, or content", ErrEncoding)
 	}
+
 	return nil
 }

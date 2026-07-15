@@ -4,6 +4,7 @@ import "testing"
 
 func TestSameMountpoint(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name  string
 		left  string
@@ -17,6 +18,7 @@ func TestSameMountpoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if got := sameMountpoint(tt.left, tt.right); got != tt.want {
 				t.Fatalf("sameMountpoint(%q, %q) = %t, want %t", tt.left, tt.right, got, tt.want)
 			}
@@ -26,9 +28,11 @@ func TestSameMountpoint(t *testing.T) {
 
 func TestHasMountOption(t *testing.T) {
 	t.Parallel()
+
 	if !hasMountOption([]string{"rw", "nosuid", "ro"}, "ro") {
 		t.Fatal("hasMountOption() did not find read-only option")
 	}
+
 	if hasMountOption([]string{"rw", "nosuid"}, "ro") {
 		t.Fatal("hasMountOption() reported absent read-only option")
 	}

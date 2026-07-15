@@ -22,6 +22,7 @@ func NewReplayWindow(width, maximumGap uint64) (*ReplayWindow, error) {
 	if width == 0 || width%replayWordBits != 0 || maximumGap < width {
 		return nil, fmt.Errorf("create XBP replay window: %w: invalid width or gap", ErrLimit)
 	}
+
 	return &ReplayWindow{
 		words:      make([]uint64, width/replayWordBits),
 		width:      width,
@@ -35,30 +36,40 @@ func (window *ReplayWindow) Accept(sequence uint64) error {
 	if window == nil || sequence == 0 {
 		return fmt.Errorf("accept XBP sequence: %w: zero sequence", ErrReplay)
 	}
+
 	window.mu.Lock()
 	defer window.mu.Unlock()
+
 	if window.highest == 0 {
 		window.highest = sequence
 		window.set(sequence)
+
 		return nil
 	}
+
 	if sequence > window.highest {
 		gap := sequence - window.highest
 		if gap > window.maximumGap {
 			return fmt.Errorf("accept XBP sequence: %w: forward gap %d", ErrReplay, gap)
 		}
+
 		window.advance(gap)
 		window.highest = sequence
 		window.set(sequence)
+
 		return nil
 	}
+
 	if window.highest-sequence >= window.width {
 		return fmt.Errorf("accept XBP sequence: %w: stale sequence", ErrReplay)
 	}
+
 	if window.seen(sequence) {
 		return fmt.Errorf("accept XBP sequence: %w: duplicate sequence", ErrReplay)
 	}
+
 	window.set(sequence)
+
 	return nil
 }
 
@@ -67,6 +78,7 @@ func (window *ReplayWindow) advance(gap uint64) {
 		clear(window.words)
 		return
 	}
+
 	for sequence := window.highest + 1; sequence <= window.highest+gap; sequence++ {
 		window.clear(sequence)
 	}

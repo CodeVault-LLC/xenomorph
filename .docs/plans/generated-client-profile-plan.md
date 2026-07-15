@@ -9,8 +9,8 @@ Decision class: **large, cross-component, security-sensitive change**.
 Owning components: `platform/services/gateway` owns profile policy, issuance,
 generation, artifact signing, revocation, download authorization, and audit.
 `platform/client` owns consumption of one compiled profile, strict TLS, local
-credential use, and fail-closed startup. `platform/website` owns only operator
-intent collection and presentation. `platform/shared` owns a versioned profile
+credential use, and fail-closed startup. `platform/website` owns network-scoped
+generation intent collection and presentation. `platform/shared` owns a versioned profile
 schema only if it is needed by the generator and generated source.
 
 ## Executive decision
@@ -111,7 +111,7 @@ the roadmap and operations documents only when this replacement exists.
 
 | Data/actor | Classification | Authority |
 | --- | --- | --- |
-| Dashboard choices | operator-authored intent | request an artifact only after server authorization; never supply unchecked build inputs |
+| Dashboard choices | browser-authored and untrusted intent | request an artifact from the network-scoped dashboard; never supply unchecked build inputs |
 | Profile, issuance, manifest | server-authored | gateway validates policy, binds and audits issuance, revokes |
 | Artifact/signature/checksum | server-authored release output | configure one build and prove provenance |
 | Client mTLS certificate | authenticated credential | derive gateway agent identity; does not prove executable integrity |
@@ -138,7 +138,7 @@ Mandatory invariants:
 ## Target architecture
 
 ```text
-Browser (operator intent) -> authorized gateway issuance API -> policy/audit/store
+Network-scoped browser -> gateway issuance API -> policy/audit/store
                                                         |             |
                                                         v             v
                                            canonical profile      enrollment/key lifecycle
@@ -150,7 +150,7 @@ Browser (operator intent) -> authorized gateway issuance API -> policy/audit/sto
                              signed artifact + manifest + SBOM + checksum
                                                         |
                                                         v
-                      authorized download/install -> compiled-profile client
+                              download/install -> compiled-profile client
                                                         |
                                                         v
                                       mTLS QUIC -> gateway trust boundary
@@ -185,9 +185,10 @@ URLs, logs, or analytics.
    approved policy, target, profile digest, certificate/public-key binding,
    artifact digest, signing key ID, timestamps, expiry, download state,
    revocation state, and audit events. Set retention/privacy limits.
-2. Add authenticated and authorized create, inspect, download, revoke, and
-   rotate routes. The dashboard currently lacks operator authentication; do not
-   expose generation until that server-side boundary exists.
+2. Add create, inspect, download, revoke, and rotate routes to the
+   network-scoped dashboard API. The gateway validates every requested field
+   against its deployment policy and never treats browser input as a trusted
+   profile, identity, or build instruction.
 3. Implement an isolated fixed-toolchain builder: pinned dependencies,
    allowlisted targets, bounded resources/output/time, no arbitrary network
    egress, no gateway master-key access, and no shell construction from UI
@@ -235,7 +236,7 @@ URLs, logs, or analytics.
 
 ### 4. Website workflow
 
-1. Add Generate Client only after gateway authentication exists. Render only
+1. Add Generate Client to the network-scoped dashboard. Render only
    gateway-provided allowlisted choices (approved deployment policy and target),
    never raw endpoint, CA, certificate, path, environment, or timeout fields.
 2. Use typed TanStack Query mutations with pending, success, partial, failure,
@@ -246,7 +247,7 @@ URLs, logs, or analytics.
 
 ### 5. Rollout and retirement
 
-1. Gate the issuance service internally until authorization, signing, audit,
+1. Gate the issuance service internally until policy validation, signing, audit,
    lifecycle, and platform tests pass.
 2. Run staging issuance for every supported target; test clean install,
    reconnect, restart, rotation, migration, revocation, rollback, and incident
@@ -272,7 +273,7 @@ URLs, logs, or analytics.
   production profile imports of environment configuration APIs.
 - Target-specific build tests prove development overrides work only in a
   development artifact and cannot be linked into production.
-- Gateway tests cover authorization, allowlist rejection, canonical bytes and
+- Gateway tests cover network-scoped route policy, allowlist rejection, canonical bytes and
   digest, audit/restart recovery, duplicate issuance, one-time download,
   expiry, revocation, rotation, and builder input isolation.
 - Website tests cover typed bounded requests and all state-changing control
@@ -319,7 +320,7 @@ open a draft pull request. Reviewable slices:
 2. `feat(gateway): add audited client profile issuance`
 3. `build(client): generate signed profile-bound artifacts`
 4. `refactor(client): consume compiled production profile`
-5. `feat(website): add authorized client generation workflow`
+5. `feat(website): add network-scoped client generation workflow`
 6. `test(security): verify production profile immutability`
 7. `docs(operations): document issuance rotation and recovery`
 
@@ -333,6 +334,6 @@ attestation is independently designed and verified.
 Completion requires a clean signed production artifact from an auditable
 gateway issuance that uses exactly one compiled profile; no runtime input can
 change its endpoint, TLS policy, credential reference, transport policy, or
-mode; development code is absent; no fallback exists; gateway authorization,
+mode; development code is absent; no fallback exists; gateway profile policy,
 issuance, lifecycle, and revocation are enforced; and all component, platform,
 security, release, and operational evidence passes.

@@ -5,7 +5,7 @@ go 1.25.12
 require (
 	github.com/codevault-llc/xenomorph/platform/shared v0.0.0
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.4.2
+	github.com/gorilla/websocket v1.5.3
 	github.com/nats-io/nats.go v1.47.0
 	github.com/quic-go/quic-go v0.59.1
 	google.golang.org/protobuf v1.36.10

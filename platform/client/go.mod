@@ -1,12 +1,12 @@
 module github.com/codevault-llc/xenomorph/platform/client
 
-go 1.25.12
+go 1.26.0
 
 require (
 	github.com/codevault-llc/xenomorph/platform/shared v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/quic-go/quic-go v0.59.1
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.48.0
 )
 
 require (
